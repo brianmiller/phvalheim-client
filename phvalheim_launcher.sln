@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.1.32421.90
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "phvalheim_launcher", "phvalheim_launcher.csproj", "{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {50B794CB-A9E5-4B3F-B121-EB2A5ECB4709}
+	EndGlobalSection
+EndGlobal
