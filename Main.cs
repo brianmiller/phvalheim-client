@@ -14,6 +14,7 @@ namespace PhValheim
         static void Main(string[] args)
         {
             string phvalheimDir = @"%appdata%\PhValheim2.0";
+            string phvalheimHost = @"https://files.phospher.com/valheim";
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
             string worldName = "";
@@ -52,7 +53,7 @@ namespace PhValheim
                 }
 
                 //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName))
+                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimHost))
                 {
                     Console.WriteLine("\n");
                     Console.WriteLine("Press any key to exit.");
