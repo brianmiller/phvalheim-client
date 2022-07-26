@@ -14,7 +14,6 @@ namespace PhValheim
         static void Main(string[] args)
         {
             string phvalheimDir = @"%appdata%\PhValheim2.0";
-            //string phvalheimDir = @"Y:\PhValheim2.0";
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
             string worldName = "";
@@ -53,10 +52,16 @@ namespace PhValheim
                 }
 
                 //sync world to local disk
-                //Downloader.PhValheim.Download(ref firstArg, ref secondArg);
+                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName))
+                {
+                    Console.WriteLine("\n");
+                    Console.WriteLine("Press any key to exit.");
+                    Console.ReadLine();
+                    return;
+                }
 
                 //launch the game in the world context
-                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe);
+                //Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe);
 
             }
         }
