@@ -12,8 +12,9 @@ namespace PhValheim.Syncer
 
 
             string remoteWorldVersion;
-            string localWorldVersion;
-            bool outOfSync = true;
+            string localWorldVersion = "";
+            bool remoteMissing;
+            //bool outOfSync;
             string worldURL = phvalheimHost + "/" + worldName;
             string worldVersionURL = phvalheimHost + "/" + worldName + "/version.txt";
             string localWorldVersionFile = phvalheimDir + "\\" + "worlds" + "\\" + worldName + "\\" + "version.txt";
@@ -40,17 +41,29 @@ namespace PhValheim.Syncer
             try
             {
                 localWorldVersion = File.ReadLines(localWorldVersionFile).First();
-                outOfSync = false;
+                remoteMissing = false;
             }
             catch
             { 
-                outOfSync = true;
+                remoteMissing = true;
             }
 
 
-            if(outOfSync)
+            if(remoteMissing)
             {
-                Console.WriteLine("Local world doesn't exist, downloading...");
+                Console.WriteLine("Remote world doesn't exist, exiting...");
+                return false;
+            }
+
+            if (localWorldVersion != remoteWorldVersion)
+            {
+                Console.WriteLine("Local world version doesn't match remote world verison.");
+                //outOfSync = true;
+            } 
+            else
+            {
+                Console.WriteLine("Local and remote world verisons match.");
+                //outOfSync = false;
             }
             
 
