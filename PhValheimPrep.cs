@@ -1,6 +1,4 @@
-﻿using Microsoft.Win32;
-
-namespace PhValheim.Prep
+﻿namespace PhValheim.Prep
 {
     public class PhValheim
     {

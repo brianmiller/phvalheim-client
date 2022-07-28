@@ -1,6 +1,4 @@
-﻿using System.Text.RegularExpressions;
-
-namespace PhValheim.Arguments
+﻿namespace PhValheim.Arguments
 {
     public class PhValheim
     {
@@ -23,7 +21,7 @@ namespace PhValheim.Arguments
                     "");
         }
 
-        public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack)
+        public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost)
         {
             //all arguments missing, print usage and exit
             if (args.Length == 0)
@@ -35,18 +33,20 @@ namespace PhValheim.Arguments
             else
             {
 
-                if (args[0] == "phvalheim://?")
+                if (args[0] == "phvalheim:///?")
                 {
-                    Console.WriteLine("ERROR: malformed phvalheim URL, exiting0...");
+                    Console.WriteLine("0Launch URL provided: " + args[0]);
+                    Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
                     return false;
                 }
 
                 argumentsPassed = args[0].Split('?');
-                if (argumentsPassed[0] == "phvalheim://")
+                if (argumentsPassed[0] == "phvalheim:///")
                 {
                     if (argumentsPassed.Length < 2)
                     {
-                        Console.WriteLine("ERROR: malformed phvalheim URL, exiting1...");
+                        Console.WriteLine("1Launch URL provided: " + args[0]);
+                        Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
                         return false;
                     }
                     else
@@ -55,9 +55,10 @@ namespace PhValheim.Arguments
                     }
                     if (command == "launch")
                     {
-                        if (argumentsPassed.Length < 6)
+                        if (argumentsPassed.Length < 7)
                         {
-                            Console.WriteLine("ERROR: malformed phvalheim URL, exiting2...");
+                            Console.WriteLine("2Launch URL provided: " + args[0]);
+                            Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
                             return false;
                         }                     
                         else
@@ -66,13 +67,16 @@ namespace PhValheim.Arguments
                             worldPassword = argumentsPassed[3];
                             worldHost = argumentsPassed[4];
                             worldPort = argumentsPassed[5];
+                            phvalheimHost = argumentsPassed[6];
+                            return true;
                         }                     
                     }
                     if (command == "textures")
                     {
                         if (argumentsPassed.Length < 4)
                         {
-                            Console.WriteLine("ERROR: malformed phvalheim URL, exiting3...");
+                            Console.WriteLine("3Launch URL provided: " + args[0]);
+                            Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
                             return false;
                         }
                         else
@@ -84,7 +88,8 @@ namespace PhValheim.Arguments
                 }
                 else
                 {
-                    Console.WriteLine("ERROR: malformed phvalheim URL, exiting5...");
+                    Console.WriteLine("4Launch URL provided: " + args[0]);
+                    Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
                     return false;
                 }
             return true;

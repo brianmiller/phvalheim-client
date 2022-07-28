@@ -1,35 +1,41 @@
-﻿using System;
-using System.Data;
-using System.Drawing;
-using System.Runtime.InteropServices;
-using System.Configuration;
-using System.Collections.Specialized;
-using Microsoft.Win32;
-using System.Security.Cryptography.X509Certificates;
-
-namespace PhValheim
+﻿namespace PhValheim
 {
     public class PhValheim
     {
         static void Main(string[] args)
         {
+            
             string phvalheimDir = @"%appdata%\PhValheim2.0";
-            string phvalheimHost = @"https://files.phospher.com/valheim";
+
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
             string worldName = "";
             string worldPassword = "";
             string worldHost = "";
             string worldPort = "";
+            
             string texturePack = "";
             string steamDir = "";
             string steamExe = "";
-            
+            string phvalheimHost = "";
+            string phvalheimURL = "";
+
+
             //take in and process all arguments from our URL handler
-            if(!Arguments.PhValheim.argHandler(ref args,ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack))
+            if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost))
             {
+                Console.WriteLine("\n");
+                Console.WriteLine("Press any key to exit.");
+                Console.ReadLine();
                 return;
             }
+            else
+            {
+                phvalheimURL = @"http://" + phvalheimHost;
+                Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
+            }
+
+
 
             //we're launching
             if (command == "launch")
@@ -43,6 +49,7 @@ namespace PhValheim
                     return;
                 }
 
+
                 //get our Steam installation directory, exit if fails
                 if (!Steam.PhValheim.SteamGetter(ref steamDir, ref steamExe))
                 {                  
@@ -52,8 +59,9 @@ namespace PhValheim
                     return;
                 }
 
+
                 //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimHost))
+                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL))
                 {
                     Console.WriteLine("\n");
                     Console.WriteLine("Press any key to exit.");
@@ -61,8 +69,9 @@ namespace PhValheim
                     return;
                 }
 
+
                 //launch the game in the world context
-                //Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe);
+                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir);
 
             }
         }
