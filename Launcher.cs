@@ -18,7 +18,7 @@ namespace PhValheim.Launcher
             Console.WriteLine("  Port: " + worldPort + "/udp");
             Console.WriteLine("");
 
-            Process.Start(@steamExe, "-applaunch 892970 --doorstop-enable true --doorstop-target \"" + BepInEx_Preloader + "\" -console");
+            //Process.Start(@steamExe, "-applaunch 892970 --doorstop-enable true --doorstop-target \"" + BepInEx_Preloader + "\" -console");
         }
     }
 }
