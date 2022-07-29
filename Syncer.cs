@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.IO.Compression;
+using Microsoft.VisualBasic.FileIO;
 
 namespace PhValheim.Syncer
 {
@@ -20,9 +21,8 @@ namespace PhValheim.Syncer
             string localWorldVersionFile = phvalheimDir + "\\" + "worlds" + "\\" + worldName + "\\" + "version.txt";
             string localWorldFile = phvalheimDir + "\\" + "worlds" + "\\" + worldName + "\\" + worldName + ".zip";
             string localWorldDir = phvalheimDir + "\\worlds" + "\\" + worldName + "\\" + worldName;
-
-
             Uri remoteWorldFile = new Uri(phvalheimURL + "/stateful/valheim/worlds/" + worldName + "/" + worldName + ".zip");
+
 
             Console.WriteLine("");
             Console.WriteLine("Checking to see if local and remote world contexts match for '" + worldName + "'...");
@@ -119,6 +119,20 @@ namespace PhValheim.Syncer
                     readyToExtract = true;
                 }
 
+            }
+
+            //check for the directory strucure from PhValheim 1.0.  If we see this old directory be nice and remove it.  We don't use this anymore.
+            bool oldDirExists = Directory.Exists(phvalheimDir + "\\" + worldName);
+            try
+            {
+                if (oldDirExists)
+                {
+                    Directory.Delete(phvalheimDir + "\\" + worldName, true);
+                }
+            }
+            catch
+            {
+                Console.WriteLine("  WARNING: An old directory structure from PhValheim 1.0 was detected and could not be deleted. This isn't fatal, but you shouldn't see this message.");
             }
 
 

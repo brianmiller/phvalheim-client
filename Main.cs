@@ -4,9 +4,9 @@
     {
         static void Main(string[] args)
         {
-            
-            string phvalheimDir = @"%appdata%\PhValheim2.0";
 
+            string phvalheimLauncherVersion = "2.0";
+            string phvalheimDir = @"%appdata%\PhValheim";
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
             string worldName = "";
@@ -32,6 +32,7 @@
             else
             {
                 phvalheimURL = @"http://" + phvalheimHost;
+                Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
                 Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
             }
 
@@ -72,6 +73,13 @@
 
                 //launch the game in the world context
                 Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir);
+
+
+                //keep everyone on the screen, allowing you to read what just happend
+                Console.WriteLine("\n");
+                Console.WriteLine("Press any key to safely close this window.");
+                Console.ReadLine();
+                return;
 
             }
         }
