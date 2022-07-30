@@ -1,11 +1,14 @@
-﻿namespace PhValheim
+﻿using System.Diagnostics;
+
+namespace PhValheim
 {
     public class PhValheim
     {
         static void Main(string[] args)
         {
 
-            string phvalheimLauncherVersion = "2.0";
+            System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var phvalheimLauncherVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;            
             string phvalheimDir = @"%appdata%\PhValheim";
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";

@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Diagnostics;
 
 namespace PhValheim.Arguments
 {
@@ -7,8 +8,14 @@ namespace PhValheim.Arguments
         //get our local Steam installation directory and execuatable
         public static void Usage()
         {
+
+            System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var phvalheimLauncherVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;
+
             Console.WriteLine(
                     "\n" +
+                    "PhValheim Version " + phvalheimLauncherVersion +
+                    "\n\n" +
                     "Usage: phvalheim_launcher.exe [OPTION...] [OPTION]...\n" +
                     "'phvalheim_launcher' syncs and launches Valheim client contexts with remote server contexts.\n" +
                     "\n" +
