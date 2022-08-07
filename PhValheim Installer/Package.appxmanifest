@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/2010/manifest">
+  <Identity Name="posixone.PhValheim" 
+            Version="2.0.0" 
+            Publisher="CN=posixone" />
+  <Properties>
+    <DisplayName>phvalheim_launcher</DisplayName>
+    <PublisherDisplayName>posixone</PublisherDisplayName>
+    <Logo></Logo>
+  </Properties>
+  <Prerequisites>
+    <OSMinVersion></OSMinVersion>
+    <OSMaxVersionTested></OSMaxVersionTested>
+  </Prerequisites>
+  <Resources>
+    <Resource Language="" />
+  </Resources>
+  <Applications>
+    <Application Id="" StartPage="">
+      <VisualElements DisplayName="" Description=""
+           Logo="" SmallLogo=""  
+           ForegroundText="" BackgroundColor="">
+         <SplashScreen Image="" />
+      </VisualElements>
+    </Application>
+  </Applications>
+</Package>
