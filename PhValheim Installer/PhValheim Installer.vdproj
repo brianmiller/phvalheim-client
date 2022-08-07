@@ -21,7 +21,7 @@
         }
         "Entry"
         {
-        "MsmKey" = "8:_399E61A47C1B4C948D905E2B4AAB5312"
+        "MsmKey" = "8:_21DC6D9978CC49178B75393DEBF71F97"
         "OwnerKey" = "8:_UNDEFINED"
         "MsmSig" = "8:_UNDEFINED"
         }
@@ -142,9 +142,9 @@
         }
         "File"
         {
-            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_399E61A47C1B4C948D905E2B4AAB5312"
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_21DC6D9978CC49178B75393DEBF71F97"
             {
-            "SourcePath" = "8:..\\..\\..\\Desktop\\icons8-valheim-128.ico"
+            "SourcePath" = "8:valheim-128.ico"
             "TargetName" = "8:valheim-128.ico"
             "Tag" = "8:"
             "Folder" = "8:_EF4B8CDABEBA4B73B09C0527E66AAD5E"
@@ -152,7 +152,7 @@
             "Transitive" = "11:FALSE"
             "Vital" = "11:TRUE"
             "ReadOnly" = "11:FALSE"
-            "Hidden" = "11:FALSE"
+            "Hidden" = "11:TRUE"
             "System" = "11:FALSE"
             "Permanent" = "11:FALSE"
             "SharedLegacy" = "11:FALSE"
@@ -252,7 +252,7 @@
         "Name" = "8:Microsoft Visual Studio"
         "ProductName" = "8:PhValheim"
         "ProductCode" = "8:{82102E2F-DEEF-4B6E-97DC-A455D9C528B5}"
-        "PackageCode" = "8:{1AA99739-8038-498F-94FF-45794C874F4F}"
+        "PackageCode" = "8:{1C2C5903-EC44-4EDC-BB6C-4DDFE7404C1A}"
         "UpgradeCode" = "8:{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}"
         "AspNetVersion" = "8:"
         "RestartWWWService" = "11:FALSE"
@@ -269,7 +269,7 @@
         "Keywords" = "8:"
         "ARPCOMMENTS" = "8:"
         "ARPURLINFOABOUT" = "8:"
-        "ARPPRODUCTICON" = "8:_399E61A47C1B4C948D905E2B4AAB5312"
+        "ARPPRODUCTICON" = "8:_21DC6D9978CC49178B75393DEBF71F97"
         "ARPIconIndex" = "3:0"
         "SearchPath" = "8:"
         "UseSystemSearchPath" = "11:TRUE"
@@ -796,7 +796,7 @@
         {
             "{5259A561-127C-4D43-A0A1-72F10C7B3BF8}:_211BC26FFCB3416E9D763D4833552CD5"
             {
-            "SourcePath" = "8:..\\phvalheim_launcher\\obj\\Debug\\net6.0\\apphost.exe"
+            "SourcePath" = "8:..\\obj\\Debug\\net6.0\\apphost.exe"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_EF4B8CDABEBA4B73B09C0527E66AAD5E"
