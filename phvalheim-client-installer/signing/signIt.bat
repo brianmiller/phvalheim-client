@@ -13,7 +13,7 @@ REM convert the cert so we can sign code with it
 "%sdk%\Pvk2Pfx.exe" -f /pvk "..\signing\MyKey.pvk" /spc "..\signing\MyKey.cer" /pfx "..\signing\MyKey.pfx"
 
 REM sign our msi
-"%sdk%\signtool.exe" sign /f "..\signing\MyKey.pfx" /tr http://timestamp.comodoca.com/rfc3161 /td SHA256 /fd SHA256 /v "..\%buildType%\PhValheim Installer.msi"
+"%sdk%\signtool.exe" sign /f "..\signing\MyKey.pfx" /tr http://timestamp.comodoca.com/rfc3161 /td SHA256 /fd SHA256 /v "..\%buildType%\phvalheim-client-installer.msi"
 
 REM sign our exe
 "%sdk%\signtool.exe" sign /f "..\signing\MyKey.pfx" /tr http://timestamp.comodoca.com/rfc3161 /td SHA256 /fd SHA256 /v "..\%buildType%\Setup.exe"
@@ -22,6 +22,6 @@ REM build self extracting and auto executing exe wrapper
 "..\selfExtractingExe7Za\buildSelfExtractingExe.bat" %buildType%
 
 REM sign our new exe wrapper
-REM "%sdk%\signtool.exe" sign /f "..\signing\MyKey.pfx" /tr http://timestamp.comodoca.com/rfc3161 /td SHA256 /fd SHA256 /v "..\%buildType%\phvalheim_installer.exe"
+REM "%sdk%\signtool.exe" sign /f "..\signing\MyKey.pfx" /tr http://timestamp.comodoca.com/rfc3161 /td SHA256 /fd SHA256 /v "..\%buildType%\phvalheim-client-installer.exe"
 
 
