@@ -14,18 +14,18 @@ namespace PhValheim.Arguments
 
             Console.WriteLine(
                     "\n" +
-                    "PhValheim Version " + phvalheimLauncherVersion +
+                    "PhValheim Client Version " + phvalheimLauncherVersion +
                     "\n\n" +
-                    "Usage: phvalheim_launcher.exe [OPTION...] [OPTION]...\n" +
-                    "'phvalheim_launcher' syncs and launches Valheim client contexts with remote server contexts.\n" +
+                    "Usage: phvalheim-client.exe [OPTION...] [OPTION]...\n" +
+                    "'phvalheim-client' syncs and launches Valheim client contexts with remote server contexts.\n" +
                     "\n" +
                     "Examples:\n" +
                     "\n" +
-                    "  phvalheim_launcher.exe 'mode' 'worldname' 'hostname' 'password' 'port'\n" +
-                    "  phvalheim_launcher.exe 'textures' 'worldname' 'texture_pack'\n" +
-                    "  phvalheim_launcher.exe 'launch' 'Valhalla' 'valheim.mydomain.com' 'myValhallaPassword' 'port'\n" +
-                    "  phvalheim_launcher.exe 'textures' 'Valhalla' 'coco'\n" +
-                    "  phvalheim_launcher.exe 'textures' 'Valhalla' 'willybach'\n" +
+                    "  phvalheim-client.exe 'mode' 'worldname' 'hostname' 'password' 'port'\n" +
+                    "  phvalheim-client.exe 'textures' 'worldname' 'texture_pack'\n" +
+                    "  phvalheim-client.exe 'launch' 'Valhalla' 'valheim.mydomain.com' 'myValhallaPassword' 'port'\n" +
+                    "  phvalheim-client.exe 'textures' 'Valhalla' 'coco'\n" +
+                    "  phvalheim-client.exe 'textures' 'Valhalla' 'willybach'\n" +
                     "\n" +
                     "");
         }
