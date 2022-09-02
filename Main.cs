@@ -78,10 +78,10 @@ namespace PhValheim
                 Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir);
 
 
-                //keep everyone on the screen, allowing you to read what just happend
+                //keep everything on the screen allowing you to read what just happend
                 Console.WriteLine("\n");
-                Console.WriteLine("Press the enter key to safely close this window.");
-                Console.ReadLine();
+                Console.WriteLine("This window will automatically close in 10 seconds...");
+                Thread.Sleep(10000);
                 return;
 
             }
