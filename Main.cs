@@ -48,7 +48,7 @@ namespace PhValheim
                 if (!Prep.PhValheim.PhValheimPrep(phvalheimDir, worldName))
                 {              
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press any key to exit.");
+                    Console.WriteLine("Press the enter key to exit.");
                     Console.ReadLine();
                     return;
                 }
@@ -58,17 +58,17 @@ namespace PhValheim
                 if (!Steam.PhValheim.SteamGetter(ref steamDir, ref steamExe))
                 {                  
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press any key to exit.");
+                    Console.WriteLine("Press the enter key to exit.");
                     Console.ReadLine();
                     return;
                 }
 
 
                 //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL))
+                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL, steamDir))
                 {
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press any key to exit.");
+                    Console.WriteLine("Press the enter key to exit.");
                     Console.ReadLine();
                     return;
                 }
@@ -80,7 +80,7 @@ namespace PhValheim
 
                 //keep everyone on the screen, allowing you to read what just happend
                 Console.WriteLine("\n");
-                Console.WriteLine("Press any key to safely close this window.");
+                Console.WriteLine("Press the enter key to safely close this window.");
                 Console.ReadLine();
                 return;
 
