@@ -30,7 +30,7 @@ namespace PhValheim.Arguments
                     "");
         }
 
-        public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost)
+        public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost, ref string httpScheme)
         {
 
             //all arguments missing, print usage and exit
@@ -80,7 +80,7 @@ namespace PhValheim.Arguments
                     }
                     if (command == "launch")
                     {
-                        if (argumentsPassed.Length < 6)
+                        if (argumentsPassed.Length < 7)
                         {
                             Console.WriteLine("Launch URL provided: " + decodedLaunchString);
                             Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
@@ -93,6 +93,7 @@ namespace PhValheim.Arguments
                             worldHost = argumentsPassed[3];
                             worldPort = argumentsPassed[4];
                             phvalheimHost = argumentsPassed[5];
+                            httpScheme = argumentsPassed[6];
                             return true;
                         }                     
                     }

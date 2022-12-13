@@ -22,10 +22,11 @@ namespace PhValheim
             string steamExe = "";
             string phvalheimHost = "";
             string phvalheimURL = "";
+            string httpScheme = "";
 
 
             //take in and process all arguments from our URL handler
-            if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost))
+            if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost, ref httpScheme))
             {
                 Console.WriteLine("\n");
                 Console.WriteLine("Press any key to exit.");
@@ -34,7 +35,7 @@ namespace PhValheim
             }
             else
             {
-                phvalheimURL = @"http://" + phvalheimHost;
+                phvalheimURL = httpScheme + "://" + phvalheimHost;
                 Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
                 Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
             }
