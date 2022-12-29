@@ -4,10 +4,10 @@ namespace PhValheim.Launcher
 {
     public class PhValheim
     {
-        public static void Launch(ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string steamDir, ref string steamExe, ref string phvalheimDir)
+        public static void Launch(ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string steamDir, ref string steamExe, ref string phvalheimDir, ref string phvalheimHostNoPort)
         {
             phvalheimDir = Environment.ExpandEnvironmentVariables(phvalheimDir);
-            string BepInEx_Preloader = phvalheimDir + "\\worlds" + "\\" + worldName + "\\" + worldName + "\\BepInEx\\core\\BepInEx.Preloader.dll";
+            string BepInEx_Preloader = phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName + "\\BepInEx\\core\\BepInEx.Preloader.dll";
 
             Console.WriteLine("  Launching Valheim with '" + worldName + "' context...");
             Console.WriteLine("");

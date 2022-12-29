@@ -1,12 +1,11 @@
 ﻿using System.Net;
 using System.IO.Compression;
-using Microsoft.VisualBasic.FileIO;
 
 namespace PhValheim.Syncer
 {
     public class PhValheim
     {
-        public static bool Sync(string phvalheimDir, string worldName, string phvalheimURL, string valheimDir)
+        public static bool Sync(string phvalheimDir, string worldName, string phvalheimURL, string valheimDir, string phvalheimHostNoPort)
         {
 
             phvalheimDir = Environment.ExpandEnvironmentVariables(phvalheimDir);
@@ -19,8 +18,8 @@ namespace PhValheim.Syncer
             bool localMissing;
             string remoteWorldURL = phvalheimURL + "/" + worldName;
             string localWorldVersionFile = phvalheimDir + "\\" + "worlds" + "\\" + worldName + "\\" + "version.txt";
-            string localWorldFile = phvalheimDir + "\\" + "worlds" + "\\" + worldName + "\\" + worldName + ".zip";
-            string localWorldDir = phvalheimDir + "\\worlds" + "\\" + worldName + "\\" + worldName;
+            string localWorldFile = phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName + ".zip";
+            string localWorldDir = phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName;
             Uri remoteWorldFile = new Uri(phvalheimURL + "/stateful/valheim/worlds/" + worldName + "/" + worldName + ".zip");
 
 
@@ -121,6 +120,7 @@ namespace PhValheim.Syncer
 
             }
 
+
             //check for the directory strucure from PhValheim 1.0.  If we see this old directory be nice and remove it.  We don't use this anymore.
             bool oldDirExists = Directory.Exists(phvalheimDir + "\\" + worldName);
             try
@@ -196,16 +196,6 @@ namespace PhValheim.Syncer
                 Console.WriteLine("  ERROR: Installation of doorstop files to Valheim root directory failed!\n");
                 return false;
             }
-
-
-
-
-
-
-
-
-
-
         return true;
         }
     }

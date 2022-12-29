@@ -1,11 +1,5 @@
-﻿using Gameloop.Vdf;
-using Gameloop.Vdf.JsonConverter;
-using Gameloop.Vdf.Linq;
-using Microsoft.Win32;
-using Newtonsoft.Json.Linq;
-using PhValheim.Tooling;
-using System.Text.RegularExpressions;
-using System.Windows.Markup;
+﻿using Microsoft.Win32;
+
 
 namespace PhValheim.Steam
 {

@@ -33,10 +33,10 @@
         
         
         //ensure PhValheim's root dir exists, else create it.
-        public static bool PhValheimPrep(string phvalheimDir,string worldName)
+        public static bool PhValheimPrep(string phvalheimDir,string worldName,string phvalheimHostNoPort)
         {
 
-            string worldDir = phvalheimDir + "\\worlds\\" + worldName;
+            string worldDir = phvalheimDir + "\\worlds\\" + phvalheimHostNoPort + "\\" + worldName;
             
             if (!MakeDir(phvalheimDir, "PhValheim root"))
             {

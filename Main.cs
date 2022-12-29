@@ -24,6 +24,7 @@ namespace PhValheim
             string phvalheimHost = "";
             string phvalheimURL = "";
             string httpScheme = "";
+            string phvalheimHostNoPort;
 
 
             //take in and process all arguments from our URL handler
@@ -37,15 +38,19 @@ namespace PhValheim
             else
             {
                 phvalheimURL = httpScheme + "://" + phvalheimHost;
+                string[] phvalheimHostNoPortArr = phvalheimHost.Split(':', StringSplitOptions.TrimEntries);
+                phvalheimHostNoPort = phvalheimHostNoPortArr[0];
+
                 Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
                 Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
+
             }
 
             //we're launching
             if (command == "launch")
             {
                 //run through the PhValheim prep logic, exit if fails         
-                if (!Prep.PhValheim.PhValheimPrep(phvalheimDir, worldName))
+                if (!Prep.PhValheim.PhValheimPrep(phvalheimDir, worldName, phvalheimHostNoPort))
                 {              
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");
@@ -73,7 +78,7 @@ namespace PhValheim
                 }
 
                 //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL, valheimDir))
+                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL, valheimDir, phvalheimHostNoPort))
                 {
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");
@@ -83,7 +88,7 @@ namespace PhValheim
 
 
                 //launch the game in the world context
-                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir);
+                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir, ref phvalheimHostNoPort);
 
 
                 //keep everything on the screen allowing you to read what just happend
