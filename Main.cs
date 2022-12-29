@@ -20,6 +20,7 @@ namespace PhValheim
             string texturePack = "";
             string steamDir = "";
             string steamExe = "";
+            string valheimDir = "";
             string phvalheimHost = "";
             string phvalheimURL = "";
             string httpScheme = "";
@@ -39,8 +40,6 @@ namespace PhValheim
                 Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
                 Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
             }
-
-
 
             //we're launching
             if (command == "launch")
@@ -64,9 +63,17 @@ namespace PhValheim
                     return;
                 }
 
+                //get our Valheim installation directory, exit if fails
+                if (!Steam.PhValheim.ValheimGetter(steamDir, ref valheimDir))
+                {
+                    Console.WriteLine("\n");
+                    Console.WriteLine("Press the enter key to exit.");
+                    Console.ReadLine();
+                    return;
+                }
 
                 //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL, steamDir))
+                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL, valheimDir))
                 {
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");

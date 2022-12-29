@@ -1,4 +1,11 @@
-﻿using Microsoft.Win32;
+﻿using Gameloop.Vdf;
+using Gameloop.Vdf.JsonConverter;
+using Gameloop.Vdf.Linq;
+using Microsoft.Win32;
+using Newtonsoft.Json.Linq;
+using PhValheim.Tooling;
+using System.Text.RegularExpressions;
+using System.Windows.Markup;
 
 namespace PhValheim.Steam
 {
@@ -9,6 +16,7 @@ namespace PhValheim.Steam
         {
             //get steam info from registry, exit if Steam is missing.
             RegistryKey steamKey = Registry.CurrentUser.OpenSubKey("Software\\Valve\\Steam");
+
             if (steamKey != null)
             {
                 steamDir = (steamKey.GetValue("SteamPath") as string).Replace('/', '\\');
@@ -21,6 +29,31 @@ namespace PhValheim.Steam
                 Console.WriteLine("ERROR: Steam isn't installed, exiting...");
                 return false;
             }
+        }
+
+        //get our local Valheim installation directory and execuatable
+        public static bool ValheimGetter(string steamDir, ref string valheimDir)
+        {
+            foreach (var line in File.ReadAllLines(steamDir + "\\steamapps\\libraryfolders.vdf"))
+            {
+                if (line.Contains("path")) 
+                {      
+                    string[] library = line.Split('"');
+                    foreach (var libraryPath in library) 
+                    {
+                        bool valheimExists = File.Exists(libraryPath + "\\steamapps\\appmanifest_892970.acf");
+                        if (valheimExists)
+                        {
+                            valheimDir = libraryPath + "\\steamapps\\common\\Valheim";
+                            valheimDir = valheimDir.Replace(@"\\", @"\");
+                            Console.WriteLine("Valheim root directory was found: " + valheimDir);
+                            return true;
+                        }
+                    }                   
+                } 
+            }
+            Console.WriteLine("Valheim not found, exiting...");
+            return false;
         }
     }
 }

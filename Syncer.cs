@@ -6,7 +6,7 @@ namespace PhValheim.Syncer
 {
     public class PhValheim
     {
-        public static bool Sync(string phvalheimDir, string worldName, string phvalheimURL, string steamDir)
+        public static bool Sync(string phvalheimDir, string worldName, string phvalheimURL, string valheimDir)
         {
 
             phvalheimDir = Environment.ExpandEnvironmentVariables(phvalheimDir);
@@ -164,24 +164,17 @@ namespace PhValheim.Syncer
             }
 
 
-
-
-
-
-
-
-
             // are doorstop_libs installed?
-            bool doorstopExists = File.Exists(steamDir + "\\steamapps\\common\\Valheim\\doorstop_config.ini");
+            bool doorstopExists = File.Exists(valheimDir + "\\doorstop_config.ini");
             if (!doorstopExists)
             {
                 Console.WriteLine("  Root level doorstop_libs missing, installing...\n");
                 try
                 { 
-                    Tooling.PhValheim.CloneDirectory(localWorldDir + "\\doorstop_libs", steamDir + "\\steamapps\\common\\Valheim\\doorstop_libs");
-                    Tooling.PhValheim.CloneDirectory(localWorldDir + "\\unstripped_corlib", steamDir + "\\steamapps\\common\\Valheim\\unstripped_corlib");
-                    File.Copy(localWorldDir + "\\doorstop_config.ini", steamDir + "\\steamapps\\common\\Valheim\\doorstop_config.ini", true);
-                    File.Copy(localWorldDir + "\\winhttp.dll", steamDir + "\\steamapps\\common\\Valheim\\winhttp.dll", true);
+                    Tooling.PhValheim.CloneDirectory(localWorldDir + "\\doorstop_libs", valheimDir + "\\doorstop_libs");
+                    Tooling.PhValheim.CloneDirectory(localWorldDir + "\\unstripped_corlib", valheimDir + "\\unstripped_corlib");
+                    File.Copy(localWorldDir + "\\doorstop_config.ini", valheimDir + "\\doorstop_config.ini", true);
+                    File.Copy(localWorldDir + "\\winhttp.dll", valheimDir + "\\winhttp.dll", true);
                 }
                 catch
                 {
@@ -197,7 +190,7 @@ namespace PhValheim.Syncer
 
 
             // are doorstop_libs installed, double check?
-            doorstopExists = File.Exists(steamDir + "\\steamapps\\common\\Valheim\\doorstop_config.ini");
+            doorstopExists = File.Exists(valheimDir + "\\doorstop_config.ini");
             if (!doorstopExists)
             {
                 Console.WriteLine("  ERROR: Installation of doorstop files to Valheim root directory failed!\n");
