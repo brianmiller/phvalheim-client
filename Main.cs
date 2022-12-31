@@ -49,6 +49,11 @@ namespace PhValheim
             //we're launching
             if (command == "launch")
             {
+
+                //check client version
+                Ver.PhValheim.VersionCheck(phvalheimLauncherVersion);
+
+
                 //run through the PhValheim prep logic, exit if fails         
                 if (!Prep.PhValheim.PhValheimPrep(phvalheimDir, worldName, phvalheimHostNoPort))
                 {              
@@ -85,6 +90,7 @@ namespace PhValheim
                     Console.ReadLine();
                     return;
                 }
+
 
 
                 //launch the game in the world context
