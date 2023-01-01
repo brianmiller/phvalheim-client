@@ -146,7 +146,7 @@ namespace PhValheim.Syncer
                 bool directoryExists = Directory.Exists(localWorldDir);
                 if (directoryExists)
                 { 
-                    Directory.Delete(phvalheimDir + "\\worlds" + "\\" + worldName + "\\" + worldName, true);  
+                    Directory.Delete(phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName, true);  
                 }
 
                 //extract new world files to local directory
