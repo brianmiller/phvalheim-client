@@ -6,10 +6,12 @@ namespace PhValheim
     {
         static void Main(string[] args)
         {
-
             System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var phvalheimLauncherVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;            
-            string phvalheimDir = @"%appdata%\PhValheim";
+            // string phvalheimDir = @"%appdata%\PhValheim";
+
+            // Get the path to the phlvalheimDir from the Paths.cs file
+            string phvalheimDir = Paths.PhValheim.GetPhValheimDir();
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
             string worldName = "";
@@ -65,7 +67,7 @@ namespace PhValheim
 
 
                 //get our Steam installation directory, exit if fails
-                if (!Steam.PhValheim.SteamGetter(ref steamDir, ref steamExe))
+                if (!Paths.PhValheim.SteamGetter(ref steamDir, ref steamExe))
                 {                  
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");
@@ -94,7 +96,7 @@ namespace PhValheim
 
 
                 //launch the game in the world context
-                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir, ref phvalheimHostNoPort);
+                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir, ref phvalheimHostNoPort, valheimDir);
 
 
                 //keep everything on the screen allowing you to read what just happend

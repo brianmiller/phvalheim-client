@@ -17,9 +17,9 @@ namespace PhValheim.Syncer
             bool remoteMissing;
             bool localMissing;
             string remoteWorldURL = phvalheimURL + "/" + worldName;
-            string localWorldVersionFile = phvalheimDir + "\\" + "worlds" + "\\" + worldName + "\\" + "version.txt";
-            string localWorldFile = phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName + ".zip";
-            string localWorldDir = phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName;
+            string localWorldVersionFile = Paths.PhValheim.getLocalWorldVersionFile();
+            string localWorldFile = Paths.PhValheim.getLocalWorldFile(phvalheimHostNoPort, worldName);
+            string localWorldDir = Paths.PhValheim.getLocalWorldDir(phvalheimHostNoPort, worldName);
             Uri remoteWorldFile = new Uri(phvalheimURL + "/stateful/valheim/worlds/" + worldName + "/" + worldName + ".zip");
 
 
@@ -102,6 +102,7 @@ namespace PhValheim.Syncer
                 Console.WriteLine("  Local world version doesn't match remote world verison, synchronizing... \n");
 
                 Downloader.PhValheim.Go(remoteWorldFile, localWorldFile, worldName);
+                Console.WriteLine("  DEBUG: localWorldFile: " + localWorldFile);
                 
                 readyToExtract = true;
             } 
@@ -122,12 +123,12 @@ namespace PhValheim.Syncer
 
 
             //check for the directory strucure from PhValheim 1.0.  If we see this old directory be nice and remove it.  We don't use this anymore.
-            bool oldDirExists = Directory.Exists(phvalheimDir + "\\" + worldName);
+            bool oldDirExists = Directory.Exists(phvalheimDir + Paths.PhValheim.slash + worldName);
             try
             {
                 if (oldDirExists)
                 {
-                    Directory.Delete(phvalheimDir + "\\" + worldName, true);
+                    Directory.Delete(phvalheimDir + Paths.PhValheim.slash + worldName, true);
                 }
             }
             catch
@@ -146,12 +147,16 @@ namespace PhValheim.Syncer
                 bool directoryExists = Directory.Exists(localWorldDir);
                 if (directoryExists)
                 { 
-                    Directory.Delete(phvalheimDir + "\\worlds" + "\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName, true);  
+                  // debug log
+                  Console.WriteLine("  DEBUG: Deleting local world directory: " + localWorldDir);
+                    Directory.Delete(Paths.PhValheim.getLocalWorldDir(phvalheimHostNoPort, worldName), true);  
                 }
 
                 //extract new world files to local directory
                 try
                 {
+                    // debug log
+                    Console.WriteLine("  DEBUG: Extracting world files to: " + localWorldDir);
                     ZipFile.ExtractToDirectory(localWorldFile, localWorldDir);
 
                 } 
@@ -165,16 +170,16 @@ namespace PhValheim.Syncer
 
 
             // are doorstop_libs installed?
-            bool doorstopExists = File.Exists(valheimDir + "\\doorstop_config.ini");
+            bool doorstopExists = File.Exists($"{valheimDir}{Paths.PhValheim.slash}doorstop_config.ini");
             if (!doorstopExists)
             {
                 Console.WriteLine("  Root level doorstop_libs missing, installing...\n");
                 try
                 { 
-                    Tooling.PhValheim.CloneDirectory(localWorldDir + "\\doorstop_libs", valheimDir + "\\doorstop_libs");
-                    Tooling.PhValheim.CloneDirectory(localWorldDir + "\\unstripped_corlib", valheimDir + "\\unstripped_corlib");
-                    File.Copy(localWorldDir + "\\doorstop_config.ini", valheimDir + "\\doorstop_config.ini", true);
-                    File.Copy(localWorldDir + "\\winhttp.dll", valheimDir + "\\winhttp.dll", true);
+                    Tooling.PhValheim.CloneDirectory(localWorldDir + Paths.PhValheim.slash+"doorstop_libs", valheimDir + Paths.PhValheim.slash+"doorstop_libs");
+                    Tooling.PhValheim.CloneDirectory(localWorldDir + Paths.PhValheim.slash+"unstripped_corlib", valheimDir + Paths.PhValheim.slash+"unstripped_corlib");
+                    File.Copy(localWorldDir + Paths.PhValheim.slash+"doorstop_config.ini", valheimDir + Paths.PhValheim.slash+"doorstop_config.ini", true);
+                    File.Copy(localWorldDir + Paths.PhValheim.slash+"winhttp.dll", valheimDir + Paths.PhValheim.slash+"winhttp.dll", true);
                 }
                 catch
                 {
@@ -190,7 +195,7 @@ namespace PhValheim.Syncer
 
 
             // are doorstop_libs installed, double check?
-            doorstopExists = File.Exists(valheimDir + "\\doorstop_config.ini");
+            doorstopExists = File.Exists(valheimDir + Paths.PhValheim.slash+"doorstop_config.ini");
             if (!doorstopExists)
             {
                 Console.WriteLine("  ERROR: Installation of doorstop files to Valheim root directory failed!\n");
