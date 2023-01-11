@@ -33,17 +33,14 @@
         
         
         //ensure PhValheim's root dir exists, else create it.
-        public static bool PhValheimPrep(string phvalheimDir,string worldName,string phvalheimHostNoPort)
+        public static bool PhValheimPrep()
         {
-            char slash = Path.DirectorySeparatorChar;
-            string worldDir = phvalheimDir + slash + "worlds" + slash + phvalheimHostNoPort + slash + worldName;
-            
-            if (!MakeDir(phvalheimDir, "PhValheim root"))
+            if (!MakeDir(Platform.State.PhValheimDir, "PhValheim root"))
             {
                 return false;
             }
 
-            if (!MakeDir(worldDir, "World root"))
+            if (!MakeDir(Platform.State.PhValheimServerRoot, "World root"))
             {
                 return false;
             }
