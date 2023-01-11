@@ -8,10 +8,7 @@ namespace PhValheim
         {
             System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var phvalheimLauncherVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;            
-            // string phvalheimDir = @"%appdata%\PhValheim";
 
-            // Get the path to the phlvalheimDir from the Paths.cs file
-            string phvalheimDir = Paths.PhValheim.GetPhValheimDir();
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
             string worldName = "";
@@ -20,9 +17,6 @@ namespace PhValheim
             string worldPort = "";
             
             string texturePack = "";
-            string steamDir = "";
-            string steamExe = "";
-            string valheimDir = "";
             string phvalheimHost = "";
             string phvalheimURL = "";
             string httpScheme = "";
@@ -46,6 +40,7 @@ namespace PhValheim
                 Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
                 Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
 
+                Platform.State.init(worldName, phvalheimHostNoPort);
             }
 
             //we're launching
@@ -57,7 +52,7 @@ namespace PhValheim
 
 
                 //run through the PhValheim prep logic, exit if fails         
-                if (!Prep.PhValheim.PhValheimPrep(phvalheimDir, worldName, phvalheimHostNoPort))
+                if (!Prep.PhValheim.PhValheimPrep())
                 {              
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");
@@ -65,18 +60,8 @@ namespace PhValheim
                     return;
                 }
 
-
-                //get our Steam installation directory, exit if fails
-                if (!Paths.PhValheim.SteamGetter(ref steamDir, ref steamExe))
-                {                  
-                    Console.WriteLine("\n");
-                    Console.WriteLine("Press the enter key to exit.");
-                    Console.ReadLine();
-                    return;
-                }
-
                 //get our Valheim installation directory, exit if fails
-                if (!Steam.PhValheim.ValheimGetter(steamDir, ref valheimDir))
+                if (!Steam.PhValheim.ValheimGetter())
                 {
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");
@@ -85,7 +70,7 @@ namespace PhValheim
                 }
 
                 //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimDir, worldName, phvalheimURL, valheimDir, phvalheimHostNoPort))
+                if (!Syncer.PhValheim.Sync(phvalheimURL))
                 {
                     Console.WriteLine("\n");
                     Console.WriteLine("Press the enter key to exit.");
@@ -96,7 +81,7 @@ namespace PhValheim
 
 
                 //launch the game in the world context
-                Launcher.PhValheim.Launch(ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref steamDir, ref steamExe, ref phvalheimDir, ref phvalheimHostNoPort, valheimDir);
+                Launcher.PhValheim.Launch(ref worldPassword, ref worldHost, ref worldPort);
 
 
                 //keep everything on the screen allowing you to read what just happend

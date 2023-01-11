@@ -4,10 +4,6 @@ namespace PhValheim.Tooling
 {
     public class PhValheim
     {
-     
-
-
-
         //calculate md5 of a local file
         public static string getMD5(string filename)
         {
@@ -20,7 +16,6 @@ namespace PhValheim.Tooling
                 }
             }
         }
-
 
         //copy directory and files recursivley
         public static void CloneDirectory(string root, string dest)
@@ -46,15 +41,5 @@ namespace PhValheim.Tooling
                 File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
             }
         }
-
-
-
-
-
-
-
-
-
-
     }
 }
