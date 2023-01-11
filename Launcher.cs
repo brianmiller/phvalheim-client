@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace PhValheim.Launcher
@@ -37,6 +37,7 @@ namespace PhValheim.Launcher
 
                   startInfo.UseShellExecute = true;
                   startInfo.Arguments = "-console";
+                  startInfo.WorkingDirectory = valheimDir;
                   startInfo.EnvironmentVariables["DOORSTOP_ENABLE"] =  "TRUE";
                   startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"] =  BepInEx_Preloader;
                   startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
