@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+﻿using System.Reflection;
 
 namespace PhValheim
 {
@@ -6,8 +6,9 @@ namespace PhValheim
     {
         static void Main(string[] args)
         {
+
             System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
-            var phvalheimLauncherVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;            
+            var phvalheimLauncherVersion = Assembly.GetEntryAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute> ().InformationalVersion;
 
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";

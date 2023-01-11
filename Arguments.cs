@@ -1,5 +1,5 @@
 ﻿using System.Text;
-using System.Diagnostics;
+using System.Reflection;
 
 namespace PhValheim.Arguments
 {
@@ -8,9 +8,7 @@ namespace PhValheim.Arguments
         //get our local Steam installation directory and execuatable
         public static void Usage()
         {
-
-            System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
-            var phvalheimLauncherVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;
+            var phvalheimLauncherVersion = Assembly.GetEntryAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute> ().InformationalVersion;
 
             Console.WriteLine(
                     "\n" +
