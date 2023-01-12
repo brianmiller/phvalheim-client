@@ -47,7 +47,7 @@ namespace PhValheim.Launcher
                 {
                   string exec = Path.Combine(valheimDir, "valheim.x86_64");
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
-                  string ld_library_path = $"{doorstep_libs}:{System.Environment.GetEnvironmentVariable("LD_LIBRARY_PATH")}";
+                  string ld_library_path = doorstep_libs;
                   string ld_preload = $"libdoorstop_x64.so:{System.Environment.GetEnvironmentVariable("LD_PRELOAD")}";
 
                   ProcessStartInfo startInfo = new ProcessStartInfo(exec);
