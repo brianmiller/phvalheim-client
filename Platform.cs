@@ -72,7 +72,8 @@ namespace PhValheim.Platform
           }
           process.WaitForExit();
 
-          Instance.steamExe = process.StandardOutput.ReadToEnd();
+          //   get the output and trim the trailing newline
+          Instance.steamExe = process.StandardOutput.ReadToEnd().Trim();
           Instance.steamDir = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.steam/steam";
         } catch (Exception)
         {
