@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace PhValheim.Launcher
@@ -28,6 +28,18 @@ namespace PhValheim.Launcher
                 Process.Start(@steamExe, "-applaunch 892970 --doorstop-enable true --doorstop-target \"" + BepInEx_Preloader + "\" -console");
             } else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
+                // Check if steam is already running
+                // If its not, we need to launch steam, otherwise velheim will crash on startup
+                string[] pids = Process.GetProcessesByName("steam").Select(p => p.Id.ToString()).ToArray();
+                if (pids.Length == 0)
+                {
+                    Console.WriteLine("Launching Steam...");
+                    Process.Start(@steamExe);
+                    // I honestly don't know a better way to do this, so we sleep
+                    Thread.Sleep(10000);
+                }
+
+
                 // if running in linux
                 // valheim.x86_64 must be launched directly with BepInEx environment variables instead of through steam
                 // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
