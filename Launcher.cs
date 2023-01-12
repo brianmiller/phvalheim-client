@@ -61,6 +61,15 @@ namespace PhValheim.Launcher
                   startInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = ld_library_path;
                   startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;
 
+                  Console.WriteLine("  Executable: " + exec);
+                  Console.WriteLine("  Arguments: " + startInfo.Arguments);
+                  Console.WriteLine("  Working Directory: " + startInfo.WorkingDirectory);
+                  Console.WriteLine("  DOORSTOP_ENABLE: " + startInfo.EnvironmentVariables["DOORSTOP_ENABLE"]);
+                  Console.WriteLine("  DOORSTOP_INVOKE_DLL_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"]);
+                  Console.WriteLine("  DOORSTOP_CORLIB_OVERRIDE_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"]);
+                  Console.WriteLine("  LD_LIBRARY_PATH: " + startInfo.EnvironmentVariables["LD_LIBRARY_PATH"]);
+                  Console.WriteLine("  LD_PRELOAD: " + startInfo.EnvironmentVariables["LD_PRELOAD"]);
+
                   Process.Start(startInfo);
               }
             }
