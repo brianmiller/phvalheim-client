@@ -1,9 +1,13 @@
 {
     "app-id": "com.github.brianmiller.phvalheim-client",
     "runtime": "org.freedesktop.Platform",
-    "runtime-version": "20.08",
+    "runtime-version": "22.08",
     "sdk": "org.freedesktop.Sdk",
     "command": "phvalheim-client",
+    "finish-args": [
+        "--filesystem=host",
+        "--share=network"
+    ],
     "modules": [
         {
             "name": "phvalheim-client",
@@ -17,15 +21,6 @@
                     "path": "bin/Release/net6.0/linux-x64/publish/phvalheim-client"
                 }
             ]
-        }
-    ],
-    "services": [
-        {
-            "name": "phvalheim",
-            "command": "phvalheim-client %u",
-            "description": "Phvalheim URI handler",
-            "bus-activation": "system",
-            "system-user": true
         }
     ]
 }
