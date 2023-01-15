@@ -4,7 +4,9 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # set the working directory to the root directory
-cd $SCRIPT_DIR/../
+ROOT=$SCRIPT_DIR/../
+
+cd $ROOT
 
 # Build release
 dotnet publish \
@@ -64,7 +66,10 @@ fi
 LATEST_TAG=$(curl -s https://api.github.com/repos/brianmiller/phvalheim-client/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
 
 # Archive the files
-tar -czvf ./published_build/phvalheim-$LATEST_TAG-steam-deck.tar.gz ./scripts/steam-deck/phvalheim-client ./scripts/steam-deck/phvalheim-client.desktop ./scripts/steam-deck/phvalheim-steam-deck.sh
+cd ./scripts/steam-deck
+tar -czvf $ROOT/published_build/phvalheim-client-$LATEST_TAG-steam-deck.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-steam-deck.sh
+
+cd $ROOT
 
 # Remove the files
 rm ./scripts/steam-deck/phvalheim-client
