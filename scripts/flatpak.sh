@@ -42,3 +42,8 @@ flatpak-builder --force-clean --repo=.flatpak-repo ./.flatpak-build-dir ./flatpa
 
 # Create single file bundle 
 flatpak build-bundle ./.flatpak-repo ./published_build/phvalheim-client_$LATEST_TAG.flatpak com.github.brianmiller.phvalheim-client
+
+# Cleanup
+rm -rf .flatpak-build-dir
+rm -rf .flatpak-repo
+
