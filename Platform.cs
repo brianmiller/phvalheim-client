@@ -74,6 +74,12 @@ namespace PhValheim.Platform
 
           //   get the output and trim the trailing newline
           Instance.steamExe = process.StandardOutput.ReadToEnd().Trim();
+          //   if the output is empty, steam isn't installed
+          if (Instance.steamExe == "")
+          {
+              Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+              return false;
+          }
           Instance.steamDir = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.steam/steam";
         } catch (Exception)
         {

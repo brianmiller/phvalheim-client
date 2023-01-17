@@ -41,7 +41,12 @@ namespace PhValheim
                 Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
                 Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
 
-                Platform.State.init(worldName, phvalheimHostNoPort);
+                if (!Platform.State.init(worldName, phvalheimHostNoPort)) {
+                    Console.WriteLine("\n");
+                    Console.WriteLine("Press any key to exit.");
+                    Console.ReadLine();
+                    return;
+                }
             }
 
             //we're launching
