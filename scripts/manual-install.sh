@@ -61,13 +61,11 @@ if [ \"\$1\" = \"install\" ]; then
     cp ./phvalheim-client /usr/bin/phvalheim-client
     cp ./phvalheim-client.desktop /usr/share/applications/phvalheim-client.desktop
     update-desktop-database -q
-    gio mime x-scheme-handler/phvalheim phvalheim-client.desktop
 elif [ \"\$1\" = \"uninstall\" ]; then
     # uninstall
     rm /usr/bin/phvalheim-client
     rm /usr/share/applications/phvalheim-client.desktop
     update-desktop-database -q
-    gio mime x-scheme-handler/phvalheim phvalheim-client.desktop
 else
     echo \"Invalid argument. Use install or uninstall\"
 fi
