@@ -9,6 +9,11 @@ cd $ROOT
 
 source $SCRIPT_DIR/_helpers.sh
 
+# if the staging directory exists, then delete it
+if [ -d $ROOT/scripts/staging ]; then
+    rm -rf $ROOT/scripts/staging
+fi
+
 # Build release
 dotnet publish \
 		-c Release \
@@ -22,9 +27,9 @@ dotnet publish \
 
 
 
-mkdir -p ./scripts/steam-deck
+mkdir -p ./scripts/staging
 
-cp bin/Release/net6.0/linux-x64/publish/phvalheim-client ./scripts/steam-deck/phvalheim-client
+cp bin/Release/net6.0/linux-x64/publish/phvalheim-client ./scripts/staging/phvalheim-client
 
 # Add a .Desktop file for the x-url-handler
 echo "[Desktop Entry]
@@ -34,7 +39,7 @@ Exec=/usr/bin/phvalheim-client %U
 Terminal=false
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
-" > ./scripts/steam-deck/phvalheim-client.desktop
+" > ./scripts/staging/phvalheim-client.desktop
 
 # Create a install / uninstall script
 echo "#!/bin/bash
@@ -61,19 +66,19 @@ elif [ \"\$1\" = \"uninstall\" ]; then
 else
     echo \"Invalid argument. Use install or uninstall\"
 fi
-" > ./scripts/steam-deck/phvalheim-client-installer.sh
+" > ./scripts/staging/phvalheim-client-installer.sh
 
 # Get latest tag from github
 LATEST_TAG=$(get_version $ROOT)
 
 # Archive the files
-cd ./scripts/steam-deck
+cd ./scripts/staging
 tar -czvf $ROOT/published_build/phvalheim-client-$LATEST_TAG-linux_x64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
 
 cd $ROOT
 
 # Remove the files
-rm ./scripts/steam-deck/phvalheim-client
-rm ./scripts/steam-deck/phvalheim-client.desktop
-rm ./scripts/steam-deck/phvalheim-client-installer.sh
-rmdir ./scripts/steam-deck
+rm ./scripts/staging/phvalheim-client
+rm ./scripts/staging/phvalheim-client.desktop
+rm ./scripts/staging/phvalheim-client-installer.sh
+rmdir ./scripts/staging
