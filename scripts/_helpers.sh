@@ -10,7 +10,7 @@ get_uncommited_changes() {
 
     # Get all uncommited changes
     CHANGES=$(git status --porcelain)
-    
+
     # Remove all ignored files
     CHANGES=$(echo "$CHANGES" | grep -v -e ".gitignore" -e ".gitattributes" -e "published_build/*" -e "phvalheim-client.csproj" -e "phvalheim-client.sln")
 
@@ -30,8 +30,8 @@ get_version() {
     # Get latest tag from git
     LATEST_TAG=$(git describe --tags --abbrev=0)
 
-    # If git is not clean, then add "alpha" and increment version, otherwise, if the latest tag is not the same as the csproj version, then add "beta" to the version
-    if [ -n "$(get_uncommited_changes)" ]; then
+    # If git is not clean or not all commits have been pushed, then add "alpha" and increment version, otherwise, if the latest tag is not the same as the csproj version, then add "beta" to the version
+    if [ -n "$(get_uncommited_changes)" ] || [ -n "$(git cherry)" ]; then
         VERSION=$(echo $CSPROJ_VERSION | sed 's/alpha//g')
         MAJOR=$(echo $VERSION | cut -d"." -f1)
         MINOR=$(echo $VERSION | cut -d"." -f2)
