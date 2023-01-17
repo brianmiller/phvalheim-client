@@ -9,10 +9,15 @@ cd $ROOT
 
 source $SCRIPT_DIR/_helpers.sh
 
+# Get latest tag from github
+VERSION=$(get_version $ROOT)
+
 # if the staging directory exists, then delete it
 if [ -d $ROOT/scripts/staging ]; then
     rm -rf $ROOT/scripts/staging
 fi
+
+echo "Building $VERSION"
 
 # Build release
 dotnet publish \
@@ -68,12 +73,9 @@ else
 fi
 " > ./scripts/staging/phvalheim-client-installer.sh
 
-# Get latest tag from github
-LATEST_TAG=$(get_version $ROOT)
-
 # Archive the files
 cd ./scripts/staging
-tar -czvf $ROOT/published_build/phvalheim-client-$LATEST_TAG-linux_x64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
+tar -czvf $ROOT/published_build/phvalheim-client-$VERSION-linux_x64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
 
 cd $ROOT
 
