@@ -1,9 +1,52 @@
 #!/bin/bash
 
+get_uncommited_changes() {
+    # Get all uncommited changes; ignoring
+    #  - .gitignore
+    #  - .gitattributes
+    #  - published_build/*
+    #  - phvalheim-client.csproj
+    #  - phvalheim-client.sln
+
+    # Get all uncommited changes
+    CHANGES=$(git status --porcelain)
+    
+    # Remove all ignored files
+    CHANGES=$(echo "$CHANGES" | grep -v -e "^.gitignore" -e "^.gitattributes" -e "^published_build/" -e "^phvalheim-client.csproj" -e "^phvalheim-client.sln")
+
+    # If there are no changes, then return an empty string
+    if [ -z "$CHANGES" ]; then
+        echo ""
+    else
+        echo "$CHANGES"
+    fi
+}
+
 get_version() {
     ROOT=$1
     # Get the version from the csproj
-    VERSION=$(grep -oPm1 "(?<=<Version>)[^<]+" $ROOT/phvalheim-client.csproj)
+    CSPROJ_VERSION=$(grep -oPm1 "(?<=<Version>)[^<]+" $ROOT/phvalheim-client.csproj)
+
+    # Get latest tag from git
+    LATEST_TAG=$(git describe --tags --abbrev=0)
+
+    # If git is not clean, then add "alpha" and increment version, otherwise, if the latest tag is not the same as the csproj version, then add "beta" to the version
+    if [ -n "$(get_uncommited_changes)" ]; then
+        VERSION=$(echo $CSPROJ_VERSION | sed 's/alpha//g')
+        MAJOR=$(echo $VERSION | cut -d"." -f1)
+        MINOR=$(echo $VERSION | cut -d"." -f2)
+        PATCH=$(echo $VERSION | cut -d"." -f3)
+
+        # only increment patch if the latest tag is the same as the csproj version
+        if [ $LATEST_TAG == $CSPROJ_VERSION ]; then
+            PATCH=$((PATCH + 1))
+        fi
+        VERSION="$MAJOR.$MINOR.$PATCH-alpha"
+    elif [ "$LATEST_TAG" != "$CSPROJ_VERSION" ]; then
+        VERSION="$CSPROJ_VERSION-beta"
+    else
+        VERSION=$CSPROJ_VERSION
+    fi    
 
     # Get the major, minor and patch version
     MAJOR=$(echo $VERSION | cut -d"." -f1)
@@ -40,6 +83,37 @@ generate_changelog() {
         rm $ROOT/debian/changelog
     fi
 
+    # if first release version is not the same as the csproj version, then add a pre-release changelog entry
+    FIRST_RELEASE_VERSION=$(echo $RELEASES | jq -r '.[0].tag_name')
+    CSPROJ_VERSION=$(get_version $ROOT)
+    if [ "$FIRST_RELEASE_VERSION" != "$CSPROJ_VERSION" ]; then
+        echo "phvalheim-client ($CSPROJ_VERSION) unstable; urgency=low" >>$ROOT/debian/changelog
+        echo "" >>$ROOT/debian/changelog
+        echo "  [Pre release]" >>$ROOT/debian/changelog
+        # Get all changes since the last tag
+        CHANGES=$(git log $(git describe --tags --abbrev=0)..HEAD --pretty=format:"%s")
+        while IFS= read -r line; do
+            echo "  *  $line" >>$ROOT/debian/changelog
+        done <<<"$CHANGES"
+
+        # If version contains "alpha", then get uncommitted changes
+        if [[ $CSPROJ_VERSION == *"alpha"* ]]; then
+            echo "" >>$ROOT/debian/changelog
+            echo "  [Uncommitted changes]" >>$ROOT/debian/changelog
+            CHANGES=$(get_uncommited_changes)
+            while IFS= read -r line; do
+                echo "  *  $line" >>$ROOT/debian/changelog
+            done <<<"$CHANGES"
+        fi
+
+        echo "" >>$ROOT/debian/changelog
+        # Get the author and email from git config
+        AUTHOR=$(git config user.name)
+        EMAIL=$(git config user.email)
+        echo " -- $AUTHOR <$EMAIL>  $(date +"%a, %d %b %Y %H:%M:%S %z")" >>$ROOT/debian/changelog
+        echo "" >>$ROOT/debian/changelog
+    fi
+
     # For each realease, get the tag name, body, author, date and seperate the version into major, minor and patch
     for release in $(echo $RELEASES | jq -r '.[] | @base64'); do
         _jq() {
@@ -59,9 +133,11 @@ generate_changelog() {
         echo "phvalheim-client ($TAG_NAME) stable; urgency=low" >>$ROOT/debian/changelog
         echo "" >>$ROOT/debian/changelog
 
+
+
         # For each line in the body, remove whitespace from beginning and end of line
         # if line is not empty, and line is less than 80 characters, and the previous line was empty, then add the line to the changelog enclosed in []
-        # otherwise, add the line as a bullet point
+        # otherwise, add the line as a bullet point        
         while IFS= read -r line; do
             line=$(echo $line | sed 's/^[[:space:]]*//g' | sed 's/[[:space:]]*$//g')
             if [ ! -z "$line" ]; then

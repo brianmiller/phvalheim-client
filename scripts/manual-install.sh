@@ -61,19 +61,19 @@ elif [ \"\$1\" = \"uninstall\" ]; then
 else
     echo \"Invalid argument. Use install or uninstall\"
 fi
-" > ./scripts/steam-deck/phvalheim-steam-deck.sh
+" > ./scripts/steam-deck/phvalheim-client-installer.sh
 
 # Get latest tag from github
-LATEST_TAG=get_version $ROOT
+LATEST_TAG=$(get_version $ROOT)
 
 # Archive the files
 cd ./scripts/steam-deck
-tar -czvf $ROOT/published_build/phvalheim-client-$LATEST_TAG-steam-deck.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-steam-deck.sh
+tar -czvf $ROOT/published_build/phvalheim-client-$LATEST_TAG-linux_x64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
 
 cd $ROOT
 
 # Remove the files
 rm ./scripts/steam-deck/phvalheim-client
 rm ./scripts/steam-deck/phvalheim-client.desktop
-rm ./scripts/steam-deck/phvalheim-steam-deck.sh
+rm ./scripts/steam-deck/phvalheim-client-installer.sh
 rmdir ./scripts/steam-deck
