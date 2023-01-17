@@ -242,7 +242,7 @@ fi
 Name=PhValheim-Client
 Comment=PhValheim-Client
 Exec=/usr/bin/phvalheim-client %U
-Terminal=true
+Terminal=false
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
 " >$ROOT/debian/phvalheim.desktop
