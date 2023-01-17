@@ -5,8 +5,9 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # set the working directory to the root directory
 ROOT=$SCRIPT_DIR/../
-
 cd $ROOT
+
+source $SCRIPT_DIR/_helpers.sh
 
 # Build release
 dotnet publish \
@@ -30,7 +31,7 @@ echo "[Desktop Entry]
 Name=PhValheim-Client
 Comment=PhValheim-Client
 Exec=/usr/bin/phvalheim-client %U
-Terminal=true
+Terminal=false
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
 " > ./scripts/steam-deck/phvalheim-client.desktop
@@ -63,7 +64,7 @@ fi
 " > ./scripts/steam-deck/phvalheim-steam-deck.sh
 
 # Get latest tag from github
-LATEST_TAG=$(curl -s https://api.github.com/repos/brianmiller/phvalheim-client/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
+LATEST_TAG=get_version $ROOT
 
 # Archive the files
 cd ./scripts/steam-deck

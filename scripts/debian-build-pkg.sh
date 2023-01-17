@@ -1,27 +1,29 @@
 #!/bin/bash
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 
-cd $SCRIPT_DIR
-cd ../
+ROOT=$SCRIPT_DIR/../
+cd $ROOT
+
+source $SCRIPT_DIR/_helpers.sh
 
 # Generate the changelog
-/bin/bash ./scripts/generate-changelog.sh
+generate_changelog $ROOT
 
 # Generate the control file from csproj
-/bin/bash ./scripts/generate-control.sh
+generate_control $ROOT
 
 # Generate the rules file
-/bin/bash ./scripts/generate-rules.sh
+generate_rules $ROOT
 
 # Generate the compat file
-/bin/bash ./scripts/generate-compat.sh
+echo "10" > $ROOT/debian/compat
 
 # Generate the postinst file
-/bin/bash ./scripts/create-postinst.sh
+generate_postinst $ROOT
 
 # Build the debian package
-dpkg-buildpackage -us -uc -b 
+dpkg-buildpackage -us -uc -b
 
 # Move the package to published_build
 mv ../*.deb ./published_build
