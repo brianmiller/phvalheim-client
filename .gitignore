@@ -9,6 +9,8 @@
 *.user
 *.userosscache
 *.sln.docstates
+.vscode/*
+scripts/staging/*
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -361,3 +363,4 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+debian/**/*
