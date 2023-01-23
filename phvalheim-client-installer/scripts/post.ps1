@@ -18,4 +18,4 @@ write-host ""
 
 
 # rename our msi
-& move "..\$buildType\phvalheim-client-installer.msi" "..\$buildType\phvalheim-client-$versionNumber.msi"
+& move "..\$buildType\phvalheim-client-installer.msi" "..\..\builds\phvalheim-client-$versionNumber.msi"
