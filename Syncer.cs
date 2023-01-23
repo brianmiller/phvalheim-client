@@ -103,7 +103,7 @@ namespace PhValheim.Syncer
                 Console.WriteLine("  Local world version doesn't match remote world verison, synchronizing... \n");
 
                 Downloader.PhValheim.Go(remoteWorldFile, localWorldFile, worldName);
-                Console.WriteLine("  DEBUG: localWorldFile: " + localWorldFile);
+                //Console.WriteLine("  DEBUG: localWorldFile: " + localWorldFile);
                 
                 readyToExtract = true;
             } 

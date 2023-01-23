@@ -15,13 +15,13 @@
     {
         "Entry"
         {
-        "MsmKey" = "8:_211BC26FFCB3416E9D763D4833552CD5"
+        "MsmKey" = "8:_697AD009AF6A45D7A391A42D502DAD1B"
         "OwnerKey" = "8:_UNDEFINED"
         "MsmSig" = "8:_UNDEFINED"
         }
         "Entry"
         {
-        "MsmKey" = "8:_697AD009AF6A45D7A391A42D502DAD1B"
+        "MsmKey" = "8:_7C72A1EFDB6C476B96145AE1B67FEEEB"
         "OwnerKey" = "8:_UNDEFINED"
         "MsmSig" = "8:_UNDEFINED"
         }
@@ -162,6 +162,26 @@
             "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_7C72A1EFDB6C476B96145AE1B67FEEEB"
+            {
+            "SourcePath" = "8:..\\bin\\Release\\net6.0\\publish\\win-x86\\phvalheim-client.exe"
+            "TargetName" = "8:phvalheim-client.exe"
+            "Tag" = "8:"
+            "Folder" = "8:_EF4B8CDABEBA4B73B09C0527E66AAD5E"
+            "Condition" = "8:"
+            "Transitive" = "11:FALSE"
+            "Vital" = "11:TRUE"
+            "ReadOnly" = "11:FALSE"
+            "Hidden" = "11:FALSE"
+            "System" = "11:FALSE"
+            "Permanent" = "11:FALSE"
+            "SharedLegacy" = "11:FALSE"
+            "PackageAs" = "3:1"
+            "Register" = "3:1"
+            "Exclude" = "11:FALSE"
+            "IsDependency" = "11:FALSE"
+            "IsolateTo" = "8:"
+            }
         }
         "FileType"
         {
@@ -252,13 +272,13 @@
         "Name" = "8:Microsoft Visual Studio"
         "ProductName" = "8:PhValheim Client"
         "ProductCode" = "8:{7A17A973-CA00-4693-A6BC-AED2F32E09DC}"
-        "PackageCode" = "8:{D5BA1036-CB29-41BF-912D-28E11107CFDC}"
+        "PackageCode" = "8:{48AC73BE-56E6-4374-9949-BC49F660CF33}"
         "UpgradeCode" = "8:{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}"
         "AspNetVersion" = "8:"
         "RestartWWWService" = "11:FALSE"
         "RemovePreviousVersions" = "11:TRUE"
         "DetectNewerInstalledVersion" = "11:TRUE"
-        "InstallAllUsers" = "11:FALSE"
+        "InstallAllUsers" = "11:TRUE"
         "ProductVersion" = "8:2.0.7"
         "Manufacturer" = "8:Phospher"
         "ARPHELPTELEPHONE" = "8:"
@@ -794,34 +814,6 @@
         }
         "ProjectOutput"
         {
-            "{5259A561-127C-4D43-A0A1-72F10C7B3BF8}:_211BC26FFCB3416E9D763D4833552CD5"
-            {
-            "SourcePath" = "8:..\\obj\\Release\\net6.0\\apphost.exe"
-            "TargetName" = "8:"
-            "Tag" = "8:"
-            "Folder" = "8:_EF4B8CDABEBA4B73B09C0527E66AAD5E"
-            "Condition" = "8:"
-            "Transitive" = "11:FALSE"
-            "Vital" = "11:TRUE"
-            "ReadOnly" = "11:FALSE"
-            "Hidden" = "11:FALSE"
-            "System" = "11:FALSE"
-            "Permanent" = "11:FALSE"
-            "SharedLegacy" = "11:FALSE"
-            "PackageAs" = "3:1"
-            "Register" = "3:1"
-            "Exclude" = "11:FALSE"
-            "IsDependency" = "11:FALSE"
-            "IsolateTo" = "8:"
-            "ProjectOutputGroupRegister" = "3:1"
-            "OutputConfiguration" = "8:"
-            "OutputGroupCanonicalName" = "8:PublishItems"
-            "OutputProjectGuid" = "8:{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}"
-            "ShowKeyOutput" = "11:TRUE"
-                "ExcludeFilters"
-                {
-                }
-            }
         }
     }
 }

@@ -29,8 +29,8 @@ namespace PhValheim.Downloader
                 };
 
                 client.DownloadProgressChanged += (s, e) => Console.Write($"\r  Downloading world files for '" + worldName + "': " + e.ProgressPercentage + "%" );
-                Console.WriteLine("\n");
-                Console.WriteLine("  Downloading world files for '" + worldName + "'... to "+ localFile + " from " + remoteFile);
+                //Console.WriteLine("\n");
+                //Console.WriteLine("  Downloading world files for '" + worldName + "'... to "+ localFile + " from " + remoteFile);
                 client.DownloadFileAsync(remoteFile, localFile);
 
                 completedSignal.WaitOne();
