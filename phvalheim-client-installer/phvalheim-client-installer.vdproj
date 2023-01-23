@@ -272,7 +272,7 @@
         "Name" = "8:Microsoft Visual Studio"
         "ProductName" = "8:PhValheim Client"
         "ProductCode" = "8:{7A17A973-CA00-4693-A6BC-AED2F32E09DC}"
-        "PackageCode" = "8:{48AC73BE-56E6-4374-9949-BC49F660CF33}"
+        "PackageCode" = "8:{E9D4C8DE-902D-4A75-B53A-5D52A61723E0}"
         "UpgradeCode" = "8:{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}"
         "AspNetVersion" = "8:"
         "RestartWWWService" = "11:FALSE"
