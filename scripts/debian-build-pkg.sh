@@ -25,8 +25,8 @@ generate_postinst $ROOT
 # Build the debian package
 dpkg-buildpackage -us -uc -b
 
-# Move the package to published_build
-mv ../*.deb ./published_build
+# Move the package to builds/
+mv ../*.deb ./builds/
 
 # Cleanup the debian folder
 rm -rf ./debian
