@@ -26,9 +26,9 @@ bash both.sh
 rm -rf bin/ obj/
 
 # Let's see it
-ls -al /dooyet/phvalheim-client/published_build/*
+ls -al /dooyet/phvalheim-client/builds/*
 
 # Push to git
-git add /dooyet/phvalheim-client/published_build/*
+git add /dooyet/phvalheim-client/builds/*
 git commit -a -m "Automated Build: $PRETTY_NAME"
 git push --set-upstream origin master
