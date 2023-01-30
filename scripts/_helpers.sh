@@ -12,7 +12,7 @@ get_uncommited_changes() {
     CHANGES=$(git status --porcelain)
 
     # Remove all ignored files
-    CHANGES=$(echo "$CHANGES" | grep -v -e ".gitignore" -e ".gitattributes" -e "published_build/*" -e "phvalheim-client.csproj" -e "phvalheim-client.sln")
+    CHANGES=$(echo "$CHANGES" | grep -v -e ".gitignore" -e ".gitattributes" -e "builds/*" -e "phvalheim-client.csproj" -e "phvalheim-client.sln")
 
     # Trim whitespace
     CHANGES=$(echo "$CHANGES" | xargs)
