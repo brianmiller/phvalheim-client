@@ -173,7 +173,7 @@ Priority: optional
 Maintainer: Brian Miller <brian@phospher.com>
 
 Package: phvalheim-client
-Architecture: x86_64
+Architecture: amd64
 Depends: \${shlibs:Depends}, \${misc:Depends}
 Description: PhValheim Client
 " >$ROOT/debian/control
