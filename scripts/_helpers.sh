@@ -44,9 +44,9 @@ get_version() {
         if [ $LATEST_TAG == $CSPROJ_VERSION ]; then
             PATCH=$((PATCH + 1))
         fi
-        VERSION="$MAJOR.$MINOR.$PATCH-alpha"
+        VERSION="${MAJOR.$MINOR.$PATCH}_alpha"
     elif [ "$LATEST_TAG" != "$CSPROJ_VERSION" ]; then
-        VERSION="$CSPROJ_VERSION-beta"
+        VERSION="${CSPROJ_VERSION}_beta"
     else
         VERSION=$CSPROJ_VERSION
     fi    
