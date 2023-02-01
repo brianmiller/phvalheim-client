@@ -173,9 +173,9 @@ Priority: optional
 Maintainer: Brian Miller <>
 
 Package: phvalheim-client
-Architecture: amd64
+Architecture: x86_64
 Depends: \${shlibs:Depends}, \${misc:Depends}
-Description: A x-url-handler for PhValheim
+Description: PhValheim Client
 " >$ROOT/debian/control
 }
 
