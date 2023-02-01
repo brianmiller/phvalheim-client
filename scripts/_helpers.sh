@@ -34,29 +34,29 @@ get_version() {
     LATEST_TAG=$(git describe --tags --abbrev=0)
 
     # If git is not clean or not all commits have been pushed, then add "alpha" and increment version, otherwise, if the latest tag is not the same as the csproj version, then add "beta" to the version
-    if [ -n "$(get_uncommited_changes)" ] || [ -n "$(git cherry)" ]; then
-        VERSION=$(echo $CSPROJ_VERSION | sed 's/alpha//g')
-        MAJOR=$(echo $VERSION | cut -d"." -f1)
-        MINOR=$(echo $VERSION | cut -d"." -f2)
-        PATCH=$(echo $VERSION | cut -d"." -f3)
+    #if [ -n "$(get_uncommited_changes)" ] || [ -n "$(git cherry)" ]; then
+        #VERSION=$(echo $CSPROJ_VERSION | sed 's/alpha//g')
+        #MAJOR=$(echo $VERSION | cut -d"." -f1)
+        #MINOR=$(echo $VERSION | cut -d"." -f2)
+        #PATCH=$(echo $VERSION | cut -d"." -f3)
 
         # only increment patch if the latest tag is the same as the csproj version
-        if [ $LATEST_TAG == $CSPROJ_VERSION ]; then
-            PATCH=$((PATCH + 1))
-        fi
-        VERSION="${MAJOR.$MINOR.$PATCH}-alpha"
-    elif [ "$LATEST_TAG" != "$CSPROJ_VERSION" ]; then
-        VERSION="${CSPROJ_VERSION}-beta"
-    else
-        VERSION=$CSPROJ_VERSION
-    fi    
+        #if [ $LATEST_TAG == $CSPROJ_VERSION ]; then
+            #PATCH=$((PATCH + 1))
+        #fi
+        #VERSION="${MAJOR.$MINOR.$PATCH}-alpha"
+    #elif [ "$LATEST_TAG" != "$CSPROJ_VERSION" ]; then
+        #VERSION="${CSPROJ_VERSION}-beta"
+    #else
+    #    VERSION=$CSPROJ_VERSION
+    #fi    
 
     # Get the major, minor and patch version
-    MAJOR=$(echo $VERSION | cut -d"." -f1)
-    MINOR=$(echo $VERSION | cut -d"." -f2)
-    PATCH=$(echo $VERSION | cut -d"." -f3)
+    #MAJOR=$(echo $VERSION | cut -d"." -f1)
+    #MINOR=$(echo $VERSION | cut -d"." -f2)
+    #PATCH=$(echo $VERSION | cut -d"." -f3)
 
-    echo "$MAJOR.$MINOR.$PATCH"
+    #echo "$MAJOR.$MINOR.$PATCH"
 }
 
 generate_changelog() {
