@@ -73,7 +73,7 @@ fi
 
 # Archive the files
 cd ./scripts/staging
-tar -czvf $ROOT/builds/phvalheim-client_$VERSION_linux_x64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
+tar -czvf $ROOT/builds/phvalheim-client-$VERSION-universal-x86_64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
 
 cd $ROOT
 
