@@ -170,7 +170,7 @@ generate_control() {
     echo "Source: phvalheim-client
 Section: games
 Priority: optional
-Maintainer: Brian Miller <>
+Maintainer: Brian Miller <brian@phospher.com>
 
 Package: phvalheim-client
 Architecture: x86_64
