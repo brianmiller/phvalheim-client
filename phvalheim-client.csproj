@@ -3,10 +3,13 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net6.0</TargetFramework>
+	<RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 	<Version>2.0.7</Version>
 	<Authors>posixone</Authors>
+	<RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
+	<ProduceReferenceAssembly>True</ProduceReferenceAssembly>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -20,5 +23,9 @@
   <ItemGroup>
     <PackageReference Include="Octokit" Version="4.0.3" />
   </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="call &quot;$(ProjectDir)scripts\post.bat&quot; &quot;$(ProjectDir)&quot; &quot;$(Configuration)&quot;" />
+  </Target>
 
 </Project>
