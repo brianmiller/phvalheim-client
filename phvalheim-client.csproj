@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="call &quot;$(ProjectDir)scripts\post.bat&quot; &quot;$(ProjectDir)&quot; &quot;$(Configuration)&quot;" />
+    <Exec Command="call &quot;$(ProjectDir)scripts\post_build_vss.bat&quot; &quot;$(ProjectDir)&quot; &quot;$(Configuration)&quot;" />
   </Target>
 
 </Project>
