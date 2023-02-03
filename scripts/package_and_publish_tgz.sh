@@ -64,10 +64,13 @@ fi
 # copy in phvalheim-client's linux binary
 cp $gitRoot/bin/Release/net6.0/linux-x64/publish/phvalheim-client ./scripts/staging/.
 
+# echo the date
+echo
+echo "Today's date: `date`"
 
 # build tarball
 echo
-echo "Packaging universal linux client..."
+echo "Packaging \"PhValheim Universal Linux Client v$thisVersion\"..."
 cd ./scripts/staging
 tar -czvf $gitRoot/builds/phvalheim-client-$thisVersion-universal-x86_64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
 
