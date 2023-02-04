@@ -1,5 +1,5 @@
 dotnet publish \
-                -c Release \
+                -c Linux-Release \
         -r linux-x64 \
         -p:PublishSingleFile=true \
         --self-contained true \
