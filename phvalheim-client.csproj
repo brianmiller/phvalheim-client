@@ -10,9 +10,14 @@
 	<Authors>posixone</Authors>
 	<RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
 	<ProduceReferenceAssembly>True</ProduceReferenceAssembly>
+	<Configurations>Debug;Windows-Release;Linux-Release</Configurations>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <Optimize>True</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Linux-Release|AnyCPU'">
     <Optimize>True</Optimize>
   </PropertyGroup>
 
@@ -25,7 +30,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="call &quot;$(ProjectDir)scripts\post_build_vss.bat&quot; &quot;$(ProjectDir)&quot; &quot;$(Configuration)&quot;" />
+    <Exec Command="if $(Configuration) == Windows-Release (&#xD;&#xA;  call &quot;$(ProjectDir)scripts\post_build_vss.bat&quot; &quot;$(ProjectDir)&quot; &quot;$(Configuration)&quot;&#xD;&#xA;)" />
   </Target>
 
 </Project>
