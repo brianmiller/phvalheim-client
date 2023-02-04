@@ -11,7 +11,7 @@ copy %ProjectDir%\bin\%Configuration%\net6.0\phvalheim-client.runtimeconfig.json
 
 echo
 REM publish Windows x64 binaries
-dotnet publish -c %Configuration% -r win-x64 -p:PublishSingleFile=true --self-contained true .\phvalheim-client.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary /p:PublishTrimmed=false --no-build
+dotnet publish -c %Configuration% -r win-x64 -p:PublishSingleFile=true --self-contained true %ProjectDir%\phvalheim-client.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary /p:PublishTrimmed=false --no-build
 REM publish Linux x64 binaries
 REM dotnet publish -c %Configuration% -r linux-x64 -p:PublishSingleFile=true --self-contained true .\phvalheim-client.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary /p:PublishTrimmed=false --no-build
 echo
