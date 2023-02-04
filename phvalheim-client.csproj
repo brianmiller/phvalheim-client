@@ -21,6 +21,16 @@
     <Optimize>True</Optimize>
   </PropertyGroup>
 
+<PropertyGroup>
+	<PostBuildEvent Condition="'$(Configuration)' == 'Windows-Release'">
+		echo "Windows build!
+		call ..\..\..\scripts\post_build_vss.bat $(MSBuildProjectDirectory) $(Configuration)
+	</PostBuildEvent>
+	<PostBuildEvent Condition="'$(Configuration)' == 'Linux-Release'">
+		echo "Linux build!"
+	</PostBuildEvent>
+</PropertyGroup>
+	
   <ItemGroup>
     <Folder Include="ProgressBar\" />
   </ItemGroup>
@@ -28,9 +38,5 @@
   <ItemGroup>
     <PackageReference Include="Octokit" Version="4.0.3" />
   </ItemGroup>
-
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="if $(Configuration) == Windows-Release (&#xD;&#xA;  call &quot;$(ProjectDir)scripts\post_build_vss.bat&quot; &quot;$(ProjectDir)&quot; &quot;$(Configuration)&quot;&#xD;&#xA;)" />
-  </Target>
 
 </Project>
