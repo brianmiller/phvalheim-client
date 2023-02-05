@@ -1,0 +1,32 @@
+#!/bin/bash
+
+
+# find docker
+docker=$(which docker 2> /dev/null)
+if [ $? = 0 ]; then
+	docker=$docker
+else
+	podman=$(which podman 2> /dev/null)
+	if [  $? = 0 ]; then
+		docker=$podman
+	else
+		echo "ERROR: Docker or Podman are required, exiting..."
+		exit 1
+	fi
+fi
+
+echo
+echo "Docker found at: $docker"
+echo
+
+
+# build debian docker environment
+echo "Building docker environment..."
+echo
+$docker build --format=docker -t debian-dotnet-env /mnt/cerebrum/development/phvalheim-client/git/builders/dockers/debian/.
+
+
+# run tgz build logic inside the container we just built
+echo "Building tarball inside container..."
+echo
+$docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-dotnet-env /git/builders/build_tgz_logic
