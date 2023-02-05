@@ -27,11 +27,9 @@ RUN bash dotnet-install.sh
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.dotnet/
 
 
-#Small prep stuff
+# small prep stuf
 RUN echo "set mouse-=a" > /root/.vimrc
-RUN echo "#!/bin/bash" > /usr/bin/runthis
-RUN echo "/usr/bin/curl -s \$@ |/bin/bash" >> /usr/bin/runthis
-RUN chmod +x /usr/bin/runthis
 
-#Dooyet
+
+# dooyet
 CMD ["/bin/bash"]
