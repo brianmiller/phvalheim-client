@@ -1,4 +1,9 @@
 #!/bin/bash
+# pass -b to answer "yes" to all questions
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
 
 
 # find docker
@@ -14,6 +19,7 @@ else
 		exit 1
 	fi
 fi
+
 
 echo
 echo "Docker found at: $docker"
@@ -46,4 +52,24 @@ if [ ! "$containers" = " " ]; then
 	for c in $containers; do
 		$docker rm -f $c
 	done
+fi
+
+
+echo
+echo -n "Would you like to commit to GitHub? y/n "
+if [ "$1" = "-b" ]; then
+	gitCommit="y"
+else
+	read gitCommit
+fi
+
+
+if [ "$gitCommit" = "y" ] || [ "$gitCommit" = "Y" ]; then
+        echo "Commiting to Git..."
+        cd $gitRoot
+        git add builds/*
+        git commit -m "Automated universal Linux build"
+        git push
+else
+        exit 0
 fi
