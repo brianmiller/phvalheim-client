@@ -38,9 +38,12 @@ echo
 $docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-env /git/builders/build_tgz-innie
 
 # cleaning docker images
+echo
 echo "Cleaning up..."
 echo
-images=$($docker ps -a|grep docker.io/theoriginalbrian/debian-env|cut -d " " -f1)
-for i in $images; do
-	$docker rm -f $i
-done
+containers=$($docker ps -a|grep docker.io/theoriginalbrian/debian-env|cut -d " " -f1)
+if [ ! "$containers" = " " ]; then
+	for c in $containers; do
+		$docker rm -f $c
+	done
+fi
