@@ -30,6 +30,10 @@
 		echo "Linux build detected."
 	</PostBuildEvent>
 </PropertyGroup>
+
+<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Windows-Release|AnyCPU'">
+  <Optimize>True</Optimize>
+</PropertyGroup>
 	
   <ItemGroup>
     <Folder Include="ProgressBar\" />
