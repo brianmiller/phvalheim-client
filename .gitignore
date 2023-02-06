@@ -3,6 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# PhValheim working directories
+.tgz_staging
+.deb_staging
+.rpm_staging
+
 # User-specific files
 *.rsuser
 *.suo
@@ -20,6 +25,7 @@ mono_crash.*
 
 # Build results
 [Oo]bj/
+[Bb]in/
 [Ll]og/
 [Ll]ogs/
 
