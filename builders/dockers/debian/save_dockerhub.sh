@@ -1,10 +1,5 @@
 #!/bin/bash
 
-
-# image to delete
-image="debian-env"
-
-
 # find docker
 docker=$(which docker 2> /dev/null)
 if [ $? = 0 ]; then
@@ -19,6 +14,19 @@ else
         fi
 fi
 
-echo
-echo "Erasing all containers and the image from: \"$image\""
-$docker rm -f $image
+
+$docker login --username=theoriginalbrian docker.io
+if [ ! $? = 0 ]; then
+	echo "Could not login to Dockerhub, exiting..."
+	exit 1
+fi
+
+
+$docker build --format=docker -t theoriginalbrian/debian-env .
+if [ ! $? = 0 ]; then
+        echo "Build failed, exiting..."
+        exit 1
+fi
+
+
+$docker push theoriginalbrian/debian-env:latest
