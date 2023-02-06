@@ -29,4 +29,4 @@ $docker build --format=docker -t debian-dotnet-env /mnt/cerebrum/development/phv
 # run tgz build logic inside the container we just built
 echo "Building tarball inside container..."
 echo
-$docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-dotnet-env /git/builders/build_tgz_logic
+$docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-dotnet-env /git/builders/build_tgz-innie
