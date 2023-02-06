@@ -32,6 +32,11 @@ echo
 #$docker build --format=docker -t debian-env /mnt/cerebrum/development/phvalheim-client/git/builders/dockers/debian/.
 
 
+# ensure we're up-to-date
+cd $gitRoot
+git pull
+
+
 # pull pre-built docker environment
 echo "Pulling pre-built debian environment..."
 echo
