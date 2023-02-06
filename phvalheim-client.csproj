@@ -23,11 +23,11 @@
 
 <PropertyGroup>
 	<PostBuildEvent Condition="'$(Configuration)' == 'Windows-Release'">
-		echo "Windows build!
-		call ..\..\..\scripts\post_build_vss.bat $(MSBuildProjectDirectory) $(Configuration)
+		echo "Windows build detected.
+		call ..\..\..\builders\post_build_vss.bat $(MSBuildProjectDirectory) $(Configuration)
 	</PostBuildEvent>
 	<PostBuildEvent Condition="'$(Configuration)' == 'Linux-Release'">
-		echo "Linux build!"
+		echo "Linux build detected."
 	</PostBuildEvent>
 </PropertyGroup>
 	
