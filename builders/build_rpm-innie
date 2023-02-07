@@ -19,7 +19,7 @@ echo "## PhValheim Client Fedora packager ##"
 echo
 echo "Now: `date`"
 echo
-echo "This build system hostname: `hostname`"
+echo "This build system hostname: `cat /etc/hostname`"
 echo "This build system kernel: `uname -r`"
 echo
 echo "Git root directory: $gitRoot"
@@ -51,9 +51,9 @@ fi
 mkdir -p $gitRoot/builders/.rpm_staging/BUILD
 mkdir -p $gitRoot/builders/.rpm_staging/RPMS
 mkdir -p $gitRoot/builders/.rpm_staging/SPECS
-mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/local/bin
-mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/applications
-mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/icons/hicolor/128x128/apps
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/local/bin
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/applications
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/icons/hicolor/128x128/apps
 
 
 # generate spec
@@ -61,20 +61,23 @@ echo "Summary: PhValheim Client for PhValheim Server
 Name: phvalheim-client
 Version: $thisVersion
 Release: 1
-License: GPL
+License: GPL-2.0-or-later
 Group: Games
 
 
 %description
 The over-engineered client to the over-engineered server.
 
-%files
 %defattr(-,root,root)
-%doc
 
+%clean
+
+%files
 /usr/local/bin/phvalheim-client
 /usr/share/applications/phvalheim-client.desktop
 /usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+
+%changelog
 " > $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
 
 
@@ -82,19 +85,19 @@ The over-engineered client to the over-engineered server.
 echo "[Desktop Entry]
 Name=PhValheim Client
 Comment=PhValheim Client
-Exec=/usr/bin/phvalheim-client %U
+Exec=/usr/local/bin/phvalheim-client %U
 Icon=/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
 Terminal=false
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
-" > $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/applications/phvalheim-client.desktop
+" > $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/applications/phvalheim-client.desktop
 
 
 # copy in phvalheim-client's linux binary
-cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/BUILDROOT/usr/local/bin/.
+cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/local/bin/.
 
 # copy in phvalheim-client's icon
-cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
 
 
 # assemble tarball
@@ -102,6 +105,10 @@ echo
 echo "Assembling fedora package.."
 cd $gitRoot/builders/.rpm_staging/
 rpmbuild --define "_topdir /git/builders/.rpm_staging" -bb $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
+
+
+# copy built RPM into final destination
+cp $gitRoot/builders/.rpm_staging/RPMS/x86_64/phvalheim-client-$thisVersion-1.x86_64.rpm  $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.rpm
 
 
 # output check
