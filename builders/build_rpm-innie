@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+
+# get the version of this release
+thisVersion=$(grep -oPm1 "(?<=<Version>)[^<]+" $gitRoot/phvalheim-client.csproj)
+
+
+# bring in env release info
+source /etc/os-release
+
+
+# tell us about this system
+echo
+echo "## PhValheim Client Fedora packager ##"
+echo
+echo "Now: `date`"
+echo
+echo "This build system hostname: `hostname`"
+echo "This build system kernel: `uname -r`"
+echo
+echo "Git root directory: $gitRoot"
+echo "PhValheim Client Version: $thisVersion"
+echo "Build Environment: $PRETTY_NAME"
+echo
+
+
+# build logs
+#if [ ! -d $debRoot/logs ]; then
+#	mkdir $debRoot/logs
+#else
+#	rm -f $debRoot/logs/*
+#fi
+
+
+# build linux-x64 binary
+cd $gitRoot
+dotnet publish \
+-c Linux-Release \
+-r linux-x64 \
+-p:PublishSingleFile=true \
+--self-contained true \
+./phvalheim-client.csproj \
+/property:GenerateFullPaths=true \
+/consoleloggerparameters:NoSummary \
+/p:PublishTrimmed=false
+
+
+# get file size of binary
+#fileSize=$(stat -c %s $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client)
+#fileSize=$(echo $fileSize/1024|bc)
+
+
+# if the staging directory exists, delete it
+if [ -d $gitRoot/builders/.rpm_staging ]; then
+     rm -rf $gitRoot/builders/.rpm_staging
+fi
+
+# if the staging directory exists, delete it
+#if [ ! -d $gitRoot/builders/.rpm_staging/phvalheim-client ]; then
+#     mkdir -p $gitRoot/builders/.rpm_staging/phvalheim-client
+#fi
+
+
+# Create a Fedora package directory structure
+mkdir -p $gitRoot/builders/.rpm_staging/BUILD
+mkdir -p $gitRoot/builders/.rpm_staging/RPMS
+mkdir -p $gitRoot/builders/.rpm_staging/SPECS
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/local/bin
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/applications
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/icons/hicolor/128x128/apps
+
+# generate spec
+
+
+# generate .desktop file for the x-url-handler
+echo "[Desktop Entry]
+Name=PhValheim Client
+Comment=PhValheim Client
+Exec=/usr/bin/phvalheim-client %U
+Icon=/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+Terminal=false
+Type=Application
+MimeType=x-scheme-handler/phvalheim;
+" > $gitRoot/builders/.rpm_staging/phvalheim-client/usr/share/applications/phvalheim-client.desktop
+
+
+# copy in phvalheim-client's linux binary
+cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/phvalheim-client/usr/bin/.
+
+# copy in phvalheim-client's icon
+cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.deb_staging/phvalheim-client/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+
+
+# assemble tarball
+echo
+echo "Assembling fedora package.."
+cd $gitRoot/builders/.rpm_staging/
+#dpkg-deb --build phvalheim-client $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.deb
+
+
+# output check
+if [ -f $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.rpm ]; then
+	echo "Successfully wrote: $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.rpm"
+	exit 0
+else
+	echo "ERROR: Could not build fedora package, exiting..."
+	exit 1
+fi
+
+############################## BEGIN: Functions ##############################
+
+############################## END: Functions ##############################
+
+
