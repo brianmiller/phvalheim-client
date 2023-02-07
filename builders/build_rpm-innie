@@ -28,14 +28,6 @@ echo "Build Environment: $PRETTY_NAME"
 echo
 
 
-# build logs
-#if [ ! -d $debRoot/logs ]; then
-#	mkdir $debRoot/logs
-#else
-#	rm -f $debRoot/logs/*
-#fi
-
-
 # build linux-x64 binary
 cd $gitRoot
 dotnet publish \
@@ -49,20 +41,10 @@ dotnet publish \
 /p:PublishTrimmed=false
 
 
-# get file size of binary
-#fileSize=$(stat -c %s $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client)
-#fileSize=$(echo $fileSize/1024|bc)
-
-
 # if the staging directory exists, delete it
 if [ -d $gitRoot/builders/.rpm_staging ]; then
      rm -rf $gitRoot/builders/.rpm_staging
 fi
-
-# if the staging directory exists, delete it
-#if [ ! -d $gitRoot/builders/.rpm_staging/phvalheim-client ]; then
-#     mkdir -p $gitRoot/builders/.rpm_staging/phvalheim-client
-#fi
 
 
 # Create a Fedora package directory structure
@@ -73,7 +55,27 @@ mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/local/bin
 mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/applications
 mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/icons/hicolor/128x128/apps
 
+
 # generate spec
+echo "Summary: PhValheim Client for PhValheim Server
+Name: phvalheim-client
+Version: $thisVersion
+Release: 1
+License: GPL
+Group: Games
+
+
+%description
+The over-engineered client to the over-engineered server.
+
+%files
+%defattr(-,root,root)
+%doc
+
+/usr/local/bin/phvalheim-client
+/usr/share/applications/phvalheim-client.desktop
+/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+" > $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
 
 
 # generate .desktop file for the x-url-handler
@@ -85,21 +87,21 @@ Icon=/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
 Terminal=false
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
-" > $gitRoot/builders/.rpm_staging/phvalheim-client/usr/share/applications/phvalheim-client.desktop
+" > $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/applications/phvalheim-client.desktop
 
 
 # copy in phvalheim-client's linux binary
-cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/phvalheim-client/usr/bin/.
+cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/BUILDROOT/usr/local/bin/.
 
 # copy in phvalheim-client's icon
-cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.deb_staging/phvalheim-client/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.rpm_staging/BUILDROOT/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
 
 
 # assemble tarball
 echo
 echo "Assembling fedora package.."
 cd $gitRoot/builders/.rpm_staging/
-#dpkg-deb --build phvalheim-client $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.deb
+rpmbuild --define "_topdir /git/builders/.rpm_staging" -bb $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
 
 
 # output check
