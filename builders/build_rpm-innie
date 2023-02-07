@@ -63,19 +63,17 @@ Version: $thisVersion
 Release: 1
 License: GPL-2.0-or-later
 Group: Games
-
+URL: https://github.com/brianmiller/phvalheim-client
 
 %description
 The over-engineered client to the over-engineered server.
 
-%defattr(-,root,root)
-
 %clean
 
 %files
-/usr/local/bin/phvalheim-client
-/usr/share/applications/phvalheim-client.desktop
-/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+%attr(-,root,root) /usr/local/bin/phvalheim-client
+%attr(-,root,root) /usr/share/applications/phvalheim-client.desktop
+%attr(-,root,root) /usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
 
 %changelog
 " > $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
