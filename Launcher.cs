@@ -51,7 +51,14 @@ namespace PhValheim.Launcher
                   // IronGate needs to send a pong back to the different display managers to satisfy this timeout
                   try
                     {
-                        Process.Start("/usr/bin/gsettings set org.gnome.mutter check-alive-timeout 0");
+
+                        string gsettingsExec = "/usr/bin/gsettings set org.gnome.mutter check-alive-timeout 0";
+                        ProcessStartInfo gsettingsCmd = new ProcessStartInfo(gsettingsExec);
+
+                        gsettingsCmd.UseShellExecute = true;
+                        gsettingsCmd.CreateNoWindow = true;
+
+                        Process.Start(gsettingsCmd);
                     }
                     catch
                     {
