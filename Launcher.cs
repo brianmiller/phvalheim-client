@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Runtime;
 using System.Runtime.InteropServices;
 
 namespace PhValheim.Launcher
@@ -45,6 +46,19 @@ namespace PhValheim.Launcher
                 // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
                 Console.WriteLine("Launching Valheim with environment variables (Linux)...");
                 {
+
+                  // try to set gnome's check-alive-timeout to 0. This timeout is what causes the "not responding" warnings.
+                  // IronGate needs to send a pong back to the different display managers to satisfy this timeout
+                  try
+                    {
+                        Process.Start("/usr/bin/gsettings set org.gnome.mutter check-alive-timeout 0");
+                    }
+                    catch
+                    {
+
+                    }
+                  
+                    
                   string exec = Path.Combine(valheimDir, "valheim.x86_64");
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
                   string ld_library_path = doorstep_libs;
