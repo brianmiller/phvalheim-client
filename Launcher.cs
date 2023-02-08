@@ -53,13 +53,15 @@ namespace PhValheim.Launcher
                   ProcessStartInfo startInfo = new ProcessStartInfo(exec);
 
                   startInfo.UseShellExecute = true;
-                  startInfo.Arguments = "-console &";
+                  startInfo.CreateNoWindow = false;
+                  startInfo.Arguments = "-console";
                   startInfo.WorkingDirectory = valheimDir;
                   startInfo.EnvironmentVariables["DOORSTOP_ENABLE"] =  "TRUE";
                   startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"] =  BepInEx_Preloader;
                   startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
                   startInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = ld_library_path;
                   startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;
+                  
 
                   Console.WriteLine("  Executable: " + exec);
                   Console.WriteLine("  Arguments: " + startInfo.Arguments);
@@ -70,8 +72,9 @@ namespace PhValheim.Launcher
                   Console.WriteLine("  LD_LIBRARY_PATH: " + startInfo.EnvironmentVariables["LD_LIBRARY_PATH"]);
                   Console.WriteLine("  LD_PRELOAD: " + startInfo.EnvironmentVariables["LD_PRELOAD"]);
 
-                  Process.Start(startInfo);
-              }
+                  Process p = Process.Start(startInfo);
+                  p.WaitForExit();
+                }
             }
         }
     }
