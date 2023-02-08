@@ -53,7 +53,7 @@ namespace PhValheim.Launcher
                   ProcessStartInfo startInfo = new ProcessStartInfo(exec);
 
                   startInfo.UseShellExecute = true;
-                  startInfo.Arguments = "-console";
+                  startInfo.Arguments = "-console &";
                   startInfo.WorkingDirectory = valheimDir;
                   startInfo.EnvironmentVariables["DOORSTOP_ENABLE"] =  "TRUE";
                   startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"] =  BepInEx_Preloader;
