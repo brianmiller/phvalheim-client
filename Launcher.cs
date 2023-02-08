@@ -52,12 +52,12 @@ namespace PhValheim.Launcher
                   try
                     {
 
-                        string gsettingsExec = "/usr/bin/gsettings set org.gnome.mutter check-alive-timeout 0";
+                        string gsettingsExec = "/usr/bin/gsettings";
                         ProcessStartInfo gsettingsCmd = new ProcessStartInfo(gsettingsExec);
 
                         gsettingsCmd.UseShellExecute = true;
                         gsettingsCmd.CreateNoWindow = true;
-
+                        gsettingsCmd.Arguments = "set org.gnome.mutter check-alive-timeout 0";
                         Process.Start(gsettingsCmd);
                     }
                     catch
