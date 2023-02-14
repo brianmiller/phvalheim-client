@@ -42,7 +42,7 @@ namespace PhValheim.Launcher
                     ProcessStartInfo steamStartInfo = new ProcessStartInfo(@steamExe);
                     steamStartInfo.RedirectStandardOutput = false;
                     steamStartInfo.RedirectStandardError = true;
-                    steamStartInfo.UseShellExecute = true;
+                    steamStartInfo.UseShellExecute = false;
                     steamStartInfo.Arguments = "-nofriendsui -console";
                     Process.Start(steamStartInfo);
 
