@@ -57,7 +57,6 @@ namespace PhValheim.Launcher
                         gsettingsCmd.CreateNoWindow = true;
                         gsettingsCmd.Arguments = "set org.gnome.mutter check-alive-timeout 0";
                         Process.Start(gsettingsCmd);
-                        Console.WriteLine("FOOOOOOO" + gsettingsCmd);
                    }
                    catch
                    {
