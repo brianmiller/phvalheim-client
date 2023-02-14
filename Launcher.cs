@@ -49,8 +49,8 @@ namespace PhValheim.Launcher
 
                   // try to set gnome's check-alive-timeout to 0. This timeout is what causes the "not responding" warnings.
                   // IronGate needs to send a pong back to the different display managers to satisfy this timeout
-                  try
-                    {
+                  //try
+                  //  {
 
                         string gsettingsExec = "/usr/bin/gsettings";
                         ProcessStartInfo gsettingsCmd = new ProcessStartInfo(gsettingsExec);
@@ -59,11 +59,11 @@ namespace PhValheim.Launcher
                         gsettingsCmd.CreateNoWindow = true;
                         gsettingsCmd.Arguments = "set org.gnome.mutter check-alive-timeout 0";
                         Process.Start(gsettingsCmd);
-                    }
-                    catch
-                    {
+                   // }
+                   // catch
+                   // {
 
-                    }
+                   // }
                   
                     
                   string exec = Path.Combine(valheimDir, "valheim.x86_64");
