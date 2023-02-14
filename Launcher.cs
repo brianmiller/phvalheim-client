@@ -41,9 +41,9 @@ namespace PhValheim.Launcher
                     Console.WriteLine("  Starting Steam...");
                     ProcessStartInfo steamStartInfo = new ProcessStartInfo(@steamExe);
                     steamStartInfo.RedirectStandardOutput = false;
+                    steamStartInfo.UseShellExecute = true;
                     steamStartInfo.Arguments = "> /dev/null 2>&1";
                     Process.Start(steamStartInfo);
-                    Console.WriteLine("FOOOOOOOOOOOO: " + @steamExe);
 
                     // I honestly don't know a better way to do this, so we sleep
                     Thread.Sleep(10000);
