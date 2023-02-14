@@ -30,9 +30,7 @@ namespace PhValheim.Launcher
             } 
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                // if running in linux
-                // valheim.x86_64 must be launched directly with BepInEx environment variables instead of through steam
-                // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
+
                 Console.WriteLine("  Linux launch detected...");
 
                 // Check if steam is already running
@@ -45,6 +43,7 @@ namespace PhValheim.Launcher
                     steamStartInfo.RedirectStandardOutput = false;
                     steamStartInfo.Arguments = "> /dev/null 2>&1";
                     Process.Start(steamStartInfo);
+                    Console.WriteLine("FOOOOOOOOOOOO: " + @steamExe);
 
                     // I honestly don't know a better way to do this, so we sleep
                     Thread.Sleep(10000);
@@ -65,8 +64,10 @@ namespace PhValheim.Launcher
                    catch
                    {
                    }
-                    
 
+                  // if running in linux
+                  // valheim.x86_64 must be launched directly with BepInEx environment variables instead of through steam
+                  // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
                   string exec = Path.Combine(valheimDir, "valheim.x86_64");
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
                   string ld_library_path = doorstep_libs;
