@@ -15,13 +15,13 @@
     {
         "Entry"
         {
-        "MsmKey" = "8:_4C181111A24642BBBE135F31AF8BA82C"
+        "MsmKey" = "8:_9D2E3B978FE34442B8CB0A57F850A9C6"
         "OwnerKey" = "8:_UNDEFINED"
         "MsmSig" = "8:_UNDEFINED"
         }
         "Entry"
         {
-        "MsmKey" = "8:_697AD009AF6A45D7A391A42D502DAD1B"
+        "MsmKey" = "8:_C214FAEE8B1A43DC8F559861019D7409"
         "OwnerKey" = "8:_UNDEFINED"
         "MsmSig" = "8:_UNDEFINED"
         }
@@ -70,12 +70,54 @@
                 }
             }
         }
-        "Release"
+        "Linux-Release"
         {
-        "DisplayName" = "8:Release"
+        "DisplayName" = "8:Linux-Release"
         "IsDebugOnly" = "11:FALSE"
-        "IsReleaseOnly" = "11:TRUE"
-        "OutputFilename" = "8:Release\\phvalheim-client-installer.msi"
+        "IsReleaseOnly" = "11:FALSE"
+        "OutputFilename" = "8:Linux-Release\\phvalheim-client-installer.msi"
+        "PackageFilesAs" = "3:2"
+        "PackageFileSize" = "3:-2147483648"
+        "CabType" = "3:1"
+        "Compression" = "3:2"
+        "SignOutput" = "11:FALSE"
+        "CertificateFile" = "8:"
+        "PrivateKeyFile" = "8:"
+        "TimeStampServer" = "8:"
+        "InstallerBootstrapper" = "3:2"
+            "BootstrapperCfg:{63ACBE69-63AA-4F98-B2B6-99F9E24495F2}"
+            {
+            "Enabled" = "11:TRUE"
+            "PromptEnabled" = "11:TRUE"
+            "PrerequisitesLocation" = "2:1"
+            "Url" = "8:"
+            "ComponentsUrl" = "8:"
+                "Items"
+                {
+                    "{EDC2488A-8267-493A-A98E-7D9C3B36CDF3}:.NETFramework,Version=v4.7.2"
+                    {
+                    "Name" = "8:Microsoft .NET Framework 4.7.2 (x86 and x64)"
+                    "ProductCode" = "8:.NETFramework,Version=v4.7.2"
+                    }
+                    "{EDC2488A-8267-493A-A98E-7D9C3B36CDF3}:Microsoft.NetCore.CoreRuntime.6.0.x64"
+                    {
+                    "Name" = "8:.NET Runtime 6.0.4 (x64)"
+                    "ProductCode" = "8:Microsoft.NetCore.CoreRuntime.6.0.x64"
+                    }
+                    "{EDC2488A-8267-493A-A98E-7D9C3B36CDF3}:Microsoft.NetCore.CoreRuntime.6.0.x86"
+                    {
+                    "Name" = "8:.NET Runtime 6.0.4 (x86)"
+                    "ProductCode" = "8:Microsoft.NetCore.CoreRuntime.6.0.x86"
+                    }
+                }
+            }
+        }
+        "Windows-Release"
+        {
+        "DisplayName" = "8:Windows-Release"
+        "IsDebugOnly" = "11:FALSE"
+        "IsReleaseOnly" = "11:FALSE"
+        "OutputFilename" = "8:Windows-Release\\phvalheim-client-installer.msi"
         "PackageFilesAs" = "3:2"
         "PackageFileSize" = "3:-2147483648"
         "CabType" = "3:1"
@@ -142,10 +184,10 @@
         }
         "File"
         {
-            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_4C181111A24642BBBE135F31AF8BA82C"
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_9D2E3B978FE34442B8CB0A57F850A9C6"
             {
-            "SourcePath" = "8:..\\bin\\Release\\net6.0\\publish\\win-x64\\phvalheim-client.exe"
-            "TargetName" = "8:phvalheim-client.exe"
+            "SourcePath" = "8:..\\phvalheim-client.ico"
+            "TargetName" = "8:phvalheim-client.ico"
             "Tag" = "8:"
             "Folder" = "8:_EF4B8CDABEBA4B73B09C0527E66AAD5E"
             "Condition" = "8:"
@@ -162,10 +204,10 @@
             "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
-            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_697AD009AF6A45D7A391A42D502DAD1B"
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_C214FAEE8B1A43DC8F559861019D7409"
             {
-            "SourcePath" = "8:..\\..\\..\\..\\Desktop\\phvalheim-client.ico"
-            "TargetName" = "8:phvalheim-client.ico"
+            "SourcePath" = "8:..\\bin\\Windows-Release\\net6.0\\win-x64\\publish\\phvalheim-client.exe"
+            "TargetName" = "8:phvalheim-client.exe"
             "Tag" = "8:"
             "Folder" = "8:_EF4B8CDABEBA4B73B09C0527E66AAD5E"
             "Condition" = "8:"
@@ -271,15 +313,15 @@
         {
         "Name" = "8:Microsoft Visual Studio"
         "ProductName" = "8:PhValheim Client"
-        "ProductCode" = "8:{882DBE5C-2B3D-41C3-839C-9615A5DFE770}"
-        "PackageCode" = "8:{88E2538B-E1B5-43CC-980A-39E48DFF3412}"
+        "ProductCode" = "8:{F623AF7F-E3FF-45A6-AAC1-DFAA378E9108}"
+        "PackageCode" = "8:{C40053BB-9D96-46DD-A03F-A5263FE5CA5D}"
         "UpgradeCode" = "8:{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}"
         "AspNetVersion" = "8:"
         "RestartWWWService" = "11:FALSE"
         "RemovePreviousVersions" = "11:TRUE"
         "DetectNewerInstalledVersion" = "11:TRUE"
         "InstallAllUsers" = "11:TRUE"
-        "ProductVersion" = "8:2.0.8"
+        "ProductVersion" = "8:2.0.7"
         "Manufacturer" = "8:Phospher"
         "ARPHELPTELEPHONE" = "8:"
         "ARPHELPLINK" = "8:"
@@ -289,7 +331,7 @@
         "Keywords" = "8:"
         "ARPCOMMENTS" = "8:"
         "ARPURLINFOABOUT" = "8:"
-        "ARPPRODUCTICON" = "8:_697AD009AF6A45D7A391A42D502DAD1B"
+        "ARPPRODUCTICON" = "8:_9D2E3B978FE34442B8CB0A57F850A9C6"
         "ARPIconIndex" = "3:0"
         "SearchPath" = "8:"
         "UseSystemSearchPath" = "11:TRUE"

@@ -29,7 +29,7 @@ namespace PhValheim
             if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost, ref httpScheme))
             {
                 Console.WriteLine("\n");
-                Console.WriteLine("Press any key to exit.");
+                Console.WriteLine("Press Enter key to exit.");
                 Console.ReadLine();
                 return;
             }
@@ -44,7 +44,7 @@ namespace PhValheim
 
                 if (!Platform.State.init(worldName, phvalheimHostNoPort)) {
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press any key to exit.");
+                    Console.WriteLine("Press Enter key to exit.");
                     Console.ReadLine();
                     return;
                 }
@@ -65,7 +65,7 @@ namespace PhValheim
                 if (!Prep.PhValheim.PhValheimPrep())
                 {              
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press the enter key to exit.");
+                    Console.WriteLine("Press the Enter key to exit.");
                     Console.ReadLine();
                     return;
                 }
@@ -74,7 +74,7 @@ namespace PhValheim
                 if (!Steam.PhValheim.ValheimGetter())
                 {
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press the enter key to exit.");
+                    Console.WriteLine("Press the Enter key to exit.");
                     Console.ReadLine();
                     return;
                 }
@@ -83,7 +83,7 @@ namespace PhValheim
                 if (!Syncer.PhValheim.Sync(phvalheimURL))
                 {
                     Console.WriteLine("\n");
-                    Console.WriteLine("Press the enter key to exit.");
+                    Console.WriteLine("Press the Enter key to exit.");
                     Console.ReadLine();
                     return;
                 }

@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Runtime;
 using System.Runtime.InteropServices;
 
 namespace PhValheim.Launcher
@@ -26,25 +27,49 @@ namespace PhValheim.Launcher
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 Process.Start(@steamExe, "-applaunch 892970 --doorstop-enable true --doorstop-target \"" + BepInEx_Preloader + "\" -console");
-            } else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            } 
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
+
+                Console.WriteLine("  Linux launch detected...");
+
                 // Check if steam is already running
                 // If its not, we need to launch steam, otherwise velheim will crash on startup
                 string[] pids = Process.GetProcessesByName("steam").Select(p => p.Id.ToString()).ToArray();
                 if (pids.Length == 0)
                 {
-                    Console.WriteLine("Launching Steam...");
-                    Process.Start(@steamExe);
+                    Console.WriteLine("  Starting Steam...");
+                    ProcessStartInfo steamStartInfo = new ProcessStartInfo(@steamExe);
+                    steamStartInfo.RedirectStandardOutput = true;
+                    steamStartInfo.RedirectStandardError = true;
+                    steamStartInfo.UseShellExecute = false;
+                    steamStartInfo.WindowStyle = ProcessWindowStyle.Minimized;
+                    steamStartInfo.Arguments = "-nofriendsui -console";
+                    Process.Start(steamStartInfo);
+
                     // I honestly don't know a better way to do this, so we sleep
                     Thread.Sleep(10000);
                 }
+            {
 
+                  // try to set gnome's check-alive-timeout to 0. This timeout is what causes the "not responding" warnings.
+                  // IronGate needs to send a pong back to the different display managers to satisfy this timeout
+                  try
+                  {
+                        string gsettingsExec = "/usr/bin/gsettings";
+                        ProcessStartInfo gsettingsCmd = new ProcessStartInfo(gsettingsExec);
+                        gsettingsCmd.UseShellExecute = true;
+                        gsettingsCmd.CreateNoWindow = true;
+                        gsettingsCmd.Arguments = "set org.gnome.mutter check-alive-timeout 0";
+                        Process.Start(gsettingsCmd);
+                   }
+                   catch
+                   {
+                   }
 
-                // if running in linux
-                // valheim.x86_64 must be launched directly with BepInEx environment variables instead of through steam
-                // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
-                Console.WriteLine("Launching Valheim with environment variables (Linux)...");
-                {
+                  // if running in linux
+                  // valheim.x86_64 must be launched directly with BepInEx environment variables instead of through steam
+                  // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
                   string exec = Path.Combine(valheimDir, "valheim.x86_64");
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
                   string ld_library_path = doorstep_libs;
@@ -53,25 +78,27 @@ namespace PhValheim.Launcher
                   ProcessStartInfo startInfo = new ProcessStartInfo(exec);
 
                   startInfo.UseShellExecute = true;
+                  startInfo.CreateNoWindow = false;
                   startInfo.Arguments = "-console";
                   startInfo.WorkingDirectory = valheimDir;
                   startInfo.EnvironmentVariables["DOORSTOP_ENABLE"] =  "TRUE";
                   startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"] =  BepInEx_Preloader;
                   startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
                   startInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = ld_library_path;
-                  startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;
+                  startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;                 
 
-                  Console.WriteLine("  Executable: " + exec);
-                  Console.WriteLine("  Arguments: " + startInfo.Arguments);
-                  Console.WriteLine("  Working Directory: " + startInfo.WorkingDirectory);
-                  Console.WriteLine("  DOORSTOP_ENABLE: " + startInfo.EnvironmentVariables["DOORSTOP_ENABLE"]);
-                  Console.WriteLine("  DOORSTOP_INVOKE_DLL_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"]);
-                  Console.WriteLine("  DOORSTOP_CORLIB_OVERRIDE_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"]);
-                  Console.WriteLine("  LD_LIBRARY_PATH: " + startInfo.EnvironmentVariables["LD_LIBRARY_PATH"]);
-                  Console.WriteLine("  LD_PRELOAD: " + startInfo.EnvironmentVariables["LD_PRELOAD"]);
+                  //Console.WriteLine("  Executable: " + exec);
+                  //Console.WriteLine("  Arguments: " + startInfo.Arguments);
+                  //Console.WriteLine("  Working Directory: " + startInfo.WorkingDirectory);
+                  //Console.WriteLine("  DOORSTOP_ENABLE: " + startInfo.EnvironmentVariables["DOORSTOP_ENABLE"]);
+                  //Console.WriteLine("  DOORSTOP_INVOKE_DLL_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"]);
+                  //Console.WriteLine("  DOORSTOP_CORLIB_OVERRIDE_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"]);
+                  //Console.WriteLine("  LD_LIBRARY_PATH: " + startInfo.EnvironmentVariables["LD_LIBRARY_PATH"]);
+                  //Console.WriteLine("  LD_PRELOAD: " + startInfo.EnvironmentVariables["LD_PRELOAD"]);
 
-                  Process.Start(startInfo);
-              }
+                  Process p = Process.Start(startInfo);
+                  p.WaitForExit();
+                }
             }
         }
     }

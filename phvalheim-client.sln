@@ -6,21 +6,28 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "phvalheim-client", "phvalheim-client.csproj", "{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}"
 EndProject
 Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "phvalheim-client-installer", "phvalheim-client-installer\phvalheim-client-installer.vdproj", "{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}"
+	ProjectSection(ProjectDependencies) = postProject
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6} = {64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
-		Release|Any CPU = Release|Any CPU
+		Linux-Release|Any CPU = Linux-Release|Any CPU
+		Windows-Release|Any CPU = Windows-Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Linux-Release|Any CPU.ActiveCfg = Linux-Release|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Linux-Release|Any CPU.Build.0 = Linux-Release|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Windows-Release|Any CPU.ActiveCfg = Windows-Release|Any CPU
+		{64151D36-4B4F-45F4-BAE2-94BE18E4A1B6}.Windows-Release|Any CPU.Build.0 = Windows-Release|Any CPU
 		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Debug|Any CPU.ActiveCfg = Debug
 		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Debug|Any CPU.Build.0 = Debug
-		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Release|Any CPU.ActiveCfg = Release
-		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Release|Any CPU.Build.0 = Release
+		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Linux-Release|Any CPU.ActiveCfg = Linux-Release
+		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Windows-Release|Any CPU.ActiveCfg = Windows-Release
+		{FB23DEA3-4F00-49C3-835A-3C11CD18C7F3}.Windows-Release|Any CPU.Build.0 = Windows-Release
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

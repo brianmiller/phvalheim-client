@@ -1,0 +1,80 @@
+#!/bin/bash
+# pass -b to answer "yes" to all questions
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+
+# find docker
+docker=$(which docker 2> /dev/null)
+if [ $? = 0 ]; then
+	docker=$docker
+else
+	podman=$(which podman 2> /dev/null)
+	if [  $? = 0 ]; then
+		docker=$podman
+	else
+		echo "ERROR: Docker or Podman are required, exiting..."
+		exit 1
+	fi
+fi
+
+
+echo
+echo "Docker found at: $docker"
+echo
+
+
+# build debian docker environment
+#echo "Building docker environment..."
+#echo
+#$docker build --format=docker -t debian-env /mnt/cerebrum/development/phvalheim-client/git/builders/dockers/debian/.
+
+
+# ensure we're up-to-date
+cd $gitRoot
+git pull
+
+
+# pull pre-built docker environment
+echo "Pulling pre-built debian environment..."
+echo
+$docker image pull docker.io/theoriginalbrian/debian-env:latest
+
+
+# run tgz build logic inside the container we just built
+echo "Building tarball inside container..."
+echo
+$docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-env /git/builders/build_tgz-innie
+
+# cleaning docker images
+echo
+echo "Cleaning up..."
+echo
+containers=$($docker ps -a|grep docker.io/theoriginalbrian/debian-env|cut -d " " -f1)
+if [ ! "$containers" = " " ]; then
+	for c in $containers; do
+		$docker rm -f $c
+	done
+fi
+
+
+echo
+echo -n "Would you like to commit to GitHub? y/n "
+if [ "$1" = "-b" ]; then
+	gitCommit="y"
+else
+	read gitCommit
+fi
+
+
+if [ "$gitCommit" = "y" ] || [ "$gitCommit" = "Y" ]; then
+        echo "Commiting to Git..."
+        cd $gitRoot
+        git add builds/*
+        git commit -m "Automated universal Linux build"
+        git push
+else
+        exit 0
+fi

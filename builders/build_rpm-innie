@@ -1,0 +1,125 @@
+#!/bin/bash
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+
+# get the version of this release
+thisVersion=$(grep -oPm1 "(?<=<Version>)[^<]+" $gitRoot/phvalheim-client.csproj)
+
+
+# bring in env release info
+source /etc/os-release
+
+
+# tell us about this system
+echo
+echo "## PhValheim Client Fedora packager ##"
+echo
+echo "Now: `date`"
+echo
+echo "This build system hostname: `cat /etc/hostname`"
+echo "This build system kernel: `uname -r`"
+echo
+echo "Git root directory: $gitRoot"
+echo "PhValheim Client Version: $thisVersion"
+echo "Build Environment: $PRETTY_NAME"
+echo
+
+
+# build linux-x64 binary
+cd $gitRoot
+dotnet publish \
+-c Linux-Release \
+-r linux-x64 \
+-p:PublishSingleFile=true \
+--self-contained true \
+./phvalheim-client.csproj \
+/property:GenerateFullPaths=true \
+/consoleloggerparameters:NoSummary \
+/p:PublishTrimmed=false
+
+
+# if the staging directory exists, delete it
+if [ -d $gitRoot/builders/.rpm_staging ]; then
+     rm -rf $gitRoot/builders/.rpm_staging
+fi
+
+
+# Create a Fedora package directory structure
+mkdir -p $gitRoot/builders/.rpm_staging/BUILD
+mkdir -p $gitRoot/builders/.rpm_staging/RPMS
+mkdir -p $gitRoot/builders/.rpm_staging/SPECS
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/local/bin
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/applications
+mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/icons/hicolor/128x128/apps
+
+
+# generate spec
+echo "Summary: PhValheim Client for PhValheim Server
+Name: phvalheim-client
+Version: $thisVersion
+Release: 1
+License: GPL-2.0-or-later
+Group: Games
+URL: https://github.com/brianmiller/phvalheim-client
+
+%description
+The over-engineered client to the over-engineered server.
+
+%clean
+
+%files
+%attr(-,root,root) /usr/local/bin/phvalheim-client
+%attr(-,root,root) /usr/share/applications/phvalheim-client.desktop
+%attr(-,root,root) /usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+
+%changelog
+" > $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
+
+
+# generate .desktop file for the x-url-handler
+echo "[Desktop Entry]
+Name=PhValheim Client
+Comment=PhValheim Client
+Exec=/usr/local/bin/phvalheim-client %U
+Icon=/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+Terminal=false
+Type=Application
+MimeType=x-scheme-handler/phvalheim;
+" > $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/applications/phvalheim-client.desktop
+
+
+# copy in phvalheim-client's linux binary
+cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/local/bin/.
+
+# copy in phvalheim-client's icon
+cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
+
+
+# assemble tarball
+echo
+echo "Assembling fedora package.."
+cd $gitRoot/builders/.rpm_staging/
+rpmbuild --define "_topdir /git/builders/.rpm_staging" -bb $gitRoot/builders/.rpm_staging/SPECS/phvalheim-client.spec
+
+
+# copy built RPM into final destination
+cp $gitRoot/builders/.rpm_staging/RPMS/x86_64/phvalheim-client-$thisVersion-1.x86_64.rpm  $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.rpm
+
+
+# output check
+if [ -f $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.rpm ]; then
+	echo "Successfully wrote: $gitRoot/builds/phvalheim-client-$thisVersion-x86_64.rpm"
+	exit 0
+else
+	echo "ERROR: Could not build fedora package, exiting..."
+	exit 1
+fi
+
+############################## BEGIN: Functions ##############################
+
+############################## END: Functions ##############################
+
+
