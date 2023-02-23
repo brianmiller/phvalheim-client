@@ -4,6 +4,7 @@ namespace PhValheim
 {
     public class PhValheim
     {
+
         static void Main(string[] args)
         {
 
@@ -52,6 +53,9 @@ namespace PhValheim
             //we're launching
             if (command == "launch")
             {
+                //write backend info to local file
+                Prep.PhValheim.WriteBackendFile(worldName);
+
 
                 //check client version
                 Ver.PhValheim.VersionCheck(phvalheimLauncherVersion);

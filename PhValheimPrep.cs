@@ -1,8 +1,11 @@
-﻿namespace PhValheim.Prep
+﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
+using Microsoft.Win32;
+
+namespace PhValheim.Prep
 {
     public class PhValheim
     {
-     
         public static bool MakeDir(string inputDir, string desc)
         {
             inputDir = Environment.ExpandEnvironmentVariables(inputDir);
@@ -29,8 +32,7 @@
                 return true;
             }
         }
-        
-        
+           
         
         //ensure PhValheim's root dir exists, else create it.
         public static bool PhValheimPrep()
@@ -47,6 +49,23 @@
 
             return true;
         }
+
+
+        //
+        public static bool WriteBackendFile(string worldName)
+        {
+
+            OSPlatform osPlatform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? OSPlatform.Windows : OSPlatform.Linux;
+
+            if (osPlatform == OSPlatform.Windows)
+            {
+                string foo = worldName;
+                return true;
+                //backendFile = Environment.ExpandEnvironmentVariables("%appdata%\\PhValheim\\");
+            }
+            return true; 
+        }
+
     }
 }
 
