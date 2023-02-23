@@ -3,6 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# PhValheim working directories
+.tgz_staging
+.deb_staging
+.rpm_staging
+
 # User-specific files
 *.rsuser
 *.suo
@@ -19,19 +24,8 @@ scripts/staging/*
 mono_crash.*
 
 # Build results
-[Dd]ebug/
-[Dd]ebugPublic/
-[Rr]elease/
-[Rr]eleases/
-x64/
-x86/
-[Ww][Ii][Nn]32/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
-[Bb]in/
 [Oo]bj/
-[Oo]ut/
+[Bb]in/
 [Ll]og/
 [Ll]ogs/
 
@@ -178,8 +172,6 @@ DocProject/Help/*.hhp
 DocProject/Help/Html2
 DocProject/Help/html
 
-# Click-Once directory
-publish/
 
 # Publish Web Output
 *.[Pp]ublish.xml

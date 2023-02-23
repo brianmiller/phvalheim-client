@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+
+# get the version of this release
+thisVersion=$(grep -oPm1 "(?<=<Version>)[^<]+" $gitRoot/phvalheim-client.csproj)
+
+
+# bring in env release info
+source /etc/lsb-release
+
+
+# tell us about this system
+echo
+echo "## PhValheim Client universal tarball packager ##"
+echo
+echo "Now: `date`"
+echo
+echo "This build system hostname: `hostname`"
+echo "This build system kernel: `uname -r`"
+echo
+echo "Git root directory: $gitRoot"
+echo "PhValheim Client Version: $thisVersion"
+echo "Build Environment: $DISTRIB_DESCRIPTION"
+echo
+
+
+# build logs
+#if [ ! -d $debRoot/logs ]; then
+#	mkdir $debRoot/logs
+#else
+#	rm -f $debRoot/logs/*
+#fi
+
+
+# build linux-x64 binary
+cd $gitRoot
+dotnet publish \
+-c Linux-Release \
+-r linux-x64 \
+-p:PublishSingleFile=true \
+--self-contained true \
+./phvalheim-client.csproj \
+/property:GenerateFullPaths=true \
+/consoleloggerparameters:NoSummary \
+/p:PublishTrimmed=false
+
+
+# if the staging directory exists, then delete it
+if [ ! -d $gitRoot/builders/.tgz_staging ]; then
+     mkdir $gitRoot/builders/.tgz_staging
+fi
+
+
+# generate .desktop file for the x-url-handler
+echo "[Desktop Entry]
+Name=PhValheim-Client
+Comment=PhValheim-Client
+Exec=/usr/bin/phvalheim-client %U
+Terminal=false
+Type=Application
+MimeType=x-scheme-handler/phvalheim;
+" > $gitRoot/builders/.tgz_staging/phvalheim-client.desktop
+
+
+# generate installer script
+echo "#!/bin/bash
+
+# Get the directory of the script
+SCRIPT_DIR=\$( cd -- \"\$( dirname -- \"\${BASH_SOURCE[0]}\" )\" &> /dev/null && pwd )
+
+# set the working directory to the script directory
+cd \$SCRIPT_DIR
+
+# check first argument for install or uninstall
+if [ \"\$1\" = \"install\" ]; then
+    # install
+    cp ./phvalheim-client /usr/bin/phvalheim-client
+    cp ./phvalheim-client.desktop /usr/share/applications/phvalheim-client.desktop
+    update-desktop-database -q
+elif [ \"\$1\" = \"uninstall\" ]; then
+    # uninstall
+    rm /usr/bin/phvalheim-client
+    rm /usr/share/applications/phvalheim-client.desktop
+    update-desktop-database -q
+else
+    echo \"Invalid argument. Use install or uninstall\"
+fi
+" > $gitRoot/builders/.tgz_staging/phvalheim-client-installer.sh
+
+
+# copy in phvalheim-client's linux binary
+cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.tgz_staging/.
+
+
+# assemble tarball
+echo
+echo "Assembling tarball.."
+cd $gitRoot/builders/.tgz_staging/
+tar -czvf $gitRoot/builds/phvalheim-client-$thisVersion-universal-x86_64.tar.gz phvalheim-client phvalheim-client.desktop phvalheim-client-installer.sh
+
+
+# output check
+if [ -f $gitRoot/builds/phvalheim-client-$thisVersion-universal-x86_64.tar.gz ]; then
+	echo "Successfully wrote: $gitRoot/builds/phvalheim-client-$thisVersion-universal-x86_64.tar.gz"
+	exit 0
+else
+	echo "ERROR: Could not build tarball, exiting..."
+	exit 1
+fi
+
+############################## BEGIN: Functions ##############################
+
+############################## END: Functions ##############################
+
+
