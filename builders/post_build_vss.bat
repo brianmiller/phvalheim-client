@@ -13,9 +13,9 @@ REM Windows
 mkdir %ProjectDir%\bin\%Configuration%\net6.0\win-x64
 mkdir %ProjectDir%\obj\%Configuration%\net6.0\win-x64
 copy %ProjectDir%\bin\%Configuration%\net6.0\phvalheim-client.runtimeconfig.json %ProjectDir%\bin\%Configuration%\net6.0\win-x64\phvalheim-client.runtimeconfig.json
-copy %ProjectDir%\obj\%Configuration%\net6.0\apphost.exe %ProjectDir%\obj\%Configuration%\net6.0\win-x64\singlefilehost.exe
 copy %ProjectDir%\bin\%Configuration%\net6.0\phvalheim-client.dll %ProjectDir%\obj\%Configuration%\net6.0\win-x64\phvalheim-client.dll
 copy %ProjectDir%\bin\%Configuration%\net6.0\phvalheim-client.pdb %ProjectDir%\obj\%Configuration%\net6.0\win-x64\phvalheim-client.pdb
+copy %ProjectDir%\obj\%Configuration%\net6.0\apphost.exe %ProjectDir%\obj\%Configuration%\net6.0\win-x64\singlefilehost.exe
 dotnet publish -c %Configuration% -r win-x64 -p:PublishSingleFile=true --self-contained true %ProjectDir%\phvalheim-client.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary /p:PublishTrimmed=false --no-build
 
 
