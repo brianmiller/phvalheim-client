@@ -54,7 +54,7 @@ namespace PhValheim
             if (command == "launch")
             {
                 //write backend info to local file
-                Prep.PhValheim.WriteBackendFile(worldName);
+                Prep.PhValheim.WriteBackendFile(worldName, phvalheimURL);
 
 
                 //check client version

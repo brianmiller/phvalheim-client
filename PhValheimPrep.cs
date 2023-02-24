@@ -52,14 +52,14 @@ namespace PhValheim.Prep
 
 
         //
-        public static bool WriteBackendFile(string worldName)
+        public static bool WriteBackendFile(string worldName, string phvalheimHost)
         {
 
             OSPlatform osPlatform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? OSPlatform.Windows : OSPlatform.Linux;
 
             if (osPlatform == OSPlatform.Windows)
             {
-                string foo = worldName;
+                Console.WriteLine("FOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO" + worldName + phvalheimHost);
                 return true;
                 //backendFile = Environment.ExpandEnvironmentVariables("%appdata%\\PhValheim\\");
             }
