@@ -88,7 +88,7 @@ Name=PhValheim Client
 Comment=PhValheim Client
 Exec=/usr/bin/phvalheim-client %U
 Icon=/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico
-Terminal=false
+Terminal=true
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
 " > $gitRoot/builders/.deb_staging/phvalheim-client/usr/share/applications/phvalheim-client.desktop

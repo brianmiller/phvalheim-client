@@ -60,7 +60,7 @@ echo "[Desktop Entry]
 Name=PhValheim-Client
 Comment=PhValheim-Client
 Exec=/usr/bin/phvalheim-client %U
-Terminal=false
+Terminal=true
 Type=Application
 MimeType=x-scheme-handler/phvalheim;
 " > $gitRoot/builders/.tgz_staging/phvalheim-client.desktop
