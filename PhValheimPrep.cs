@@ -66,7 +66,7 @@ namespace PhValheim.Prep
 
             else if (osPlatform == OSPlatform.Linux)
             {
-                bepInExRoot = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.config/PhValheim/worlds/" + phvalheimHostNoPort + "/" + worldName + "/" + worldName + "/BepInEx";
+                bepInExRoot = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.config/PhValheim/worlds/" + phvalheimHostNoPort + "/" + worldName + "/" + worldName + "/BepInEx/";
             }
 
             else
