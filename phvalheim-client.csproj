@@ -21,18 +21,21 @@
     <Optimize>True</Optimize>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Windows-Release|AnyCPU'">
+	<Optimize>True</Optimize>
+	<SelfContained>true</SelfContained>
+	<PublishSingleFile>true</PublishSingleFile>
+	<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
 <PropertyGroup>
 	<PostBuildEvent Condition="'$(Configuration)' == 'Windows-Release'">
 		echo "Windows build detected.
-		call ..\..\..\builders\post_build_vss.bat $(MSBuildProjectDirectory) $(Configuration)
+		call ..\..\..\..\builders\post_build_vss.bat $(MSBuildProjectDirectory) $(Configuration)
 	</PostBuildEvent>
 	<PostBuildEvent Condition="'$(Configuration)' == 'Linux-Release'">
 		echo "Linux build detected."
 	</PostBuildEvent>
-</PropertyGroup>
-
-<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Windows-Release|AnyCPU'">
-  <Optimize>True</Optimize>
 </PropertyGroup>
 	
   <ItemGroup>
