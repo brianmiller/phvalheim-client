@@ -53,13 +53,9 @@ namespace PhValheim
             //we're launching
             if (command == "launch")
             {
-                //write backend info to local file
-                Prep.PhValheim.WriteBackendFile(worldName, phvalheimURL);
-
 
                 //check client version
                 Ver.PhValheim.VersionCheck(phvalheimLauncherVersion);
-
 
                 //run through the PhValheim prep logic, exit if fails         
                 if (!Prep.PhValheim.PhValheimPrep())
@@ -79,6 +75,9 @@ namespace PhValheim
                     return;
                 }
 
+                //write backend info to local file
+                Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, phvalheimURL);
+
                 //sync world to local disk
                 if (!Syncer.PhValheim.Sync(phvalheimURL))
                 {
@@ -88,11 +87,8 @@ namespace PhValheim
                     return;
                 }
 
-
-
                 //launch the game in the world context
                 Launcher.PhValheim.Launch(ref worldPassword, ref worldHost, ref worldPort);
-
 
                 //keep everything on the screen allowing you to read what just happend
                 Console.WriteLine("\n");
