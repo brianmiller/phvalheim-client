@@ -167,9 +167,9 @@ namespace PhValheim.Syncer
 
             // are doorstop_libs installed?
             bool doorstopExists = File.Exists(Path.Combine(Platform.State.ValheimDir, "doorstop_config.ini"));
-            if (!doorstopExists)
-            {
-                Console.WriteLine("  Root level doorstop_libs missing, installing...\n");
+            //if (!doorstopExists)
+            //{
+            //    Console.WriteLine("  Root level doorstop_libs missing, installing...\n");
                 try
                 { 
                     Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir ,"doorstop_libs"), Path.Combine(valheimDir ,"doorstop_libs"));
@@ -183,11 +183,11 @@ namespace PhValheim.Syncer
                     return false;
                 }
 
-            }
-            else
-            {
-                Console.WriteLine("  Root level doorstop_libs detected, continuing...\n");
-            }
+            //}
+            //else
+            //{
+            //    Console.WriteLine("  Root level doorstop_libs detected, continuing...\n");
+            //}
 
 
             // are doorstop_libs installed, double check?
