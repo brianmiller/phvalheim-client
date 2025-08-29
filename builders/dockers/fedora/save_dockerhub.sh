@@ -15,14 +15,14 @@ else
 fi
 
 
-$docker login --username=theoriginalbrian docker.io
+$docker login
 if [ ! $? = 0 ]; then
 	echo "Could not login to Dockerhub, exiting..."
 	exit 1
 fi
 
 
-$docker build --format=docker -t theoriginalbrian/fedora-env .
+$docker buildx build -t theoriginalbrian/fedora-env .
 if [ ! $? = 0 ]; then
         echo "Build failed, exiting..."
         exit 1

@@ -35,6 +35,7 @@ echo
 cd $gitRoot
 git pull
 
+
 # pull pre-built docker environment
 echo "Pulling pre-built debian environment..."
 echo
@@ -44,7 +45,7 @@ $docker image pull docker.io/theoriginalbrian/debian-env:latest
 # run tgz build logic inside the container we just built
 echo "Building debian package inside container..."
 echo
-$docker run -v '/path/to/phvalheim-client':'/git' -ti debian-env /git/builders/build_deb-innie
+$docker run -v '/path/to/phvalheim-client':'/git' -ti theoriginalbrian/debian-env /git/builders/build_deb-innie
 
 
 # cleaning docker images
