@@ -26,7 +26,7 @@ namespace PhValheim.Launcher
             // if running in windows
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                Process.Start(@steamExe, "-applaunch 892970 --doorstop-enable true --doorstop-target \"" + BepInEx_Preloader + "\" -console");
+                Process.Start(@steamExe, "-applaunch 892970 --doorstop-enabled true --doorstop-target-assembly \"" + BepInEx_Preloader + "\" -console");
             } 
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {

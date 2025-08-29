@@ -9,6 +9,7 @@ namespace PhValheim.Arguments
         public static void Usage()
         {
             var phvalheimLauncherVersion = Assembly.GetEntryAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute> ().InformationalVersion;
+            phvalheimLauncherVersion = phvalheimLauncherVersion?.Split('+')[0]; // take only before '+'
 
             Console.WriteLine(
                     "\n" +
