@@ -81,9 +81,9 @@ namespace PhValheim.Launcher
                   startInfo.CreateNoWindow = false;
                   startInfo.Arguments = "-console";
                   startInfo.WorkingDirectory = valheimDir;
-                  startInfo.EnvironmentVariables["DOORSTOP_ENABLE"] =  "TRUE";
-                  startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"] =  BepInEx_Preloader;
-                  startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
+                  startInfo.EnvironmentVariables["DOORSTOP_ENABLED"] =  "TRUE";
+                  startInfo.EnvironmentVariables["DOORSTOP_TARGET_ASSEMBLY"] =  BepInEx_Preloader;
+                  //startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
                   startInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = ld_library_path;
                   startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;                 
 
