@@ -46,7 +46,7 @@ $docker image pull docker.io/theoriginalbrian/debian-env:latest
 # run tgz build logic inside the container we just built
 echo "Building tarball inside container..."
 echo
-$docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-env /git/builders/build_tgz-innie
+$docker run -v '/mnt/wopr/development/brian/phvalheim-client':'/git' -ti theoriginalbrian/debian-env /git/builders/build_tgz-innie
 
 # cleaning docker images
 echo

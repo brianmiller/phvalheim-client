@@ -71,6 +71,9 @@ mkdir -p $gitRoot/builders/.deb_staging/phvalheim-client/usr/bin
 mkdir -p $gitRoot/builders/.deb_staging/phvalheim-client/usr/share/applications
 mkdir -p $gitRoot/builders/.deb_staging/phvalheim-client/usr/share/icons/hicolor/128x128/apps
 
+# set perms for DEBIAN dir
+chmod 755 $gitRoot/builders/.deb_staging/phvalheim-client/DEBIAN
+
 
 # Create a control file with the provided information
 echo "Package: phvalheim-client" > $gitRoot/builders/.deb_staging/phvalheim-client/DEBIAN/control
@@ -95,7 +98,7 @@ MimeType=x-scheme-handler/phvalheim;
 
 
 # copy in phvalheim-client's linux binary
-cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.deb_staging/phvalheim-client/usr/bin/.
+cp $gitRoot/bin/Linux-Release/net9.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.deb_staging/phvalheim-client/usr/bin/.
 
 # copy in phvalheim-client's icon
 cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.deb_staging/phvalheim-client/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico

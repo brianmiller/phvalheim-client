@@ -56,6 +56,10 @@ mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-
 mkdir -p $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/icons/hicolor/128x128/apps
 
 
+# set perms
+chmod 755 $gitRoot/builders/.rpm_staging/*
+
+
 # generate spec
 echo "Summary: PhValheim Client for PhValheim Server
 Name: phvalheim-client
@@ -92,7 +96,7 @@ MimeType=x-scheme-handler/phvalheim;
 
 
 # copy in phvalheim-client's linux binary
-cp $gitRoot/bin/Linux-Release/net6.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/local/bin/.
+cp $gitRoot/bin/Linux-Release/net9.0/linux-x64/publish/phvalheim-client $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/local/bin/.
 
 # copy in phvalheim-client's icon
 cp $gitRoot/phvalheim-client.ico $gitRoot/builders/.rpm_staging/BUILDROOT/phvalheim-client-$thisVersion-1.x86_64/usr/share/icons/hicolor/128x128/apps/phvalheim-client.ico

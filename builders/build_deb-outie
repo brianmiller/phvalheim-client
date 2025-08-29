@@ -29,11 +29,12 @@ echo
 # build debian docker environment
 #echo "Building docker environment..."
 #echo
-#$docker build --format=docker -t debian-env /mnt/cerebrum/development/phvalheim-client/git/builders/dockers/debian/.
+#$docker build --format=docker -t debian-env /mnt/wopr/development/brian/phvalheim-client/builders/dockers/debian/.
 
 # ensure we're up-to-date
 cd $gitRoot
 git pull
+
 
 # pull pre-built docker environment
 echo "Pulling pre-built debian environment..."
@@ -44,7 +45,7 @@ $docker image pull docker.io/theoriginalbrian/debian-env:latest
 # run tgz build logic inside the container we just built
 echo "Building debian package inside container..."
 echo
-$docker run -v '/mnt/cerebrum/development/phvalheim-client/git':'/git' -ti debian-env /git/builders/build_deb-innie
+$docker run -v '/mnt/wopr/development/brian/phvalheim-client':'/git' -ti theoriginalbrian/debian-env /git/builders/build_deb-innie
 
 
 # cleaning docker images

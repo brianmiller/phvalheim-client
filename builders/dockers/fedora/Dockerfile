@@ -15,7 +15,7 @@ RUN usermod -a -G mock root
 
 # .NET
 RUN wget https://dot.net/v1/dotnet-install.sh
-RUN bash dotnet-install.sh
+RUN bash dotnet-install.sh --channel 9.0
 
 # Path
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.dotnet/
