@@ -10,6 +10,7 @@ namespace PhValheim
 
             System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var phvalheimLauncherVersion = Assembly.GetEntryAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute> ().InformationalVersion;
+            phvalheimLauncherVersion = phvalheimLauncherVersion?.Split('+')[0]; // take only before '+'
 
             string[] argumentsPassed = Array.Empty<string>();
             string command = "";
