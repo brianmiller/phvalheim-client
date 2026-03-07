@@ -71,18 +71,25 @@ namespace PhValheim.Launcher
                   // valheim.x86_64 must be launched directly with BepInEx environment variables instead of through steam
                   // This is the same strategy that the BepInEx uses in their start_game_bepinex.sh script
                   string exec = Path.Combine(valheimDir, "valheim.x86_64");
+                  string setsid = "/usr/bin/setsid";
+                  string worldDir = Path.Combine(Platform.State.PhValheimServerRoot, Platform.State.WorldName);
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
                   string ld_library_path = doorstep_libs;
-                  string ld_preload = $"libdoorstop_x64.so:{System.Environment.GetEnvironmentVariable("LD_PRELOAD")}";
+                  string existingLdPreload = System.Environment.GetEnvironmentVariable("LD_PRELOAD");
+                  string ld_preload = string.IsNullOrEmpty(existingLdPreload)
+                      ? "libdoorstop_x64.so"
+                      : $"libdoorstop_x64.so:{existingLdPreload}";
 
-                  ProcessStartInfo startInfo = new ProcessStartInfo(exec);
+                  ProcessStartInfo startInfo = new ProcessStartInfo(setsid);
 
-                  startInfo.UseShellExecute = true;
+                  startInfo.UseShellExecute = false;
                   startInfo.CreateNoWindow = false;
-                  startInfo.Arguments = "-console";
+                  startInfo.ArgumentList.Add(exec);
+                  startInfo.ArgumentList.Add("-console");
                   startInfo.WorkingDirectory = valheimDir;
-                  startInfo.EnvironmentVariables["DOORSTOP_ENABLED"] =  "TRUE";
+                  startInfo.EnvironmentVariables["DOORSTOP_ENABLED"] =  "1";
                   startInfo.EnvironmentVariables["DOORSTOP_TARGET_ASSEMBLY"] =  BepInEx_Preloader;
+                  startInfo.EnvironmentVariables["DOORSTOP_MONO_LIB_PATH"] =  Path.Combine(valheimDir, "valheim_Data", "MonoBleedingEdge", "x86_64", "libmonobdwgc-2.0.so");
                   //startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
                   startInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = ld_library_path;
                   startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;                 
@@ -96,8 +103,7 @@ namespace PhValheim.Launcher
                   //Console.WriteLine("  LD_LIBRARY_PATH: " + startInfo.EnvironmentVariables["LD_LIBRARY_PATH"]);
                   //Console.WriteLine("  LD_PRELOAD: " + startInfo.EnvironmentVariables["LD_PRELOAD"]);
 
-                  Process p = Process.Start(startInfo);
-                  p.WaitForExit();
+                  Process.Start(startInfo);
                 }
             }
         }

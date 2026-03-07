@@ -102,7 +102,7 @@ namespace PhValheim
                 Console.WriteLine("\n");
                 Console.WriteLine("This window will automatically close in 10 seconds...");
                 Thread.Sleep(10000);
-                return;
+                Environment.Exit(0);
 
 
             }
