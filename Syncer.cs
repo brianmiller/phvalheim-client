@@ -171,11 +171,14 @@ namespace PhValheim.Syncer
             //{
             //    Console.WriteLine("  Root level doorstop_libs missing, installing...\n");
                 try
-                { 
+                {
                     Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir ,"doorstop_libs"), Path.Combine(valheimDir ,"doorstop_libs"));
                     //Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir ,"unstripped_corlib"), Path.Combine(valheimDir ,"unstripped_corlib"));
                     File.Copy(Path.Combine(localWorldDir ,"doorstop_config.ini"), Path.Combine(valheimDir ,"doorstop_config.ini"), true);
-                    File.Copy(Path.Combine(localWorldDir ,"winhttp.dll"), Path.Combine(valheimDir ,"winhttp.dll"), true);
+                    if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                    {
+                        File.Copy(Path.Combine(localWorldDir ,"winhttp.dll"), Path.Combine(valheimDir ,"winhttp.dll"), true);
+                    }
                 }
                 catch
                 {

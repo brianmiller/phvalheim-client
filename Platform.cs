@@ -33,7 +33,8 @@ namespace PhValheim.Platform
     public static bool init(string worldName, string phvalheimHostNoPort)
     {
       _instance = new State();
-      osPlatform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? OSPlatform.Windows : OSPlatform.Linux;
+      osPlatform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? OSPlatform.Windows :
+                   RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? OSPlatform.OSX : OSPlatform.Linux;
       if (osPlatform == OSPlatform.Windows)
       {
         RegistryKey steamKey = Registry.CurrentUser.OpenSubKey("Software\\Valve\\Steam");
@@ -88,6 +89,21 @@ namespace PhValheim.Platform
         }
 
         Instance.phvalheimDir = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.config/PhValheim";
+      }
+      else if (osPlatform == OSPlatform.OSX)
+      {
+        Instance.steamExe = "/Applications/Steam.app/Contents/MacOS/steam_osx";
+        if (!File.Exists(Instance.steamExe))
+        {
+          Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+          return false;
+        }
+        Instance.steamDir = Path.Combine(
+          Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+          "Library", "Application Support", "Steam");
+        Instance.phvalheimDir = Path.Combine(
+          Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+          "Library", "Application Support", "PhValheim");
       }
       else
       {
