@@ -96,12 +96,11 @@ cp "$BINARY" "$PKG_ROOT/usr/local/bin/phvalheim-client"
 chmod 755 "$PKG_ROOT/usr/local/bin/phvalheim-client"
 
 
-# create the .app bundle that handles phvalheim:// URL scheme
-# the executable is a thin shell wrapper around the installed binary
-cat > "$APP_BUNDLE/Contents/MacOS/PhValheim Client" << 'APPEOF'
-#!/bin/bash
-exec /usr/local/bin/phvalheim-client "$@"
-APPEOF
+# compile the Swift URL handler — receives phvalheim:// via Apple Event and forwards to phvalheim-client
+echo "Compiling Swift URL handler..."
+swiftc -o "$APP_BUNDLE/Contents/MacOS/PhValheim Client" \
+    "$gitRoot/builders/url-handler.swift" \
+    -framework Cocoa
 chmod 755 "$APP_BUNDLE/Contents/MacOS/PhValheim Client"
 
 
@@ -123,6 +122,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLISTEOF
     <string>$thisVersion</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>LSUIElement</key>
     <true/>
     <key>CFBundleURLTypes</key>
