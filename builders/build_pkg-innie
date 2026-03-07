@@ -1,0 +1,179 @@
+#!/bin/bash
+set -e
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+
+# get the version of this release
+thisVersion=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' $gitRoot/phvalheim-client.csproj | head -1)
+
+
+# find dotnet — prefer ~/.dotnet, fall back to PATH
+if [ -x "$HOME/.dotnet/dotnet" ]; then
+    DOTNET="$HOME/.dotnet/dotnet"
+elif command -v dotnet &>/dev/null; then
+    DOTNET="dotnet"
+else
+    echo "ERROR: dotnet not found. Install .NET 9 SDK first."
+    echo "  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0 --install-dir ~/.dotnet"
+    exit 1
+fi
+
+echo
+echo "## PhValheim Client macOS .pkg packager ##"
+echo
+echo "Now: $(date)"
+echo
+echo "This build system hostname: $(hostname)"
+echo "This build system kernel: $(uname -r)"
+echo
+echo "Git root directory: $gitRoot"
+echo "PhValheim Client Version: $thisVersion"
+echo "dotnet: $DOTNET"
+echo
+
+
+# build both architectures then lipo into a universal binary
+cd $gitRoot
+
+echo "Building osx-x64..."
+$DOTNET publish \
+    -c macOS-Release \
+    -r osx-x64 \
+    -p:PublishSingleFile=true \
+    --self-contained true \
+    ./phvalheim-client.csproj \
+    /property:GenerateFullPaths=true \
+    /consoleloggerparameters:NoSummary \
+    /p:PublishTrimmed=false
+
+echo "Building osx-arm64..."
+$DOTNET publish \
+    -c macOS-Release \
+    -r osx-arm64 \
+    -p:PublishSingleFile=true \
+    --self-contained true \
+    ./phvalheim-client.csproj \
+    /property:GenerateFullPaths=true \
+    /consoleloggerparameters:NoSummary \
+    /p:PublishTrimmed=false
+
+BIN_X64="$gitRoot/bin/macOS-Release/net9.0/osx-x64/publish/phvalheim-client"
+BIN_ARM64="$gitRoot/bin/macOS-Release/net9.0/osx-arm64/publish/phvalheim-client"
+
+if [ ! -f "$BIN_X64" ] || [ ! -f "$BIN_ARM64" ]; then
+    echo "ERROR: One or both builds failed"
+    [ ! -f "$BIN_X64" ]   && echo "  Missing: $BIN_X64"
+    [ ! -f "$BIN_ARM64" ] && echo "  Missing: $BIN_ARM64"
+    exit 1
+fi
+
+echo "Creating universal binary with lipo..."
+BINARY="$gitRoot/bin/macOS-Release/net9.0/universal/phvalheim-client"
+mkdir -p "$(dirname "$BINARY")"
+lipo -create "$BIN_X64" "$BIN_ARM64" -output "$BINARY"
+echo "Universal binary: $(lipo -info "$BINARY")"
+ARCHSUFFIX="universal"
+
+
+# staging directories
+PKG_STAGING="$gitRoot/builders/.pkg_staging"
+PKG_ROOT="$PKG_STAGING/root"
+PKG_SCRIPTS="$PKG_STAGING/scripts"
+APP_BUNDLE="$PKG_ROOT/Applications/PhValheim Client.app"
+
+rm -rf "$PKG_STAGING"
+mkdir -p "$PKG_ROOT/usr/local/bin"
+mkdir -p "$PKG_ROOT/Applications"
+mkdir -p "$PKG_SCRIPTS"
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+
+
+# install binary
+cp "$BINARY" "$PKG_ROOT/usr/local/bin/phvalheim-client"
+chmod 755 "$PKG_ROOT/usr/local/bin/phvalheim-client"
+
+
+# create the .app bundle that handles phvalheim:// URL scheme
+# the executable is a thin shell wrapper around the installed binary
+cat > "$APP_BUNDLE/Contents/MacOS/PhValheim Client" << 'APPEOF'
+#!/bin/bash
+exec /usr/local/bin/phvalheim-client "$@"
+APPEOF
+chmod 755 "$APP_BUNDLE/Contents/MacOS/PhValheim Client"
+
+
+# Info.plist — declares phvalheim:// URL scheme so macOS routes clicks here
+cat > "$APP_BUNDLE/Contents/Info.plist" << PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>PhValheim Client</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.phospher.phvalheim-client</string>
+    <key>CFBundleName</key>
+    <string>PhValheim Client</string>
+    <key>CFBundleVersion</key>
+    <string>$thisVersion</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$thisVersion</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>PhValheim URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>phvalheim</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
+PLISTEOF
+
+
+# postinstall script — registers the .app with Launch Services so the URL scheme is live immediately
+cat > "$PKG_SCRIPTS/postinstall" << 'SCRIPTEOF'
+#!/bin/bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "/Applications/PhValheim Client.app"
+exit 0
+SCRIPTEOF
+chmod 755 "$PKG_SCRIPTS/postinstall"
+
+
+# build the component package
+COMPONENT_PKG="$PKG_STAGING/phvalheim-client-component.pkg"
+pkgbuild \
+    --root "$PKG_ROOT" \
+    --scripts "$PKG_SCRIPTS" \
+    --identifier com.phospher.phvalheim-client \
+    --version "$thisVersion" \
+    --install-location / \
+    "$COMPONENT_PKG"
+
+
+# build the final distributable .pkg
+OUTPUT="$gitRoot/builds/phvalheim-client-$thisVersion-macos-$ARCHSUFFIX.pkg"
+productbuild \
+    --package "$COMPONENT_PKG" \
+    "$OUTPUT"
+
+
+if [ -f "$OUTPUT" ]; then
+    echo
+    echo "Successfully wrote: $OUTPUT"
+    exit 0
+else
+    echo "ERROR: Could not build .pkg"
+    exit 1
+fi

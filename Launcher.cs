@@ -106,6 +106,40 @@ namespace PhValheim.Launcher
                   Process.Start(startInfo);
                 }
             }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                Console.WriteLine("  macOS launch detected...");
+
+                // Check if steam is already running; Valheim needs Steam online at launch
+                string[] pids = Process.GetProcessesByName("steam_osx").Select(p => p.Id.ToString()).ToArray();
+                if (pids.Length == 0)
+                {
+                    Console.WriteLine("  Starting Steam...");
+                    ProcessStartInfo steamStartInfo = new ProcessStartInfo(steamExe);
+                    steamStartInfo.UseShellExecute = false;
+                    steamStartInfo.Arguments = "-nofriendsui -console";
+                    Process.Start(steamStartInfo);
+                    Thread.Sleep(10000);
+                }
+
+                string exec = Path.Combine(valheimDir, "Valheim.app", "Contents", "MacOS", "Valheim");
+                string doorstopLibs = Path.Combine(valheimDir, "doorstop_libs");
+                string doorstopDylib = Path.Combine(doorstopLibs, "libdoorstop.dylib");
+                string monoLibPath = Path.Combine(valheimDir, "Valheim.app", "Contents", "Frameworks", "libmonobdwgc-2.0.dylib");
+
+                ProcessStartInfo startInfo = new ProcessStartInfo(exec);
+                startInfo.UseShellExecute = false;
+                startInfo.CreateNoWindow = false;
+                startInfo.ArgumentList.Add("-console");
+                startInfo.WorkingDirectory = valheimDir;
+                startInfo.EnvironmentVariables["DOORSTOP_ENABLED"] = "1";
+                startInfo.EnvironmentVariables["DOORSTOP_TARGET_ASSEMBLY"] = BepInEx_Preloader;
+                startInfo.EnvironmentVariables["DOORSTOP_MONO_LIB_PATH"] = monoLibPath;
+                startInfo.EnvironmentVariables["DYLD_LIBRARY_PATH"] = doorstopLibs;
+                startInfo.EnvironmentVariables["DYLD_INSERT_LIBRARIES"] = doorstopDylib;
+
+                Process.Start(startInfo);
+            }
         }
     }
 }

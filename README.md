@@ -41,6 +41,18 @@ sudo ./phvalheim-client-installer.sh install
 xdg-mime default phvalheim-client.desktop x-scheme-handler/phvalheim
 ```
 
+### macOS (.pkg)
+
+```bash
+sudo installer -pkg phvalheim-client-<version>-macos-universal.pkg -target /
+```
+
+The installer places the binary at `/usr/local/bin/phvalheim-client` and registers the `phvalheim://` URL scheme automatically via a `PhValheim Client.app` bundle in `/Applications`. No further configuration is needed.
+
+The package is a universal binary and runs natively on both Intel and Apple Silicon Macs.
+
+> **Note:** macOS may show a Gatekeeper warning on first launch since the package is not yet notarized. To allow it: System Settings → Privacy & Security → click "Open Anyway".
+
 ### Windows (.msi)
 
 Run the installer. The URL scheme handler is registered automatically.
@@ -73,10 +85,11 @@ Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0).
 dotnet publish -c Linux-Release -r linux-x64 -p:PublishSingleFile=true --self-contained true ./phvalheim-client.csproj
 ```
 
-Package builds use Docker:
+Package builds use Docker or a remote Mac:
 - **Debian .deb**: `bash builders/build_deb-outie`
 - **Fedora .rpm**: `bash builders/build_rpm-outie`
 - **Universal .tar.gz**: `bash builders/build_tgz-innie`
+- **macOS .pkg**: `MAC_HOST=<host> MAC_USER=<user> MAC_PASS=<pass> bash builders/build_pkg-outie` (requires SSH access to a Mac)
 
 ## Related
 
