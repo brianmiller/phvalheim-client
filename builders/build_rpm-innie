@@ -68,9 +68,11 @@ Release: 1
 License: GPL-2.0-or-later
 Group: Games
 URL: https://github.com/brianmiller/phvalheim-client
-
 %description
 The over-engineered client to the over-engineered server.
+
+%install
+cp -r %{_topdir}/BUILDROOT/%{name}-%{version}-%{release}.x86_64/. %{buildroot}/
 
 %clean
 
