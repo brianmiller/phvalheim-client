@@ -1,0 +1,56 @@
+#!/bin/bash
+set -e
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+# Mac build host — override with MAC_HOST / MAC_USER / MAC_PASS env vars if needed
+MAC_HOST="${MAC_HOST:-2.2.2.244}"
+MAC_USER="${MAC_USER:-brian}"
+MAC_PASS="${MAC_PASS:-hammer}"
+MAC_GITROOT="${MAC_GITROOT:-/tmp/phvalheim-client-build}"
+
+thisVersion=$(grep -oPm1 "(?<=<Version>)[^<]+" $gitRoot/phvalheim-client.csproj)
+
+echo
+echo "## PhValheim Client macOS .tar.gz remote builder ##"
+echo
+echo "Mac host:    $MAC_HOST"
+echo "Mac user:    $MAC_USER"
+echo "Version:     $thisVersion"
+echo "Local root:  $gitRoot"
+echo "Remote root: $MAC_GITROOT"
+echo
+
+# helper: run a command on the Mac via SSH
+mac_ssh() {
+    sshpass -p "$MAC_PASS" ssh -o StrictHostKeyChecking=no "$MAC_USER@$MAC_HOST" "$@"
+}
+
+# helper: rsync files to the Mac
+mac_rsync() {
+    sshpass -p "$MAC_PASS" rsync -e "ssh -o StrictHostKeyChecking=no" "$@"
+}
+
+
+echo "Syncing source to Mac..."
+mac_ssh "mkdir -p $MAC_GITROOT/builds $MAC_GITROOT/builders"
+mac_rsync -az --exclude='.git' --exclude='bin/' --exclude='obj/' --exclude='builds/' \
+    "$gitRoot/" "$MAC_USER@$MAC_HOST:$MAC_GITROOT/"
+
+
+echo "Running build_macos-innie on Mac..."
+mac_ssh "bash $MAC_GITROOT/builders/build_macos-innie"
+
+
+echo "Retrieving .tar.gz..."
+mkdir -p "$gitRoot/builds"
+sshpass -p "$MAC_PASS" scp -o StrictHostKeyChecking=no \
+    "$MAC_USER@$MAC_HOST:$MAC_GITROOT/builds/*.tar.gz" \
+    "$gitRoot/builds/"
+
+
+echo
+echo "Done. Built packages:"
+ls -lh "$gitRoot/builds/"*macos*.tar.gz

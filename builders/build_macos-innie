@@ -1,0 +1,343 @@
+#!/bin/bash
+set -e
+
+# define our roots
+scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
+
+
+# get the version of this release
+thisVersion=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' $gitRoot/phvalheim-client.csproj | head -1)
+
+
+# find dotnet — prefer ~/.dotnet, fall back to PATH
+if [ -x "$HOME/.dotnet/dotnet" ]; then
+    DOTNET="$HOME/.dotnet/dotnet"
+elif command -v dotnet &>/dev/null; then
+    DOTNET="dotnet"
+else
+    echo "ERROR: dotnet not found. Install .NET 9 SDK first."
+    echo "  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0 --install-dir ~/.dotnet"
+    exit 1
+fi
+
+echo
+echo "## PhValheim Client macOS .tar.gz packager ##"
+echo
+echo "Now: $(date)"
+echo
+echo "This build system hostname: $(hostname)"
+echo "This build system kernel: $(uname -r)"
+echo
+echo "Git root directory: $gitRoot"
+echo "PhValheim Client Version: $thisVersion"
+echo "dotnet: $DOTNET"
+echo
+
+
+# build both architectures then lipo into a universal binary
+cd $gitRoot
+
+echo "Building osx-x64..."
+$DOTNET publish \
+    -c macOS-Release \
+    -r osx-x64 \
+    -p:PublishSingleFile=true \
+    --self-contained true \
+    ./phvalheim-client.csproj \
+    /property:GenerateFullPaths=true \
+    /consoleloggerparameters:NoSummary \
+    /p:PublishTrimmed=false
+
+echo "Building osx-arm64..."
+$DOTNET publish \
+    -c macOS-Release \
+    -r osx-arm64 \
+    -p:PublishSingleFile=true \
+    --self-contained true \
+    ./phvalheim-client.csproj \
+    /property:GenerateFullPaths=true \
+    /consoleloggerparameters:NoSummary \
+    /p:PublishTrimmed=false
+
+BIN_X64="$gitRoot/bin/macOS-Release/net9.0/osx-x64/publish/phvalheim-client"
+BIN_ARM64="$gitRoot/bin/macOS-Release/net9.0/osx-arm64/publish/phvalheim-client"
+
+if [ ! -f "$BIN_X64" ] || [ ! -f "$BIN_ARM64" ]; then
+    echo "ERROR: One or both builds failed"
+    [ ! -f "$BIN_X64" ]   && echo "  Missing: $BIN_X64"
+    [ ! -f "$BIN_ARM64" ] && echo "  Missing: $BIN_ARM64"
+    exit 1
+fi
+
+echo "Creating universal binary with lipo..."
+UNIVERSAL_BIN="$gitRoot/bin/macOS-Release/net9.0/universal/phvalheim-client"
+mkdir -p "$(dirname "$UNIVERSAL_BIN")"
+lipo -create "$BIN_X64" "$BIN_ARM64" -output "$UNIVERSAL_BIN"
+echo "Universal binary: $(lipo -info "$UNIVERSAL_BIN")"
+
+
+# staging directory
+STAGING="$gitRoot/builders/.macos_staging"
+APP_BUNDLE="$STAGING/PhValheim Client.app"
+
+rm -rf "$STAGING"
+mkdir -p "$STAGING"
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+
+
+# install binary
+cp "$UNIVERSAL_BIN" "$STAGING/phvalheim-client"
+chmod 755 "$STAGING/phvalheim-client"
+
+
+# compile the Swift URL handler — receives phvalheim:// via Apple Event and forwards to phvalheim-client
+echo "Compiling Swift URL handler..."
+swiftc -o "$APP_BUNDLE/Contents/MacOS/PhValheim Client" \
+    "$gitRoot/builders/url-handler.swift" \
+    -framework Cocoa
+chmod 755 "$APP_BUNDLE/Contents/MacOS/PhValheim Client"
+
+
+# Info.plist — declares phvalheim:// URL scheme so macOS routes clicks here
+cat > "$APP_BUNDLE/Contents/Info.plist" << PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>PhValheim Client</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.phospher.phvalheim-client</string>
+    <key>CFBundleName</key>
+    <string>PhValheim Client</string>
+    <key>CFBundleVersion</key>
+    <string>$thisVersion</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$thisVersion</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>PhValheim URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>phvalheim</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
+PLISTEOF
+
+
+: << 'INSTALLEREOF' # dead block — kept for reference only
+#!/bin/bash
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+cd "$SCRIPT_DIR"
+
+BINARY="phvalheim-client"
+APP_BUNDLE="PhValheim Client.app"
+INSTALL_BIN="/usr/local/bin/phvalheim-client"
+INSTALL_APP="/Applications/PhValheim Client.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+STEAM_DIR="$HOME/Library/Application Support/Steam"
+VALHEIM_APP="$STEAM_DIR/steamapps/common/Valheim/Valheim.app"
+PHVALHEIM_CONFIG="$HOME/Library/Application Support/PhValheim"
+
+ok()   { echo "  [OK]  $*"; }
+warn() { echo "  [!!]  $*"; }
+fail() { echo "  [XX]  $*"; }
+
+if [ "$1" = "install" ]; then
+    set -e
+    echo "Installing PhValheim Client..."
+
+    # install binary
+    mkdir -p /usr/local/bin
+    cp "$BINARY" "$INSTALL_BIN"
+    chmod 755 "$INSTALL_BIN"
+    xattr -rd com.apple.quarantine "$INSTALL_BIN" 2>/dev/null || true
+
+    # install .app bundle
+    rm -rf "$INSTALL_APP"
+    cp -r "$APP_BUNDLE" "$INSTALL_APP"
+    xattr -rd com.apple.quarantine "$INSTALL_APP" 2>/dev/null || true
+
+    # register phvalheim:// URL scheme
+    "$LSREGISTER" -f "$INSTALL_APP"
+
+    echo "Done. PhValheim Client $thisVersion installed."
+    echo "  Binary:      $INSTALL_BIN"
+    echo "  URL handler: $INSTALL_APP"
+
+elif [ "$1" = "uninstall" ]; then
+    set -e
+    echo "Uninstalling PhValheim Client..."
+    rm -f "$INSTALL_BIN"
+    "$LSREGISTER" -u "$INSTALL_APP" 2>/dev/null || true
+    rm -rf "$INSTALL_APP"
+    echo "Done."
+
+elif [ "$1" = "diags" ]; then
+    echo
+    echo "=== PhValheim Client Diagnostics ==="
+    echo
+
+    # --- phvalheim-client binary ---
+    echo "-- phvalheim-client binary --"
+    if [ -f "$INSTALL_BIN" ]; then
+        ok "Binary present: $INSTALL_BIN"
+        INSTALLED_VER=$(defaults read "$INSTALL_APP/Contents/Info.plist" CFBundleVersion 2>/dev/null || echo "unknown")
+        ok "Installed version: $INSTALLED_VER"
+        QUARANTINE=$(xattr "$INSTALL_BIN" 2>/dev/null | grep quarantine || true)
+        if [ -n "$QUARANTINE" ]; then
+            warn "Quarantine xattr set on binary (may be blocked)"
+        else
+            ok "No quarantine xattr on binary"
+        fi
+    else
+        fail "Binary NOT found: $INSTALL_BIN"
+    fi
+    echo
+
+    # --- .app bundle ---
+    echo "-- PhValheim Client.app --"
+    if [ -d "$INSTALL_APP" ]; then
+        ok "App bundle present: $INSTALL_APP"
+        HANDLER="$INSTALL_APP/Contents/MacOS/PhValheim Client"
+        if [ -f "$HANDLER" ]; then
+            ok "URL handler binary present"
+        else
+            fail "URL handler binary MISSING: $HANDLER"
+        fi
+        QUARANTINE=$(xattr "$INSTALL_APP" 2>/dev/null | grep quarantine || true)
+        if [ -n "$QUARANTINE" ]; then
+            warn "Quarantine xattr set on .app (URL scheme may be blocked)"
+        else
+            ok "No quarantine xattr on .app"
+        fi
+    else
+        fail "App bundle NOT found: $INSTALL_APP"
+    fi
+    echo
+
+    # --- URL scheme registration ---
+    echo "-- phvalheim:// URL scheme --"
+    REGISTERED=$("$LSREGISTER" -dump 2>/dev/null | grep -i "phvalheim" || true)
+    if [ -n "$REGISTERED" ]; then
+        ok "phvalheim:// scheme is registered"
+    else
+        warn "phvalheim:// scheme NOT found in LaunchServices database"
+        warn "Try: $LSREGISTER -f \"$INSTALL_APP\""
+    fi
+    echo
+
+    # --- Steam ---
+    echo "-- Steam --"
+    if [ -d "$STEAM_DIR" ]; then
+        ok "Steam dir found: $STEAM_DIR"
+    else
+        fail "Steam dir NOT found: $STEAM_DIR"
+    fi
+    STEAM_EXE="/Applications/Steam.app/Contents/MacOS/steam_osx"
+    if [ -f "$STEAM_EXE" ]; then
+        ok "Steam executable found"
+    else
+        fail "Steam executable NOT found: $STEAM_EXE"
+    fi
+    echo
+
+    # --- Valheim ---
+    echo "-- Valheim --"
+    if [ -d "$VALHEIM_APP" ]; then
+        ok "Valheim.app found: $VALHEIM_APP"
+        VALHEIM_BIN="$VALHEIM_APP/Contents/MacOS/Valheim"
+        if [ -f "$VALHEIM_BIN" ]; then
+            ok "Valheim binary present"
+            ARCHS=$(lipo -info "$VALHEIM_BIN" 2>/dev/null || echo "unknown")
+            ok "Architectures: $ARCHS"
+        else
+            fail "Valheim binary NOT found: $VALHEIM_BIN"
+        fi
+        MONO_LIB="$VALHEIM_APP/Contents/Frameworks/libmonobdwgc-2.0.dylib"
+        if [ -f "$MONO_LIB" ]; then
+            ok "Mono lib present: $MONO_LIB"
+        else
+            warn "Mono lib NOT found: $MONO_LIB"
+        fi
+        # check DYLD injection entitlements
+        ENTITLEMENTS=$(codesign -d --entitlements - "$VALHEIM_BIN" 2>/dev/null || true)
+        if echo "$ENTITLEMENTS" | grep -q "allow-dyld-environment-variables"; then
+            ok "Valheim has allow-dyld-environment-variables entitlement"
+        else
+            warn "allow-dyld-environment-variables entitlement NOT found (doorstop injection may fail)"
+        fi
+        if echo "$ENTITLEMENTS" | grep -q "disable-library-validation"; then
+            ok "Valheim has disable-library-validation entitlement"
+        else
+            warn "disable-library-validation entitlement NOT found (unsigned dylibs may be blocked)"
+        fi
+    else
+        fail "Valheim.app NOT found: $VALHEIM_APP"
+        # check alternate libraryfolders
+        LIBFOLDERS="$STEAM_DIR/steamapps/libraryfolders.vdf"
+        if [ -f "$LIBFOLDERS" ]; then
+            warn "Check other Steam library paths in: $LIBFOLDERS"
+        fi
+    fi
+    echo
+
+    # --- PhValheim config dir ---
+    echo "-- PhValheim config --"
+    if [ -d "$PHVALHEIM_CONFIG" ]; then
+        ok "Config dir present: $PHVALHEIM_CONFIG"
+        WORLD_COUNT=$(find "$PHVALHEIM_CONFIG/worlds" -maxdepth 3 -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
+        ok "World files found: $WORLD_COUNT"
+    else
+        ok "Config dir not yet created (normal before first launch)"
+    fi
+    echo
+
+    echo "=== Diagnostics complete ==="
+    echo
+
+else
+    echo "Usage: sudo bash phvalheim-client-installer.sh install|uninstall|diags"
+    echo
+    echo "  install   — install phvalheim-client and register phvalheim:// URL scheme"
+    echo "  uninstall — remove phvalheim-client"
+    echo "  diags     — check installation health (no sudo needed)"
+    exit 1
+fi
+INSTALLEREOF
+
+
+# assemble tarball — binary and .app only; macinstall.sh (repo root) is the user-facing installer
+OUTPUT="$gitRoot/builds/phvalheim-client-$thisVersion-macos-universal.tar.gz"
+mkdir -p "$gitRoot/builds"
+
+echo
+echo "Assembling tarball..."
+cd "$STAGING"
+tar -czf "$OUTPUT" \
+    "phvalheim-client" \
+    "PhValheim Client.app"
+
+
+if [ -f "$OUTPUT" ]; then
+    echo
+    echo "Successfully wrote: $OUTPUT"
+    echo "$(du -sh "$OUTPUT" | cut -f1)  $OUTPUT"
+    exit 0
+else
+    echo "ERROR: Could not build tarball"
+    exit 1
+fi
