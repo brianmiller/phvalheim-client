@@ -123,8 +123,20 @@ namespace PhValheim.Launcher
                 }
 
                 string exec = Path.Combine(valheimDir, "Valheim.app", "Contents", "MacOS", "Valheim");
-                string doorstopLibs = Path.Combine(valheimDir, "doorstop_libs");
+                string worldDir = Path.Combine(Platform.State.PhValheimServerRoot, Platform.State.WorldName);
+                string doorstopLibs = Path.Combine(worldDir, "doorstop_libs");
                 string doorstopDylib = Path.Combine(doorstopLibs, "libdoorstop.dylib");
+
+                // fall back to the copy bundled inside the .app if the server didn't ship one
+                if (!File.Exists(doorstopDylib))
+                {
+                    string bundled = "/Applications/PhValheim Client.app/Contents/Resources/libdoorstop.dylib";
+                    if (File.Exists(bundled))
+                        doorstopDylib = bundled;
+                    else
+                        Console.WriteLine("  WARNING: libdoorstop.dylib not found in world dir or app bundle");
+                }
+
                 string monoLibPath = Path.Combine(valheimDir, "Valheim.app", "Contents", "Frameworks", "libmonobdwgc-2.0.dylib");
 
                 ProcessStartInfo startInfo = new ProcessStartInfo(exec);
