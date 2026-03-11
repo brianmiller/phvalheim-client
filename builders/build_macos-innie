@@ -84,11 +84,23 @@ APP_BUNDLE="$STAGING/PhValheim Client.app"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
+mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 
 # install binary
 cp "$UNIVERSAL_BIN" "$STAGING/phvalheim-client"
 chmod 755 "$STAGING/phvalheim-client"
+
+
+# bundle libdoorstop.dylib as fallback for servers that don't ship it
+DOORSTOP_SRC="$scriptRoot/libdoorstop.dylib"
+if [ -f "$DOORSTOP_SRC" ]; then
+    echo "Bundling libdoorstop.dylib ($(lipo -info "$DOORSTOP_SRC" | sed 's/.*are: /'))..."
+    cp "$DOORSTOP_SRC" "$APP_BUNDLE/Contents/Resources/libdoorstop.dylib"
+else
+    echo "WARNING: libdoorstop.dylib not found at $DOORSTOP_SRC"
+    echo "         Clients connecting to old servers will not have a fallback dylib."
+fi
 
 
 # compile the Swift URL handler — receives phvalheim:// via Apple Event and forwards to phvalheim-client
