@@ -137,6 +137,23 @@ namespace PhValheim.Launcher
                         Console.WriteLine("  WARNING: libdoorstop.dylib not found in world dir or app bundle");
                 }
 
+                // On Apple Silicon, swap in patched BepInEx DLLs that fix MonoMod/Harmony
+                // for arm64 MAP_JIT W^X enforcement. Stock DLLs remain for Intel Macs.
+                if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+                {
+                    string patchesDir = Path.Combine(worldDir, "BepInEx", "patches", "macos_arm64");
+                    string coreDir = Path.Combine(worldDir, "BepInEx", "core");
+                    if (Directory.Exists(patchesDir))
+                    {
+                        foreach (string patchDll in Directory.GetFiles(patchesDir, "*.dll"))
+                        {
+                            string target = Path.Combine(coreDir, Path.GetFileName(patchDll));
+                            File.Copy(patchDll, target, true);
+                            Console.WriteLine("  Applied arm64 patch: " + Path.GetFileName(patchDll));
+                        }
+                    }
+                }
+
                 string monoLibPath = Path.Combine(valheimDir, "Valheim.app", "Contents", "Frameworks", "libmonobdwgc-2.0.dylib");
 
                 ProcessStartInfo startInfo = new ProcessStartInfo(exec);
