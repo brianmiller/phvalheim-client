@@ -137,26 +137,83 @@ namespace PhValheim.Launcher
                         Console.WriteLine("  WARNING: libdoorstop.dylib not found in world dir or app bundle");
                 }
 
-                // On Apple Silicon, swap in patched BepInEx DLLs that fix MonoMod/Harmony
-                // for arm64 MAP_JIT W^X enforcement. Stock DLLs remain for Intel Macs.
-                if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+                // On Apple Silicon, force Valheim to run under Rosetta 2 (x86_64).
+                // MonoMod v22 (bundled with BepInEx 5.x) cannot write detour trampolines
+                // on arm64 due to MAP_JIT W^X hardware enforcement. Running under Rosetta
+                // uses the x86_64 MonoMod code path which works correctly.
+                //
+                // We use lipo -thin to extract the x86_64 slice from the universal binary.
+                // This forces Rosetta without using /usr/bin/arch (which strips DYLD_ vars
+                // due to SIP, breaking doorstop injection).
+                bool useRosetta = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+                string launchExec = exec;
+
+                if (useRosetta)
                 {
-                    string patchesDir = Path.Combine(worldDir, "BepInEx", "patches", "macos_arm64");
-                    string coreDir = Path.Combine(worldDir, "BepInEx", "core");
-                    if (Directory.Exists(patchesDir))
+                    Console.WriteLine("  Apple Silicon detected — extracting x86_64 binary for Rosetta 2...");
+                    string x86Exec = exec + ".x86_64";
+                    try
                     {
-                        foreach (string patchDll in Directory.GetFiles(patchesDir, "*.dll"))
+                        // Only re-extract if the source binary is newer than our cached copy
+                        if (!File.Exists(x86Exec) || File.GetLastWriteTimeUtc(exec) > File.GetLastWriteTimeUtc(x86Exec))
                         {
-                            string target = Path.Combine(coreDir, Path.GetFileName(patchDll));
-                            File.Copy(patchDll, target, true);
-                            Console.WriteLine("  Applied arm64 patch: " + Path.GetFileName(patchDll));
+                            var lipo = new ProcessStartInfo("/usr/bin/lipo");
+                            lipo.ArgumentList.Add("-thin");
+                            lipo.ArgumentList.Add("x86_64");
+                            lipo.ArgumentList.Add(exec);
+                            lipo.ArgumentList.Add("-output");
+                            lipo.ArgumentList.Add(x86Exec);
+                            lipo.UseShellExecute = false;
+                            lipo.RedirectStandardError = true;
+                            var lipoProc = Process.Start(lipo);
+                            lipoProc?.WaitForExit(10000);
+                            if (lipoProc?.ExitCode != 0)
+                            {
+                                Console.WriteLine("  WARNING: lipo -thin failed, falling back to native arm64");
+                                useRosetta = false;
+                            }
+                            else
+                            {
+                                // Re-sign with ad-hoc signature preserving original entitlements.
+                                // lipo -thin invalidates the code signature; without re-signing,
+                                // macOS kills the binary with SIGKILL (Code Signature Invalid).
+                                var codesign = new ProcessStartInfo("/usr/bin/codesign");
+                                codesign.ArgumentList.Add("--force");
+                                codesign.ArgumentList.Add("--sign");
+                                codesign.ArgumentList.Add("-");
+                                codesign.ArgumentList.Add("--preserve-metadata=entitlements,flags");
+                                codesign.ArgumentList.Add(x86Exec);
+                                codesign.UseShellExecute = false;
+                                codesign.RedirectStandardError = true;
+                                var signProc = Process.Start(codesign);
+                                signProc?.WaitForExit(10000);
+                                if (signProc?.ExitCode != 0)
+                                {
+                                    Console.WriteLine("  WARNING: codesign failed, falling back to native arm64");
+                                    useRosetta = false;
+                                }
+                                else
+                                {
+                                    Console.WriteLine("  Re-signed x86_64 binary with entitlements.");
+                                }
+                            }
                         }
+                        if (useRosetta)
+                        {
+                            launchExec = x86Exec;
+                            Console.WriteLine("  Launching x86_64 binary under Rosetta 2...");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("  WARNING: Failed to extract x86_64 binary: " + ex.Message);
+                        Console.WriteLine("  Falling back to native arm64 (mods may not work)...");
                     }
                 }
 
                 string monoLibPath = Path.Combine(valheimDir, "Valheim.app", "Contents", "Frameworks", "libmonobdwgc-2.0.dylib");
 
-                ProcessStartInfo startInfo = new ProcessStartInfo(exec);
+                ProcessStartInfo startInfo = new ProcessStartInfo(launchExec);
                 startInfo.UseShellExecute = false;
                 startInfo.CreateNoWindow = false;
                 startInfo.ArgumentList.Add("-console");
