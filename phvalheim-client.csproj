@@ -6,7 +6,7 @@
 	<RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-	<Version>2.0.12</Version>
+	<Version>2.0.13</Version>
 	<Authors>posixone</Authors>
 	<RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
 	<ProduceReferenceAssembly>True</ProduceReferenceAssembly>
@@ -43,12 +43,11 @@
 		echo "Linux build detected."
 	</PostBuildEvent>
 	<PackAsTool>False</PackAsTool>
-	<AssemblyVersion>2.0.12</AssemblyVersion>
-	<FileVersion>2.0.12</FileVersion>
+	<AssemblyVersion>2.0.13</AssemblyVersion>
+	<FileVersion>2.0.13</FileVersion>
 </PropertyGroup>
 	
   <ItemGroup>
-    <Folder Include="ProgressBar\" />
   </ItemGroup>
 
   <ItemGroup>

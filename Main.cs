@@ -24,10 +24,11 @@ namespace PhValheim
             string phvalheimURL = "";
             string httpScheme = "";
             string phvalheimHostNoPort;
+            bool isVanilla = false;
 
 
             //take in and process all arguments from our URL handler
-            if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost, ref httpScheme))
+            if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost, ref httpScheme, ref isVanilla))
             {
                 Console.WriteLine("\n");
                 Console.WriteLine("Press Enter key to exit.");
@@ -80,22 +81,32 @@ namespace PhValheim
                 }
 
 
-                //sync world to local disk
-                if (!Syncer.PhValheim.Sync(phvalheimURL))
+                // A vanilla world has no BepInEx, no mods and no client payload, so
+                // there is nothing to sync and no backend file for a companion mod that
+                // will not be running. Players join it with Valheim's own +connect.
+                if (!isVanilla)
                 {
-                    Console.WriteLine("\n");
-                    Console.WriteLine("Press the Enter key to exit.");
-                    Console.ReadLine();
-                    return;
+                    //sync world to local disk
+                    if (!Syncer.PhValheim.Sync(phvalheimURL))
+                    {
+                        Console.WriteLine("\n");
+                        Console.WriteLine("Press the Enter key to exit.");
+                        Console.ReadLine();
+                        return;
+                    }
+
+
+                    //write backend info to local file
+                    Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, phvalheimURL);
+                }
+                else
+                {
+                    Console.WriteLine("Vanilla world - no mods to sync.");
                 }
 
 
-                //write backend info to local file
-                Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, phvalheimURL);
-
-
                 //launch the game in the world context
-                Launcher.PhValheim.Launch(ref worldPassword, ref worldHost, ref worldPort);
+                Launcher.PhValheim.Launch(ref worldPassword, ref worldHost, ref worldPort, isVanilla);
 
 
                 //keep everything on the screen allowing you to read what just happend

@@ -29,7 +29,7 @@ namespace PhValheim.Arguments
                     "");
         }
 
-        public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost, ref string httpScheme)
+        public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost, ref string httpScheme, ref bool isVanilla)
         {
 
             //all arguments missing, print usage and exit
@@ -93,6 +93,20 @@ namespace PhValheim.Arguments
                             worldPort = argumentsPassed[4];
                             phvalheimHost = argumentsPassed[5];
                             httpScheme = argumentsPassed[6];
+
+                            // Field 7 (vanilla) was added in server 2.40. It is optional
+                            // on purpose: a 2.40 client must still work against an older
+                            // server, which sends only 7 fields. Absent means modded,
+                            // which is what every pre-2.40 world is.
+                            if (argumentsPassed.Length >= 8)
+                            {
+                                isVanilla = argumentsPassed[7] == "1";
+                            }
+                            else
+                            {
+                                isVanilla = false;
+                            }
+
                             return true;
                         }                     
                     }

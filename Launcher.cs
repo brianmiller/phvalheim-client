@@ -6,7 +6,58 @@ namespace PhValheim.Launcher
 {
     public class PhValheim
     {
-        public static void Launch(ref string worldPassword, ref string worldHost, ref string worldPort)
+        /// <summary>
+        /// Launch a vanilla (zero-mod) world.
+        ///
+        /// Nothing about the modded path applies here: there is no BepInEx to inject, so
+        /// no doorstop arguments, and no quickconnect mod to read a server list. We use
+        /// Valheim's own +connect argument instead, routed through Steam on every
+        /// platform so it works the same way everywhere.
+        ///
+        /// Vanilla Valheim has NO client-side argument to pre-fill the server password --
+        /// the player is dropped at the password prompt and types it themselves. That is
+        /// why we print it here and why the public UI shows it on the world card.
+        /// </summary>
+        private static void LaunchVanilla(string steamExe, string worldPassword, string worldHost, string worldPort)
+        {
+            string connect = worldHost + ":" + worldPort;
+
+            Console.WriteLine("  Vanilla world - launching without mods.");
+            Console.WriteLine("  Connecting to: " + connect);
+            if (!string.IsNullOrEmpty(worldPassword))
+            {
+                Console.WriteLine("");
+                Console.WriteLine("  Valheim will ask for the server password. It is:");
+                Console.WriteLine("      " + worldPassword);
+            }
+            Console.WriteLine("");
+
+            // Valheim needs Steam up before it starts; on Windows -applaunch handles that
+            // itself, but on Linux/macOS we start it the same way the modded path does.
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                string steamProcess = RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "steam_osx" : "steam";
+                if (Process.GetProcessesByName(steamProcess).Length == 0)
+                {
+                    Console.WriteLine("  Starting Steam...");
+                    ProcessStartInfo steamStartInfo = new ProcessStartInfo(steamExe);
+                    steamStartInfo.UseShellExecute = false;
+                    steamStartInfo.Arguments = "-nofriendsui -console";
+                    Process.Start(steamStartInfo);
+                    Thread.Sleep(10000);
+                }
+            }
+
+            ProcessStartInfo startInfo = new ProcessStartInfo(steamExe);
+            startInfo.ArgumentList.Add("-applaunch");
+            startInfo.ArgumentList.Add("892970");
+            startInfo.ArgumentList.Add("+connect");
+            startInfo.ArgumentList.Add(connect);
+            startInfo.UseShellExecute = false;
+            Process.Start(startInfo);
+        }
+
+        public static void Launch(ref string worldPassword, ref string worldHost, ref string worldPort, bool isVanilla = false)
         {
             string BepInEx_Preloader = Path.Combine(Platform.State.PhValheimServerRoot, Platform.State.WorldName, "BepInEx","core","BepInEx.Preloader.dll");
             string steamExe = Platform.State.SteamExe;
@@ -22,6 +73,12 @@ namespace PhValheim.Launcher
             Console.WriteLine("  Host: " + worldHost);
             Console.WriteLine("  Port: " + worldPort + "/udp");
             Console.WriteLine("");
+
+            if (isVanilla)
+            {
+                LaunchVanilla(steamExe, worldPassword, worldHost, worldPort);
+                return;
+            }
 
             // if running in windows
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
