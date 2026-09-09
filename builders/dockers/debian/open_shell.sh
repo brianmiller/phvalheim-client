@@ -14,4 +14,6 @@ else
         fi
 fi
 
-$docker run -v '/path/to/phvalheim-client':'/git' -ti debian-env /bin/bash
+gitRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." &>/dev/null && pwd)
+
+$docker run -v "$gitRoot":'/git' -ti debian-env /bin/bash

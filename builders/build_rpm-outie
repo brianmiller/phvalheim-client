@@ -29,7 +29,7 @@ echo
 # build fedora docker environment
 #echo "Building docker environment..."
 #echo
-#$docker build --format=docker -t fedora-env /path/to/phvalheim-client/builders/dockers/fedora/.
+#$docker build --format=docker -t fedora-env "$gitRoot/builders/dockers/fedora/"
 
 
 # ensure we're up-to-date

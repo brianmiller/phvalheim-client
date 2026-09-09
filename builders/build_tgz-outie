@@ -29,7 +29,7 @@ echo
 # build debian docker environment
 #echo "Building docker environment..."
 #echo
-#$docker build --format=docker -t debian-env /path/to/phvalheim-client/builders/dockers/debian/.
+#$docker build --format=docker -t debian-env "$gitRoot/builders/dockers/debian/"
 
 
 # ensure we're up-to-date

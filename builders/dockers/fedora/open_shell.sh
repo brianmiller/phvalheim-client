@@ -20,4 +20,6 @@ echo "Pulling pre-built fedora environment..."
 echo
 $docker image pull docker.io/theoriginalbrian/fedora-env:latest
 
-$docker run -v '/path/to/phvalheim-client':'/git' -ti fedora-env /bin/bash
+gitRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." &>/dev/null && pwd)
+
+$docker run -v "$gitRoot":'/git' -ti fedora-env /bin/bash
