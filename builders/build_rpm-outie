@@ -46,7 +46,7 @@ $docker image pull docker.io/theoriginalbrian/fedora-env:latest
 # run tgz build logic inside the container we just built
 echo "Building fedora package inside container..."
 echo
-$docker run -v '/path/to/phvalheim-client':'/git' -ti theoriginalbrian/fedora-env /git/builders/build_rpm-innie
+$docker run -v "$gitRoot":'/git' -ti theoriginalbrian/fedora-env /git/builders/build_rpm-innie
 
 
 # cleaning docker images

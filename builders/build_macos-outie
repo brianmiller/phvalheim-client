@@ -5,11 +5,30 @@ set -e
 scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
 
-# Mac build host — override with MAC_HOST / MAC_USER / MAC_PASS env vars if needed
-MAC_HOST="${MAC_HOST:-REDACTED-MAC-HOST}"
-MAC_USER="${MAC_USER:-brian}"
+# Mac build host.
+#
+# These are intentionally NOT defaulted. This is a public repository, so the host,
+# account and password must come from the environment -- never from a value committed
+# here. Prefer SSH key auth and leave MAC_PASS unset entirely.
+#
+#   export MAC_HOST=mac-build-host.example.com
+#   export MAC_USER=builder
+#   export MAC_PASS=...        # optional; omit when using SSH keys
+#
+MAC_HOST="${MAC_HOST:-}"
+MAC_USER="${MAC_USER:-}"
 MAC_PASS="${MAC_PASS:-}"
 MAC_GITROOT="${MAC_GITROOT:-/tmp/phvalheim-client-build}"
+
+if [ -z "$MAC_HOST" ] || [ -z "$MAC_USER" ]; then
+    echo "ERROR: MAC_HOST and MAC_USER must be set."
+    echo
+    echo "  export MAC_HOST=<mac build host>"
+    echo "  export MAC_USER=<account on that host>"
+    echo "  export MAC_PASS=<password>   # optional, omit to use SSH keys"
+    echo
+    exit 1
+fi
 
 thisVersion=$(grep -oPm1 "(?<=<Version>)[^<]+" $gitRoot/phvalheim-client.csproj)
 
@@ -24,13 +43,31 @@ echo "Remote root: $MAC_GITROOT"
 echo
 
 # helper: run a command on the Mac via SSH
+# Falls through to plain ssh when MAC_PASS is unset, so SSH keys work.
 mac_ssh() {
-    sshpass -p "$MAC_PASS" ssh -o StrictHostKeyChecking=no "$MAC_USER@$MAC_HOST" "$@"
+    if [ -n "$MAC_PASS" ]; then
+        sshpass -p "$MAC_PASS" ssh -o StrictHostKeyChecking=no "$MAC_USER@$MAC_HOST" "$@"
+    else
+        ssh -o StrictHostKeyChecking=no "$MAC_USER@$MAC_HOST" "$@"
+    fi
 }
 
 # helper: rsync files to the Mac
 mac_rsync() {
-    sshpass -p "$MAC_PASS" rsync -e "ssh -o StrictHostKeyChecking=no" "$@"
+    if [ -n "$MAC_PASS" ]; then
+        sshpass -p "$MAC_PASS" rsync -e "ssh -o StrictHostKeyChecking=no" "$@"
+    else
+        rsync -e "ssh -o StrictHostKeyChecking=no" "$@"
+    fi
+}
+
+# helper: copy a file back from the Mac
+mac_scp() {
+    if [ -n "$MAC_PASS" ]; then
+        sshpass -p "$MAC_PASS" scp -o StrictHostKeyChecking=no "$@"
+    else
+        scp -o StrictHostKeyChecking=no "$@"
+    fi
 }
 
 
@@ -46,9 +83,7 @@ mac_ssh "bash $MAC_GITROOT/builders/build_macos-innie"
 
 echo "Retrieving .tar.gz..."
 mkdir -p "$gitRoot/builds"
-sshpass -p "$MAC_PASS" scp -o StrictHostKeyChecking=no \
-    "$MAC_USER@$MAC_HOST:$MAC_GITROOT/builds/*.tar.gz" \
-    "$gitRoot/builds/"
+mac_scp "$MAC_USER@$MAC_HOST:$MAC_GITROOT/builds/*.tar.gz" "$gitRoot/builds/"
 
 
 echo

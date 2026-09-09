@@ -5,11 +5,29 @@ set -e
 scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
 
-# Mac build host — override with MAC_HOST / MAC_USER / MAC_PASS env vars if needed
-MAC_HOST="${MAC_HOST:-REDACTED-MAC-HOST}"
-MAC_USER="${MAC_USER:-builder}"
+# Mac build host.
+#
+# Intentionally NOT defaulted -- this is a public repository, so the host and account
+# must come from the environment. Prefer SSH key auth and leave MAC_PASS unset.
+#
+#   export MAC_HOST=mac-build-host.example.com
+#   export MAC_USER=builder
+#   export MAC_PASS=...        # optional; omit when using SSH keys
+#
+MAC_HOST="${MAC_HOST:-}"
+MAC_USER="${MAC_USER:-}"
 MAC_PASS="${MAC_PASS:-}"
 MAC_GITROOT="${MAC_GITROOT:-/tmp/phvalheim-client-build}"
+
+if [ -z "$MAC_HOST" ] || [ -z "$MAC_USER" ]; then
+    echo "ERROR: MAC_HOST and MAC_USER must be set."
+    echo
+    echo "  export MAC_HOST=<mac build host>"
+    echo "  export MAC_USER=<account on that host>"
+    echo "  export MAC_PASS=<password>   # optional, omit to use SSH keys"
+    echo
+    exit 1
+fi
 
 thisVersion=$(grep -oPm1 "(?<=<Version>)[^<]+" $gitRoot/phvalheim-client.csproj)
 
