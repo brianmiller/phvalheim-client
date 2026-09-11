@@ -1,7 +1,10 @@
 # System prompt — building the PhValheim Client Windows installer
 
 Give this to an agent working on the Windows `.msi` for `phvalheim-client`.
-Everything below is verified against commit `29f9c46` (2026-09-11).
+Everything below is measured against the shipped artifacts, not recalled. Current
+as of `5ba43be` (2026-09-11). The record of what actually broke is in
+"Bugs that shipped" below; read it before you change the wizard or the upgrade
+path, because every entry cost a release.
 
 ---
 
@@ -96,40 +99,123 @@ swapping in a publicly trusted cert is a one-line `CODESIGN_PFX` change.
 
 Building an MSI on Linux runs **no ICE validation**; `light.exe`'s validator is
 Windows-only and wixl has no equivalent. `builders/verify_msi.sh` is the entire
-substitute and its exit status gates the build. It has two independent gates:
-table assertions via `msiinfo`, and a real `wine msiexec /i … /qn` install.
+substitute and its exit status gates the build. Two gates: table assertions via
+`msiinfo`, and a real `wine msiexec /i … /qn` install.
 
 **Never weaken a failing assertion to make a build go green.** If a check fails,
 the MSI is wrong until proven otherwise.
 
 **If you add or change an assertion, prove it can fail.** Build a deliberately
-broken MSI and confirm the check reports red. This is not ceremony — when the
-suite was written, three checks could not see their own bug:
+broken MSI and confirm the check reports red. Where a known-good reference
+exists, validate **three ways**: 2.0.12 must PASS, the broken build must FAIL,
+the fix must PASS. The 2.0.12 leg is not ceremony — it is what catches a check
+that fails for the wrong reason.
+
+Run the suite against any package directly, which is how you drive those three
+legs without a full rebuild:
+
+```bash
+docker run --rm -v "$PWD":/git:ro phvalheim-msi-env \
+  bash /git/builders/verify_msi.sh /git/builds/phvalheim-client-2.0.12-x86_64.msi 2.0.12 --skip-wine
+```
+
+To build a deliberately broken variant cheaply, copy the two `.wxs` files plus
+`banner.bmp` and `phvalheim-client.ico` to a scratch dir, add a stub
+`phvalheim-client.exe` (`printf 'MZdummy' > phvalheim-client.exe`), edit the
+copy, and run `wixl -a x64 --ext ui -D Version=2.0.13 -o broken.msi
+phvalheim-client.wxs ui-phvalheim.wxs`. Seconds per iteration instead of minutes.
+Size and wine checks will fail on the stub; ignore those and read the check you
+are testing.
+
+### Checks that could not see their own bug
+
+Six so far. Every one of them reported green (or red) for a reason unrelated to
+the thing it claimed to test.
 
 1. **`msiinfo export` emits CRLF.** Every string comparison failed while printing
    expected and actual as *visually identical*. Strip `\r` centrally (`msiexport()`).
 2. **`osslsigncode verify`'s exit code means chain TRUST, not signature PRESENCE.**
-   A perfectly good self-signed signature exits 1. Keying off the exit code
-   reported every signed build as unsigned. Parse the output instead, and compare
-   `Current DigitalSignature` against `Calculated DigitalSignature` for integrity.
-3. **A component can sit in the File/Registry tables and never install.** Dropping
-   `<ComponentRef Id="UrlScheme"/>` passed *every* table assertion — the rows were
-   still in the table, just linked to no Feature. Assert `FeatureComponents`. This
-   one was caught independently by the wine install, which is why wine earns its
-   1 GB in the image.
+   A good self-signed signature exits 1, so every signed build was reported
+   unsigned. Parse the output; compare `Current` vs `Calculated DigitalSignature`.
+3. **A component can sit in the File/Registry tables and never install** if nothing
+   links it in `FeatureComponents`. Dropping `<ComponentRef Id="UrlScheme"/>` passed
+   every table assertion. Caught independently by the wine install.
+4. **`and()` does not exist in mawk**, which is the awk in this image. Using it made
+   an entire `END` block die silently, so the tab-loop check **passed on a package
+   that throws 2834**. A check that could not fail.
+5. **The Control table cannot be read line by line.** Multi-paragraph body text
+   contains real newlines, so records span lines and fields shift. That produced a
+   **false failure against 2.0.12**, a package that demonstrably works. Re-join
+   records first (`controlRecords()`).
+6. **`File.FileName` may be `SHORT~1.EXE|long-name.exe`.** Matching the long name
+   exactly made the 2.0.12 control read EMPTY — which looked like agreement with a
+   broken build. Match on the part after `|`.
 
 Also know: **REG_EXPAND_SZ is stored with a `#%` prefix on the value.** Strip it
 before comparing the command line, and assert the marker separately. As plain
 REG_SZ, Windows hands the literal `%appdata%\…` to CreateProcess and the URL
 handler silently never launches — invisible to every other check.
 
-To run the negative-control suite:
+## What the gates CANNOT see
 
-```bash
-# build good.msi plus variants with a wrong UpgradeCode, Type="string" instead of
-# "expandable", and the UrlScheme ComponentRef deleted; each must FAIL
-bash builders/verify_msi.sh <msi> <version> [--skip-wine]
-```
+Be explicit about this when you hand a build over. Every bug in the list below
+shipped through a fully green suite and was caught by Brian, most of them from a
+screenshot.
+
+- **Real Windows.** Wine implements MSI for real and rejects structurally broken
+  packages, but it is a proxy.
+- **Upgrades.** The wine gate is a **fresh** install. It structurally cannot see
+  upgrade-only faults, and the obvious fix is not available: **2.0.12 does not
+  install under wine at all** — its VS custom actions (`MSVBDPCADLL`,
+  `DIRCA_CheckNETCore`) never run, and the install leaves nothing on disk or in
+  the registry. There is no automated 2.0.12 → current upgrade test. The
+  file-version assertion is a proxy for the mechanism, not a test of the upgrade.
+- **Rendering.** Nothing checks fonts, colour, wrapping or clipping. A dialog can
+  be present, correctly wired, carry the right strings, and still render blue,
+  truncated, or in the wrong typeface. Three separate shipped bugs were exactly
+  this.
+- **The full-UI sequence.** `/qn` skips `InstallUISequence` entirely. Running wine
+  in full UI (graphics driver `null`) does execute it — but it passed a package
+  with **zero dialogs**, so it is not a substitute for looking at the thing.
+
+## wixl behaviours that will cost you a build
+
+Consolidated, because they are not discoverable and none of them are documented.
+
+| Behaviour | Consequence |
+| --- | --- |
+| `<UI>` rejected as a child of `<Product>` | `unhandled child Product node UI`. Put it in a `<Fragment>`, pull in with `<UIRef>`. |
+| `<RadioButtonGroup>` must nest **inside** its `<Control>` | `unhandled child UI node RadioButtonGroup` at `<UI>` level. |
+| **`--ext ui` is required even when you author every dialog yourself** | It is what makes wixl create the `Dialog`/`Control`/`ControlEvent` tables. Without it wixl prints `wixl_msi_table_control_add: assertion 'self != NULL' failed` per control, **still exits 0**, and emits an MSI with an empty UI. It also drags in unreferenced stock `WixUI_Bmp_*` binaries and a `CancelDlg`; harmless dead weight. |
+| `Dialog.Control_First` = first `<Control>` in **document order** | No regard for focusability. Lead a dialog with a `Text` control and Windows throws **MSI 2834** when it opens. Put the default button first. |
+| Only `PushButton`, `Bitmap` and `RadioButtonGroup` are chained into `Control_Next` | `Text`/`Line` are never chained. That is fine — they cannot take focus and 2.0.12 leaves them unlinked too. |
+| `TabSkip` is honoured for chaining but **the attribute bit is never written** | So it cannot be used to exclude a control from MSI's loop rule. Not a fix for 2834. |
+| `DefaultVersion` on `<File>` **is** supported | Needed: see the upgrade bug below. |
+| A literal `--` inside an XML comment is a hard parse error | libxml2 reports it as "Extra content at the end of the document" on an unrelated line. Cost three build cycles, so `build_msi-innie` now pre-scans for it and names the real line. |
+| The `.wxs` targets the **WiX v3** schema; the `--ext ui` fragments are **v4** | wixl accepts the mix. Verified, not assumed. |
+
+## Bugs that shipped in 2.0.13, and what they teach
+
+| Symptom | Root cause | Fix |
+| --- | --- | --- |
+| Install "did nothing" — progress box then silence | Package had **zero** `Dialog`/`Control` tables, so success looked identical to a crash and a real failure was equally silent | Restore a wizard (`37f5050`) |
+| Wizard was maroon WiX boilerplate | Used the stock dialog set; `WixUI_Bmp_Dialog` is 32,616 px of solid `(128,0,0)` | Re-author the .vdproj set (`6fe3bcd`) |
+| Welcome page missing 3 of 4 paragraphs | `msiinfo export \| awk` stops at the first embedded newline, so the source looked like a one-liner; and a `Text="…"` **attribute** collapses newlines | `<Text>` child elements (`cebb2e8`) |
+| All body text rendered **blue**, still truncated | Strings had no inline `{\Style}` prefix. **Setting `DefaultUIFont` is not enough — Windows Installer ignores it.** An unstyled string renders blue *and* stops at its first newline | Prefix every string (`6f67518`) |
+| Error 2834 on Cancel | `Control_First` pointed at a `Text` control with no next pointer | Default button first in every dialog (`d7c9598`) |
+| **Upgrade from 2.0.12 left only the `.ico`; the exe vanished** | Publishing the single-file exe on Linux leaves **no Win32 version resource**, so `File.Version` was EMPTY. An unversioned incoming file never overwrites a versioned existing one, so costing marked the exe SKIP while 2.0.12 was still installed — then `RemoveExistingProducts` deleted 2.0.12's copy | `DefaultVersion="$(var.Version).0"` (`5ba43be`) |
+
+Two things worth internalising from that list:
+
+- **The asymmetry is the clue.** The `.ico` surviving while the exe vanished is what
+  identified the file-versioning rule. The heading rendering black while the body
+  rendered blue is what identified the missing style prefix. When one of two similar
+  things works, diff them before theorising.
+- **`RemoveExistingProducts` stays at 1401** (between `InstallValidate` and
+  `InstallInitialize`). Moving it after `InstallFiles`, where 2.0.12 had it, would be
+  worse: component GUIDs differ between the .vdproj and this package, so removing the
+  old product would delete the newly installed files rather than decrement a shared
+  refcount.
 
 ## Releasing a new version
 
@@ -144,49 +230,25 @@ bash builders/verify_msi.sh <msi> <version> [--skip-wine]
    Verify the link before handing it over: fetch it back and confirm the sha256
    matches the local file.
 
-## Limits — state these, don't paper over them
+### Before you hand a build over
 
-- **Nothing in this pipeline test-installs on real Windows.** Wine implements MSI
-  for real and rejects structurally broken packages, but it is a proxy. A release
-  build deserves one manual install on a real Windows box. Say so rather than
-  implying the MSI is fully validated.
-- **The wizard is load-bearing, and it is the .vdproj's, not WiX's.** The first
-  2.0.13 build shipped with **zero** `Dialog`/`Control` tables, because an earlier
-  revision of this document claimed the retired VS dialog set was "one interactive
-  page that edited `TARGETDIR`, so nothing real was lost". That was false and
-  unmeasured: `builds/phvalheim-client-2.0.12-x86_64.msi` carries 22 dialogs / 220
-  controls. With no dialogs, a **successful** install shows msiexec's "Gathering
-  required information" box and then vanishes — indistinguishable from a crash,
-  and reported as a failed install on 2026-09-11 when it had in fact worked. A
-  **genuine** failure was equally silent, because the fatal-error dialog was gone.
+Give Brian the sha256 with the link. Two rounds were nearly wasted comparing
+against a stale download, and GitHub's raw CDN can serve the old bytes for a
+minute or two after a push.
 
-  The first attempt at a fix used the stock wixl dialogs (`--ext ui`,
-  `WixUI_Minimal` flow). **That was also rejected, by Brian, on sight**: the stock
-  `WixUI_Bmp_Dialog` is a 493x312 side panel that is 32,616 pixels of solid maroon
-  `(128,0,0)`, and the body text is WiX boilerplate. His wizard is *banner* style
-  with the product's own copy.
+Say plainly which of these you did **not** do — none are automated:
 
-  `builders/wxs/ui-phvalheim.wxs` now re-authors the .vdproj set: every string,
-  every control position and the banner bitmap read back out of the 2.0.12 MSI
-  with `msiinfo`. Forms keep their original names — `WelcomeForm`,
-  `ConfirmInstallForm`, `ProgressForm`, `FinishedForm`, `MaintenanceForm`,
-  `FatalErrorForm`, `UserExitForm`, `CancelForm`, `ErrorForm`.
+- [ ] Fresh install on real Windows, walking the whole wizard: Welcome → Confirm →
+      progress → Finish, plus Cancel, plus a repair/remove pass.
+- [ ] **Upgrade over the previous version**, then confirm **both**
+      `phvalheim-client.exe` and `phvalheim-client.ico` are in
+      `%AppData%\PhValheim\phvalheim-client\`. This is the path with no coverage.
+- [ ] `phvalheim://` actually launches the client (`Start-Process "phvalheim://test"`).
 
-  Four wixl facts, each learned the hard way:
-  - `<UI>` cannot be a child of `<Product>` ("unhandled child Product node UI").
-    Put it in a `<Fragment>` and pull it in with `<UIRef>`.
-  - `<RadioButtonGroup>` must nest **inside** its `<Control>`, not at `<UI>` level.
-  - **`--ext ui` is required even though we author every dialog ourselves.** It is
-    what makes wixl create the `Dialog`/`Control`/`ControlEvent` tables. Without
-    it wixl prints `wixl_msi_table_control_add: assertion 'self != NULL' failed`
-    per control, **still exits 0**, and emits an MSI with an empty UI.
-  - A literal `--` anywhere inside an XML comment is a hard parse error. Both
-    `.wxs` files are full of prose comments; keep double hyphens out of them.
-
-  `verify_msi.sh` asserts the dialog floor, the .vdproj form names, the actual
-  body strings (including the "Zero Cool's garbage file" copyright joke, which is
-  deliberate — do not "fix" it), the banner bitmap, no dangling `SpawnDialog`
-  target, and no EULA page. Each was proven to fail against a broken build.
+Note for testing: rebuilding the same version produces a **new `ProductCode`**
+(`Product Id="*"`), and `MajorUpgrade` bounds are exclusive of the current
+version — so installing a rebuilt 2.0.13 over an installed 2.0.13 goes **side by
+side**, leaving two entries in Apps & Features. Uninstall first.
 
 ## Things that are gone — do not resurrect them
 
