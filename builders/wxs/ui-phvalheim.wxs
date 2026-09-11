@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The PhValheim Client installer wizard.
+
+  This is a faithful re-authoring of the dialog set the retired Visual Studio
+  Setup Project (phvalheim-client-installer.vdproj) shipped through 2.0.12.
+  Every string, every control position and the banner bitmap were read back out
+  of builds/phvalheim-client-2.0.12-x86_64.msi with msiinfo, not reinvented.
+
+  Why not the stock wixl dialogs (the "ext ui" extension / WixUI_Minimal)? Two reasons:
+    1. They are SIDE-BITMAP style. Their WixUI_Bmp_Dialog is a 493x312 image
+       that is 32,616 pixels of solid maroon (128,0,0). The .vdproj wizard is
+       BANNER style: a white 500x70 banner across the top, rules above and
+       below the body, buttons bottom-right.
+    2. Their body text is generic WiX boilerplate. The .vdproj carried real
+       product text, including the copyright notice below, which is a joke and
+       is reproduced verbatim on purpose. Do not "fix" it.
+
+  Geometry is the .vdproj's, in MSI dialog units:
+    dialog 373x287 | banner bitmap 0,0 375x52 | rule y=52 | body y=63
+    rule y=252 | buttons y=261 h=18 w=66, at x=156 (Back) 228 (Next) 300 (Cancel)
+
+  Built by wixl. wixl rejects <UI> under <Product>, so this is a Fragment that
+  builders/wxs/phvalheim-client.wxs pulls in with <UIRef Id="WixUI_PhValheim"/>.
+  Both files are passed to wixl together; see builders/build_msi-innie.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+
+    <!-- The .vdproj's DefBannerBitmap, extracted verbatim from 2.0.12. -->
+    <Binary Id="PhvBanner" SourceFile="banner.bmp" />
+
+    <UI Id="WixUI_PhValheim">
+
+      <!-- The .vdproj used VSI_MS_Sans_Serif13.0_0_0 for body and
+           VSI_MS_Sans_Serif16.0_1_0 (bold) for banner headings. MS Sans Serif
+           is a bitmap font Windows maps to Tahoma now; name it Tahoma so the
+           metrics are predictable. 8pt/12pt are the modern equivalents. -->
+      <TextStyle Id="PhvFontNormal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="PhvFontTitle"  FaceName="Tahoma" Size="12" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="PhvFontNormal" />
+
+      <!-- Which button the maintenance radio group selected. -->
+      <Property Id="MaintenanceForm_Action" Value="Repair" />
+
+      <!-- ============================ Welcome ============================ -->
+      <Dialog Id="WelcomeForm" Width="373" Height="287" Title="[ProductName]">
+        <Control Id="BannerBmp"  Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
+
+        <Control Id="WelcomeText" Type="Text" X="9" Y="63" Width="354" Height="114" NoPrefix="yes"
+                 Text="This is PhValheim [ProductVersion]'s Windows client. " />
+
+        <!-- Verbatim from the .vdproj. Yes, all of it. -->
+        <Control Id="CopyrightWarningText" Type="Text" X="9" Y="186" Width="354" Height="66" NoPrefix="yes"
+                 Text="WARNING: This computer program is protected by copyright law and international treaties and Zero Cool's garbage file. Unauthorized duplication or distribution of this program, or any portion of it, may result in severe civil or criminal penalties, and will be prosecuted to the maximum extent possible under the law. Including, but not limited to flu shots." />
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
+        <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Text="&amp;Next &gt;">
+          <Publish Event="NewDialog" Value="ConfirmInstallForm" />
+        </Control>
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelForm" />
+        </Control>
+      </Dialog>
+
+      <!-- ======================= Confirm Installation ===================== -->
+      <Dialog Id="ConfirmInstallForm" Width="373" Height="287" Title="[ProductName]" TrackDiskSpace="yes">
+        <Control Id="BannerBmp"  Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Confirm Installation" />
+
+        <Control Id="BodyText1" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
+                 Text="The installer is ready to install [ProductName] on your computer." />
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Text="&lt; &amp;Back">
+          <Publish Event="NewDialog" Value="WelcomeForm" />
+        </Control>
+        <!-- ElevationShield: this is a perMachine package, so Windows puts the
+             UAC shield on the button that actually starts the install. -->
+        <Control Id="NextButton" Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" ElevationShield="yes" Text="&amp;Next &gt;">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelForm" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================ Progress ============================ -->
+      <Dialog Id="ProgressForm" Width="373" Height="287" Title="[ProductName]" Modeless="yes">
+        <Control Id="BannerBmp" Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"     Type="Line"   X="0" Y="52" Width="375" Height="0" />
+
+        <Control Id="InstalledBannerText" Type="Text" X="9" Y="9" Width="255" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Installing [ProductName]"
+                 HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
+        <Control Id="RemoveBannerText" Type="Text" X="9" Y="9" Width="306" Height="33" Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="{\PhvFontTitle}Removing [ProductName]"
+                 ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
+
+        <Control Id="InstalledBody" Type="Text" X="9" Y="63" Width="354" Height="12" NoPrefix="yes"
+                 Text="[ProductName] is being installed."
+                 HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
+        <Control Id="RemovedBody" Type="Text" X="18" Y="63" Width="336" Height="12" NoPrefix="yes" Hidden="yes"
+                 Text="[ProductName] is being removed."
+                 ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
+
+        <Control Id="ProgressLabel" Type="Text" X="18" Y="96" Width="336" Height="12" NoPrefix="yes" Text="Please wait...">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="ProgressBar" Type="ProgressBar" X="18" Y="108" Width="336" Height="15" ProgressBlocks="yes" Text="Progress done">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
+        <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Disabled="yes" Text="&amp;Next &gt;" />
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelForm" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================ Finished ============================ -->
+      <Dialog Id="FinishedForm" Width="373" Height="287" Title="[ProductName]">
+        <Control Id="BannerBmp"  Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Installation Complete" />
+
+        <Control Id="BodyText" Type="Text" X="9" Y="63" Width="354" Height="138" NoPrefix="yes"
+                 Text="[ProductName] has been successfully installed."
+                 HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
+        <Control Id="BodyTextRemove" Type="Text" X="9" Y="63" Width="354" Height="138" NoPrefix="yes" Hidden="yes"
+                 Text="[ProductName] has been successfully removed."
+                 ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
+        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="&amp;Close">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="Cancel" />
+      </Dialog>
+
+      <!-- ========================== Maintenance =========================== -->
+      <Dialog Id="MaintenanceForm" Width="373" Height="287" Title="[ProductName]">
+        <Control Id="BannerBmp"  Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
+
+        <Control Id="BodyText" Type="Text" X="9" Y="63" Width="354" Height="42" NoPrefix="yes"
+                 Text="Select whether you want to repair or remove [ProductName]." />
+
+        <!-- wixl requires the RadioButtonGroup nested INSIDE its Control;
+             at <UI> level it errors "unhandled child UI node RadioButtonGroup". -->
+        <Control Id="RepairRadioGroup" Type="RadioButtonGroup" X="18" Y="108" Width="348" Height="48"
+                 Property="MaintenanceForm_Action" Text="MsiRadioButtonGroup">
+          <RadioButtonGroup Property="MaintenanceForm_Action">
+            <RadioButton Value="Repair" X="0" Y="0"  Width="342" Height="18" Text="&amp;Repair [ProductName]" />
+            <RadioButton Value="Remove" X="0" Y="24" Width="342" Height="18" Text="Re&amp;move [ProductName]" />
+          </RadioButtonGroup>
+        </Control>
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
+        <Control Id="FinishButton"   Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" ElevationShield="yes" Text="&amp;Finish">
+          <Publish Event="ReinstallMode" Value="ecmus" Condition="MaintenanceForm_Action = &quot;Repair&quot;" />
+          <Publish Event="Reinstall"     Value="All"   Condition="MaintenanceForm_Action = &quot;Repair&quot;" />
+          <Publish Event="Remove"        Value="All"   Condition="MaintenanceForm_Action = &quot;Remove&quot;" />
+          <Publish Event="EndDialog"     Value="Return" />
+        </Control>
+        <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelForm" />
+        </Control>
+      </Dialog>
+
+      <!-- ======================= Installation Incomplete =================== -->
+      <!-- OnExit="error". Without this dialog a FAILED install is completely
+           silent, which is exactly what the first 2.0.13 build shipped. -->
+      <Dialog Id="FatalErrorForm" Width="373" Height="287" Title="[ProductName]">
+        <Control Id="BannerBmp"  Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Installation Incomplete" />
+
+        <Control Id="BodyTextInstall" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
+                 Text="The installer was interrupted before [ProductName] could be installed. You need to restart the installer to try again." />
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
+        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="&amp;Close">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="Cancel" />
+      </Dialog>
+
+      <!-- ====================== Installation Interrupted =================== -->
+      <Dialog Id="UserExitForm" Width="373" Height="287" Title="[ProductName]">
+        <Control Id="BannerBmp"  Type="Bitmap" X="0" Y="0"  Width="375" Height="52" TabSkip="no" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+                 Text="{\PhvFontTitle}Installation Interrupted" />
+
+        <Control Id="BodyTextInstall" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
+                 Text="The installation was interrupted before [ProductName] could be installed. You need to restart the installer to try again." />
+
+        <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
+        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="&amp;Close">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="Cancel" />
+      </Dialog>
+
+      <!-- ====================== Cancel confirmation ======================== -->
+      <!-- The .vdproj called this dialog "Cancel"; renamed to CancelForm to
+           avoid colliding with the Cancel control id on every other form. -->
+      <Dialog Id="CancelForm" Width="268" Height="78" Title="[ProductName]" NoMinimize="yes">
+        <Control Id="BodyText" Type="Text" X="6" Y="9" Width="258" Height="24" NoPrefix="yes"
+                 Text="The installation is not yet complete. Are you sure you want to exit?" />
+        <Control Id="YesButton" Type="PushButton" X="126" Y="48" Width="65" Height="21" Text="&amp;Yes">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="NoButton" Type="PushButton" X="198" Y="48" Width="65" Height="21" Default="yes" Cancel="yes" Text="&amp;No">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <!-- ========================== Runtime errors ========================= -->
+      <!-- Referenced by the ErrorDialog property. This is how Windows Installer
+           surfaces a mid-install error (locked file, denied write) to the user
+           instead of rolling back in silence. -->
+      <Dialog Id="ErrorForm" Width="270" Height="105" Title="[ProductName]" ErrorDialog="yes" NoMinimize="yes">
+        <Control Id="ErrorText" Type="Text" X="48" Y="15" Width="205" Height="60" TabSkip="no" Text="Information text" />
+        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Yes">
+          <Publish Event="EndDialog" Value="ErrorYes" />
+        </Control>
+        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Cancel">
+          <Publish Event="EndDialog" Value="ErrorAbort" />
+        </Control>
+        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Cancel">
+          <Publish Event="EndDialog" Value="ErrorCancel" />
+        </Control>
+        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Ignore">
+          <Publish Event="EndDialog" Value="ErrorIgnore" />
+        </Control>
+        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;No">
+          <Publish Event="EndDialog" Value="ErrorNo" />
+        </Control>
+        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;OK">
+          <Publish Event="EndDialog" Value="ErrorOk" />
+        </Control>
+        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Retry">
+          <Publish Event="EndDialog" Value="ErrorRetry" />
+        </Control>
+      </Dialog>
+      <Property Id="ErrorDialog" Value="ErrorForm" />
+
+      <!-- ========================== Sequencing ============================ -->
+      <!-- Fresh install / reinstall goes Welcome -> Confirm; an existing
+           install goes straight to the repair/remove chooser. -->
+      <InstallUISequence>
+        <Show Dialog="WelcomeForm"     Before="ProgressForm" Condition="NOT Installed" />
+        <Show Dialog="MaintenanceForm" Before="ProgressForm" Condition="Installed AND NOT RESUME AND NOT Preselected AND NOT PATCH" />
+        <Show Dialog="ProgressForm"    Before="ExecuteAction" />
+        <Show Dialog="FinishedForm"    OnExit="success" />
+        <Show Dialog="FatalErrorForm"  OnExit="error" />
+        <Show Dialog="UserExitForm"    OnExit="cancel" />
+      </InstallUISequence>
+
+    </UI>
+  </Fragment>
+</Wix>

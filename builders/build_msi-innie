@@ -70,6 +70,9 @@ case "$stage" in
 	cp "$exe" "$stagingDir/phvalheim-client.exe" || exit 1
 	cp "$gitRoot/phvalheim-client.ico" "$stagingDir/phvalheim-client.ico" || exit 1
 	cp "$gitRoot/builders/wxs/phvalheim-client.wxs" "$stagingDir/" || exit 1
+	# The wizard: dialog set + the .vdproj's banner bitmap it references.
+	cp "$gitRoot/builders/wxs/ui-phvalheim.wxs" "$stagingDir/" || exit 1
+	cp "$gitRoot/builders/wxs/banner.bmp"       "$stagingDir/" || exit 1
 
 	out="$gitRoot/builds/phvalheim-client-$version-x86_64.msi"
 	mkdir -p "$gitRoot/builds"
@@ -78,11 +81,18 @@ case "$stage" in
 	# attribute in the .wxs is warned-and-ignored by wixl, so this flag is
 	# load-bearing, not decorative.
 	#
-	# --ext ui pulls in the stock dialog set from /usr/share/wixl-*/ext/ui/.
-	# Without it the .wxs's <UIRef Id="WixUI_PhValheim"/> resolves to nothing
-	# and the package builds clean with ZERO dialogs -- which is exactly how
-	# 2.0.13 first shipped. verify_msi.sh now asserts a dialog floor.
-	( cd "$stagingDir" && wixl -a x64 --ext ui -D Version="$version" -o "$out" phvalheim-client.wxs ) || exit 1
+	# Both .wxs files go in together: ui-phvalheim.wxs defines the
+	# WixUI_PhValheim dialog set that phvalheim-client.wxs pulls in by UIRef.
+	# Drop it and the UIRef is unresolved, so the build fails loudly rather
+	# than emitting a UI-less package -- which is how 2.0.13 first shipped.
+	#
+	# --ext ui is required even though we author every dialog ourselves: it is
+	# what makes wixl create the Dialog/Control/ControlEvent tables at all.
+	# Without it wixl prints "wixl_msi_table_control_add: assertion 'self !=
+	# NULL' failed" for every control and still exits 0, emitting an MSI with
+	# an empty UI. It does drag in the stock WixUI_Bmp_* binaries and CancelDlg
+	# as dead weight; harmless, and nothing we author references them.
+	( cd "$stagingDir" && wixl -a x64 --ext ui -D Version="$version" -o "$out" phvalheim-client.wxs ui-phvalheim.wxs ) || exit 1
 
 	if [ ! -s "$out" ]; then
 		echo "ERROR: wixl produced no output at $out"

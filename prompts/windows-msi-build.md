@@ -47,9 +47,11 @@ Containers write as root. `chown -R brian:brian builds bin obj` afterwards (need
 | Path | What it is |
 | --- | --- |
 | `builders/wxs/phvalheim-client.wxs` | The installer definition. Source of truth. |
+| `builders/wxs/ui-phvalheim.wxs` | The wizard. Re-authored from the .vdproj, not WiX stock. |
+| `builders/wxs/banner.bmp` | The .vdproj's banner bitmap, extracted from 2.0.12. |
 | `builders/build_msi-outie` | Host side; orchestrates both containers. |
 | `builders/build_msi-innie` | Container side; `--publish` and `--package` stages. |
-| `builders/verify_msi.sh` | 46 assertions + wine smoke install. Gates the build. |
+| `builders/verify_msi.sh` | 54 assertions + wine smoke install. Gates the build. |
 | `builders/dockers/windows/Dockerfile` | trixie + wixl + wine + osslsigncode. |
 | `builders/gen-codesign-cert.sh` | Mints a self-signed cert **outside** the repo. |
 | `docs/MSI-BUILD-PLAN.md` | Why it is built this way. Read before redesigning anything. |
@@ -148,35 +150,43 @@ bash builders/verify_msi.sh <msi> <version> [--skip-wine]
   for real and rejects structurally broken packages, but it is a proxy. A release
   build deserves one manual install on a real Windows box. Say so rather than
   implying the MSI is fully validated.
-- **The wizard is load-bearing. Do not drop it again.** The first 2.0.13 build
-  shipped with **zero** `Dialog`/`Control` tables, because an earlier revision of
-  this document claimed the retired VS dialog set was "one interactive page that
-  edited `TARGETDIR`, so nothing real was lost". That was false and unmeasured:
-  `builds/phvalheim-client-2.0.12-x86_64.msi` carries **22 dialogs / 220 controls**
-  (`WelcomeForm`, `SelectFolderDialog`, `ConfirmInstallForm`, `ProgressForm`,
-  `FinishedForm`, `MaintenanceForm`, `ConfirmRemoveDialog`, `FatalErrorForm`,
-  `UserExitForm`, `ErrorDialog`, `FilesInUse`, `DiskCost`).
+- **The wizard is load-bearing, and it is the .vdproj's, not WiX's.** The first
+  2.0.13 build shipped with **zero** `Dialog`/`Control` tables, because an earlier
+  revision of this document claimed the retired VS dialog set was "one interactive
+  page that edited `TARGETDIR`, so nothing real was lost". That was false and
+  unmeasured: `builds/phvalheim-client-2.0.12-x86_64.msi` carries 22 dialogs / 220
+  controls. With no dialogs, a **successful** install shows msiexec's "Gathering
+  required information" box and then vanishes — indistinguishable from a crash,
+  and reported as a failed install on 2026-09-11 when it had in fact worked. A
+  **genuine** failure was equally silent, because the fatal-error dialog was gone.
 
-  With no dialogs, a **successful** install shows msiexec's "Gathering required
-  information" box and then vanishes with no completion page — indistinguishable
-  from a crash, and reported as a failed install on 2026-09-11 when it had in fact
-  worked. A **genuine** failure was equally silent, because `FatalError`/`ErrorDlg`
-  were missing too.
+  The first attempt at a fix used the stock wixl dialogs (`--ext ui`,
+  `WixUI_Minimal` flow). **That was also rejected, by Brian, on sight**: the stock
+  `WixUI_Bmp_Dialog` is a 493x312 side panel that is 32,616 pixels of solid maroon
+  `(128,0,0)`, and the body text is WiX boilerplate. His wizard is *banner* style
+  with the product's own copy.
 
-  Fixed: the `.wxs` now defines `WixUI_PhValheim` (16 dialogs / 165 controls) and
-  `build_msi-innie` passes `--ext ui`. Three things to know before touching it:
-  - `wixl` rejects `<UI>` as a child of `<Product>` ("unhandled child Product node
-    UI"). It must live in a sibling `<Fragment>`, referenced by `<UIRef>`.
-  - The ext fragments are authored in the **v4** schema while our `.wxs` is v3.
-    wixl accepts the mix — verified, not assumed.
-  - **Do not "simplify" to stock `WixUI_Minimal`.** Its `WelcomeEulaDlg`
-    hard-references `<Text SourceFile="License.rtf"/>`, and this product has never
-    had a licence page. `WixUI_PhValheim` is `WixUI_Minimal` with a licence-free
-    `WelcomeDlg` swapped in. Never invent licence text to satisfy it.
+  `builders/wxs/ui-phvalheim.wxs` now re-authors the .vdproj set: every string,
+  every control position and the banner bitmap read back out of the 2.0.12 MSI
+  with `msiinfo`. Forms keep their original names — `WelcomeForm`,
+  `ConfirmInstallForm`, `ProgressForm`, `FinishedForm`, `MaintenanceForm`,
+  `FatalErrorForm`, `UserExitForm`, `CancelForm`, `ErrorForm`.
 
-  Without `--ext ui` the build now **fails hard** (unresolved `UIRef`) rather than
-  silently emitting a UI-less package. `verify_msi.sh` also asserts a dialog floor,
-  the named dialogs, no dangling `SpawnDialog` target, and no EULA page.
+  Four wixl facts, each learned the hard way:
+  - `<UI>` cannot be a child of `<Product>` ("unhandled child Product node UI").
+    Put it in a `<Fragment>` and pull it in with `<UIRef>`.
+  - `<RadioButtonGroup>` must nest **inside** its `<Control>`, not at `<UI>` level.
+  - **`--ext ui` is required even though we author every dialog ourselves.** It is
+    what makes wixl create the `Dialog`/`Control`/`ControlEvent` tables. Without
+    it wixl prints `wixl_msi_table_control_add: assertion 'self != NULL' failed`
+    per control, **still exits 0**, and emits an MSI with an empty UI.
+  - A literal `--` anywhere inside an XML comment is a hard parse error. Both
+    `.wxs` files are full of prose comments; keep double hyphens out of them.
+
+  `verify_msi.sh` asserts the dialog floor, the .vdproj form names, the actual
+  body strings (including the "Zero Cool's garbage file" copyright joke, which is
+  deliberate — do not "fix" it), the banner bitmap, no dangling `SpawnDialog`
+  target, and no EULA page. Each was proven to fail against a broken build.
 
 ## Things that are gone — do not resurrect them
 

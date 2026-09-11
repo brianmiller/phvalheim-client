@@ -176,17 +176,20 @@ echo "-- installer UI --"
 # full UI mode too. Hence an explicit floor.
 dialogs=$(msiexport Dialog | tail -n +4 | cut -f1 | grep -c . || true)
 controls=$(msiexport Control | tail -n +4 | grep -c . || true)
-if [ "${dialogs:-0}" -ge 10 ]; then
+if [ "${dialogs:-0}" -ge 8 ]; then
 	ok "installer has a dialog set ($dialogs dialogs, $controls controls)"
 else
-	fail "installer has a dialog set" ">=10 dialogs" "${dialogs:-0} -- a silent install is indistinguishable from a crash"
+	fail "installer has a dialog set" ">=8 dialogs" "${dialogs:-0} -- a silent install is indistinguishable from a crash"
 fi
 
-# The specific dialogs whose absence is invisible until a user hits them.
-# ExitDialog is the completion page; FatalError/ErrorDlg are the only way the
-# package can report its own failure.
+# The .vdproj's own form names, re-authored in builders/wxs/ui-phvalheim.wxs.
+# If these turn into WiX's stock names (WelcomeDlg, VerifyReadyDlg, ExitDialog,
+# ...) then someone swapped in the stock dialog set, which is side-bitmap style
+# over a solid maroon image and carries WiX boilerplate instead of the
+# product's own text. FinishedForm is the completion page; FatalErrorForm and
+# ErrorForm are the only way the package can report its own failure.
 dialogList=$(msiexport Dialog | tail -n +4 | cut -f1)
-for dlg in WelcomeDlg VerifyReadyDlg ProgressDlg ExitDialog FatalError ErrorDlg UserExit MaintenanceWelcomeDlg MaintenanceTypeDlg; do
+for dlg in WelcomeForm ConfirmInstallForm ProgressForm FinishedForm MaintenanceForm FatalErrorForm UserExitForm CancelForm ErrorForm; do
 	if echo "$dialogList" | grep -qx "$dlg"; then
 		ok "dialog $dlg present"
 	else
@@ -205,6 +208,36 @@ if [ -z "${dangling// /}" ]; then
 	ok "every SpawnDialog target exists in the Dialog table"
 else
 	fail "every SpawnDialog target exists in the Dialog table" "no dangling targets" "$dangling(MSI error 2803 at runtime)"
+fi
+
+# The wizard's actual CONTENT. A dialog set can be present and correctly wired
+# and still say nothing -- the stock WiX dialogs pass every check above while
+# carrying generic boilerplate. These strings are the .vdproj's own, and their
+# presence is the only thing distinguishing "the wizard" from "a wizard".
+controlText=$(msiexport Control | tail -n +4)
+while IFS='|' read -r label needle; do
+	if echo "$controlText" | grep -qF "$needle"; then
+		ok "wizard text: $label"
+	else
+		fail "wizard text: $label" "contains: $needle" "absent -- stock boilerplate?"
+	fi
+done <<'STRINGS'
+welcome names the product and version|This is PhValheim [ProductVersion]'s Windows client.
+the .vdproj copyright notice|Zero Cool's garbage file
+completion page confirms success|has been successfully installed.
+confirm page|The installer is ready to install
+progress page|is being installed.
+fatal-error page tells the user what happened|The installer was interrupted before
+maintenance page offers repair/remove|Select whether you want to repair or remove
+STRINGS
+
+# The banner bitmap is the wizard's visual identity: a white 500x70 banner
+# lifted from the .vdproj. Its absence means the stock maroon side-bitmap
+# dialogs are back.
+if msiexport Binary | tail -n +4 | cut -f1 | grep -qx PhvBanner; then
+	ok "the .vdproj banner bitmap is embedded"
+else
+	fail "the .vdproj banner bitmap is embedded" "Binary row PhvBanner" "absent"
 fi
 
 # This product has never had a licence agreement page, and the repo has no
