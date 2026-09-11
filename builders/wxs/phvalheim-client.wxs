@@ -120,14 +120,79 @@
     </Feature>
 
     <!--
-      No <UIRef>. The .vdproj used the stock VS dialog set (Welcome /
-      Installation Folder / Confirm / Progress / Finished). Its "Installation
-      Folder" page was cosmetic: it edited TARGETDIR, and no file in this
-      product has ever been installed to TARGETDIR. Dropping the wizard loses
-      no real choice, and avoids WixUI_Minimal, which would ADD a licence
-      agreement page this product never had and has no licence text for.
-      Result: msiexec shows a progress bar and finishes.
+      The wizard. 2.0.13's first build shipped with NO UI tables at all, which
+      made a SUCCESSFUL install indistinguishable from a crash (msiexec showed
+      "Gathering required information" and then vanished, with no completion
+      page) and left a genuine failure equally silent, because FatalError and
+      ErrorDlg were missing too. 2.0.12 shipped 22 dialogs / 220 controls.
+
+      This is WixUI_Minimal's flow with WelcomeDlg swapped in for
+      WelcomeEulaDlg. That swap is the whole point: stock WixUI_Minimal
+      hard-references <Text SourceFile="License.rtf"/> in WelcomeEulaDlg, and
+      this product has never had a licence agreement page. Do not switch to
+      WixUI_Minimal to "simplify": it would add one, and there is no LICENSE
+      file in this repo to fill it with.
+
+      Needs the "ui" wixl extension (wixl is invoked with the ext flag in
+      builders/build_msi-innie). The dialogs come from the builder image, in
+      /usr/share/wixl-VERSION/ext/ui/.
+
+      Dialogs self-sequence via their own Overridable Show elements, so the
+      only wiring needed here is the Next/Back graph. Flow:
+        install      WelcomeDlg -> VerifyReadyDlg -> ProgressDlg -> ExitDialog
+        maintenance  MaintenanceWelcomeDlg -> MaintenanceTypeDlg -> VerifyReadyDlg
+        errors       ErrorDlg / FatalError / UserExit / FilesInUse
+
+      ARPNOMODIFY is deliberately NOT set: 2.0.12 had a MaintenanceForm and a
+      ConfirmRemoveDialog, so repair/remove stays reachable.
     -->
+    <UIRef Id="WixUI_PhValheim" />
 
   </Product>
+
+  <!-- wixl rejects <UI> as a child of <Product> ("unhandled child Product node
+       UI"), so the dialog set lives in its own Fragment and Product pulls it in
+       by UIRef above. -->
+  <Fragment>
+    <UI Id="WixUI_PhValheim">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title"  FaceName="Tahoma" Size="9" Bold="yes" />
+
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="WixUI_Mode" Value="Minimal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <!-- VerifyReadyDlg's buttons SpawnDialog these two on a low-disk install.
+           Nothing else pulls them in (stock WixUI_Minimal has the same hole),
+           and a SpawnDialog with no matching Dialog row is MSI error 2803.
+           verify_msi.sh asserts every SpawnDialog target exists. -->
+      <DialogRef Id="OutOfDiskDlg" />
+      <DialogRef Id="OutOfRbDiskDlg" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+
 </Wix>

@@ -49,7 +49,7 @@ Containers write as root. `chown -R brian:brian builds bin obj` afterwards (need
 | `builders/wxs/phvalheim-client.wxs` | The installer definition. Source of truth. |
 | `builders/build_msi-outie` | Host side; orchestrates both containers. |
 | `builders/build_msi-innie` | Container side; `--publish` and `--package` stages. |
-| `builders/verify_msi.sh` | 34 assertions + wine smoke install. Gates the build. |
+| `builders/verify_msi.sh` | 46 assertions + wine smoke install. Gates the build. |
 | `builders/dockers/windows/Dockerfile` | trixie + wixl + wine + osslsigncode. |
 | `builders/gen-codesign-cert.sh` | Mints a self-signed cert **outside** the repo. |
 | `docs/MSI-BUILD-PLAN.md` | Why it is built this way. Read before redesigning anything. |
@@ -148,12 +148,35 @@ bash builders/verify_msi.sh <msi> <version> [--skip-wine]
   for real and rejects structurally broken packages, but it is a proxy. A release
   build deserves one manual install on a real Windows box. Say so rather than
   implying the MSI is fully validated.
-- **No install wizard.** The `.wxs` deliberately has no `<UIRef>`; msiexec shows a
-  progress bar. The retired VS dialog set's one interactive page edited `TARGETDIR`,
-  and no file in this product has ever been installed to `TARGETDIR`, so nothing
-  real was lost. `WixUI_Minimal` would *add* a licence page — and this repo has no
-  LICENSE file, so do not invent licence text to fill it. If a wizard is genuinely
-  wanted, `--ext ui` works on wixl 0.106 but requires a `License.rtf`; ask first.
+- **The wizard is load-bearing. Do not drop it again.** The first 2.0.13 build
+  shipped with **zero** `Dialog`/`Control` tables, because an earlier revision of
+  this document claimed the retired VS dialog set was "one interactive page that
+  edited `TARGETDIR`, so nothing real was lost". That was false and unmeasured:
+  `builds/phvalheim-client-2.0.12-x86_64.msi` carries **22 dialogs / 220 controls**
+  (`WelcomeForm`, `SelectFolderDialog`, `ConfirmInstallForm`, `ProgressForm`,
+  `FinishedForm`, `MaintenanceForm`, `ConfirmRemoveDialog`, `FatalErrorForm`,
+  `UserExitForm`, `ErrorDialog`, `FilesInUse`, `DiskCost`).
+
+  With no dialogs, a **successful** install shows msiexec's "Gathering required
+  information" box and then vanishes with no completion page — indistinguishable
+  from a crash, and reported as a failed install on 2026-09-11 when it had in fact
+  worked. A **genuine** failure was equally silent, because `FatalError`/`ErrorDlg`
+  were missing too.
+
+  Fixed: the `.wxs` now defines `WixUI_PhValheim` (16 dialogs / 165 controls) and
+  `build_msi-innie` passes `--ext ui`. Three things to know before touching it:
+  - `wixl` rejects `<UI>` as a child of `<Product>` ("unhandled child Product node
+    UI"). It must live in a sibling `<Fragment>`, referenced by `<UIRef>`.
+  - The ext fragments are authored in the **v4** schema while our `.wxs` is v3.
+    wixl accepts the mix — verified, not assumed.
+  - **Do not "simplify" to stock `WixUI_Minimal`.** Its `WelcomeEulaDlg`
+    hard-references `<Text SourceFile="License.rtf"/>`, and this product has never
+    had a licence page. `WixUI_PhValheim` is `WixUI_Minimal` with a licence-free
+    `WelcomeDlg` swapped in. Never invent licence text to satisfy it.
+
+  Without `--ext ui` the build now **fails hard** (unresolved `UIRef`) rather than
+  silently emitting a UI-less package. `verify_msi.sh` also asserts a dialog floor,
+  the named dialogs, no dangling `SpawnDialog` target, and no EULA page.
 
 ## Things that are gone — do not resurrect them
 

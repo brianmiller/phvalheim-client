@@ -164,6 +164,59 @@ for component in ClientExe ClientIco UrlScheme; do
 done
 
 echo
+echo "-- installer UI --"
+# 2.0.13's first build shipped with NO Dialog/Control tables at all. Every
+# assertion above still passed, because the package was structurally valid --
+# it just could not draw a single window. The user-visible result: a
+# SUCCESSFUL install showed "Gathering required information" and then vanished
+# with no completion page, indistinguishable from a crash, and a FAILED
+# install was equally silent because FatalError/ErrorDlg were gone too.
+# Neither the table assertions nor the wine smoke install below can see this:
+# wine passes with /qn (which skips InstallUISequence entirely) and passes in
+# full UI mode too. Hence an explicit floor.
+dialogs=$(msiexport Dialog | tail -n +4 | cut -f1 | grep -c . || true)
+controls=$(msiexport Control | tail -n +4 | grep -c . || true)
+if [ "${dialogs:-0}" -ge 10 ]; then
+	ok "installer has a dialog set ($dialogs dialogs, $controls controls)"
+else
+	fail "installer has a dialog set" ">=10 dialogs" "${dialogs:-0} -- a silent install is indistinguishable from a crash"
+fi
+
+# The specific dialogs whose absence is invisible until a user hits them.
+# ExitDialog is the completion page; FatalError/ErrorDlg are the only way the
+# package can report its own failure.
+dialogList=$(msiexport Dialog | tail -n +4 | cut -f1)
+for dlg in WelcomeDlg VerifyReadyDlg ProgressDlg ExitDialog FatalError ErrorDlg UserExit MaintenanceWelcomeDlg MaintenanceTypeDlg; do
+	if echo "$dialogList" | grep -qx "$dlg"; then
+		ok "dialog $dlg present"
+	else
+		fail "dialog $dlg present" "row in Dialog table" "absent"
+	fi
+done
+
+# A SpawnDialog naming a dialog that was never pulled in is MSI error 2803 at
+# runtime. VerifyReadyDlg spawns OutOfDiskDlg/OutOfRbDiskDlg on a low-disk
+# install, and nothing else references them -- stock WixUI_Minimal ships this
+# hole. Only reachable when the disk is full, so no smoke test will find it.
+dangling=$(comm -23 \
+	<(msiexport ControlEvent | tail -n +4 | awk -F'\t' '$3=="SpawnDialog" {print $4}' | sort -u) \
+	<(echo "$dialogList" | sort -u) | tr '\n' ' ')
+if [ -z "${dangling// /}" ]; then
+	ok "every SpawnDialog target exists in the Dialog table"
+else
+	fail "every SpawnDialog target exists in the Dialog table" "no dangling targets" "$dangling(MSI error 2803 at runtime)"
+fi
+
+# This product has never had a licence agreement page, and the repo has no
+# LICENSE file. Stock WixUI_Minimal would add one via WelcomeEulaDlg; if it
+# ever reappears, someone swapped the dialog set and invented licence text.
+if echo "$dialogList" | grep -qi eula; then
+	fail "no licence agreement page" "no Eula dialog" "$(echo "$dialogList" | grep -i eula | tr '\n' ' ')"
+else
+	ok "no licence agreement page (product has never had one)"
+fi
+
+echo
 echo "-- signature --"
 # osslsigncode's EXIT CODE reflects chain TRUST, not signature PRESENCE: a
 # perfectly good self-signed signature exits 1 with "certificate verify error:

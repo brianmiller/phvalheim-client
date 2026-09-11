@@ -77,7 +77,12 @@ case "$stage" in
 	# -a x64 is what stamps the summary-info arch template. A Platform=
 	# attribute in the .wxs is warned-and-ignored by wixl, so this flag is
 	# load-bearing, not decorative.
-	( cd "$stagingDir" && wixl -a x64 -D Version="$version" -o "$out" phvalheim-client.wxs ) || exit 1
+	#
+	# --ext ui pulls in the stock dialog set from /usr/share/wixl-*/ext/ui/.
+	# Without it the .wxs's <UIRef Id="WixUI_PhValheim"/> resolves to nothing
+	# and the package builds clean with ZERO dialogs -- which is exactly how
+	# 2.0.13 first shipped. verify_msi.sh now asserts a dialog floor.
+	( cd "$stagingDir" && wixl -a x64 --ext ui -D Version="$version" -o "$out" phvalheim-client.wxs ) || exit 1
 
 	if [ ! -s "$out" ]; then
 		echo "ERROR: wixl produced no output at $out"
