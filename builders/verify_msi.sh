@@ -189,7 +189,8 @@ fi
 # product's own text. FinishedForm is the completion page; FatalErrorForm and
 # ErrorForm are the only way the package can report its own failure.
 dialogList=$(msiexport Dialog | tail -n +4 | cut -f1)
-for dlg in WelcomeForm ConfirmInstallForm ProgressForm FinishedForm MaintenanceForm FatalErrorForm UserExitForm CancelForm ErrorForm; do
+ourDialogs="WelcomeForm ConfirmInstallForm ProgressForm FinishedForm MaintenanceForm FatalErrorForm UserExitForm CancelForm ErrorForm"
+for dlg in $ourDialogs; do
 	if echo "$dialogList" | grep -qx "$dlg"; then
 		ok "dialog $dlg present"
 	else
@@ -248,6 +249,28 @@ for ctl in WelcomeText BodyText1; do
 		fail "$ctl keeps its paragraph breaks" "2+ paragraphs" "1 -- newlines collapsed, text lost"
 	fi
 done
+
+# Every visible string must carry an inline {\Style} prefix, as the .vdproj
+# does. Setting the DefaultUIFont property is NOT enough -- Windows Installer
+# ignores it, and an unstyled string renders BLUE and stops rendering at its
+# first embedded newline. 2.0.13 shipped one blue paragraph where 2.0.12 shows
+# four black ones, with byte-identical Control values and newlines; the only
+# difference was this prefix. Invisible to every other check here.
+# Scoped to the dialogs we author. `--ext ui` also drags in a stock CancelDlg
+# that nothing references (our cancel path spawns CancelForm); it is unstyled
+# dead weight, not a rendering bug. If a stock dialog ever became reachable the
+# SpawnDialog and named-dialog checks above would catch it.
+unstyled=$(msiexport Control | tail -n +4 | awk -F'\t' -v ours="$ourDialogs" '
+	BEGIN { n = split(ours, a, " "); for (i = 1; i <= n; i++) mine[a[i]] = 1 }
+	($3 == "Text" || $3 == "PushButton") && ($1 in mine) {
+		if ($10 != "" && $10 !~ /^\{\\/) print $1 "/" $2
+	}' | tr '\n' ' ')
+if [ -z "${unstyled// /}" ]; then
+	ok "every Text/PushButton string carries an inline style prefix"
+else
+	fail "every Text/PushButton string carries an inline style prefix" \
+		"all prefixed {\\Style}" "$unstyled(renders blue, truncates at first newline)"
+fi
 
 # TextStyle.Color NULL renders every styled string BLUE on Windows. 2.0.12
 # writes 0. No table assertion catches this; it is only visible on screen.

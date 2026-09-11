@@ -37,9 +37,18 @@
            bold. Substituting Tahoma renders visibly heavier than 2.0.12.
 
            Red/Green/Blue are NOT optional. Omit them and wixl writes NULL to
-           the TextStyle Color column (2.0.12 writes 0), and Windows renders
-           every styled string BLUE. Nothing in the MSI tables looks wrong;
-           you only see it on screen. -->
+           the TextStyle Color column (2.0.12 writes 0). Nothing in the MSI
+           tables looks wrong; you only see it on screen.
+
+           EVERY visible string must carry an inline style prefix, exactly as
+           the .vdproj does. Setting the DefaultUIFont property is NOT enough:
+           Windows Installer ignores it here, and an unstyled string renders
+           BLUE and stops rendering at its first embedded newline. That is why
+           2.0.13 showed one blue paragraph while 2.0.12 showed four black
+           ones, despite byte-identical Control table values and newlines.
+           The heading rendered black in the same screenshot precisely because
+           it was the one control that already had a prefix. -->
+
       <TextStyle Id="PhvFontNormal" FaceName="MS Sans Serif" Size="9"  Red="0" Green="0" Blue="0" />
       <TextStyle Id="PhvFontTitle"  FaceName="MS Sans Serif" Size="12" Red="0" Green="0" Blue="0" Bold="yes" />
       <Property Id="DefaultUIFont" Value="PhvFontNormal" />
@@ -54,14 +63,18 @@
         <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
 
-        <!-- Four paragraphs. They MUST come through a <Text> child element:
+        <!-- Four paragraphs, and they must come through a Text CHILD ELEMENT:
              newlines inside an XML attribute are collapsed to spaces by the
-             parser, so Text="..." silently flattens this to one run-on line.
+             parser, so the attribute form flattens this to one run-on line.
              The first re-authoring lost paragraphs 2 to 4 a different way: a
              naive `msiinfo export | awk` stops at the first embedded newline,
-             so the control looked like a one-liner in the dump. -->
+             so the control looked like a one-liner in the dump.
+
+             The leading style prefix is also mandatory: see the TextStyle
+             comment above. Without it this renders blue AND stops at the
+             first paragraph. -->
         <Control Id="WelcomeText" Type="Text" X="9" Y="63" Width="354" Height="114" NoPrefix="yes">
-          <Text>This is PhValheim [ProductVersion]'s Windows client.
+          <Text>{\PhvFontNormal}This is PhValheim [ProductVersion]'s Windows client.
 
 A custom phvalheim:// URL will be registered to Windows. Any time these URLs are opened, this client will automatically download, install and launch related world files with unique contexts.
 
@@ -72,14 +85,14 @@ All PhValheim application and world files are kept in %appdata%\PhValheim.</Text
 
         <!-- Verbatim from the .vdproj. Yes, all of it. -->
         <Control Id="CopyrightWarningText" Type="Text" X="9" Y="186" Width="354" Height="66" NoPrefix="yes"
-                 Text="WARNING: This computer program is protected by copyright law and international treaties and Zero Cool's garbage file. Unauthorized duplication or distribution of this program, or any portion of it, may result in severe civil or criminal penalties, and will be prosecuted to the maximum extent possible under the law. Including, but not limited to flu shots." />
+                 Text="{\PhvFontNormal}WARNING: This computer program is protected by copyright law and international treaties and Zero Cool's garbage file. Unauthorized duplication or distribution of this program, or any portion of it, may result in severe civil or criminal penalties, and will be prosecuted to the maximum extent possible under the law. Including, but not limited to flu shots." />
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
-        <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Text="&amp;Next &gt;">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
+        <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Text="{\PhvFontNormal}&amp;Next &gt;">
           <Publish Event="NewDialog" Value="ConfirmInstallForm" />
         </Control>
-        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="{\PhvFontNormal}Cancel">
           <Publish Event="SpawnDialog" Value="CancelForm" />
         </Control>
       </Dialog>
@@ -92,21 +105,21 @@ All PhValheim application and world files are kept in %appdata%\PhValheim.</Text
                  Text="{\PhvFontTitle}Confirm Installation" />
 
         <Control Id="BodyText1" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
-          <Text>The installer is ready to install [ProductName] on your computer.
+          <Text>{\PhvFontNormal}The installer is ready to install [ProductName] on your computer.
 
 Click "Next" to start the installation.</Text>
         </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Text="&lt; &amp;Back">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Text="{\PhvFontNormal}&lt; &amp;Back">
           <Publish Event="NewDialog" Value="WelcomeForm" />
         </Control>
         <!-- ElevationShield: this is a perMachine package, so Windows puts the
              UAC shield on the button that actually starts the install. -->
-        <Control Id="NextButton" Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" ElevationShield="yes" Text="&amp;Next &gt;">
+        <Control Id="NextButton" Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" ElevationShield="yes" Text="{\PhvFontNormal}&amp;Next &gt;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
-        <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+        <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="{\PhvFontNormal}Cancel">
           <Publish Event="SpawnDialog" Value="CancelForm" />
         </Control>
       </Dialog>
@@ -124,13 +137,13 @@ Click "Next" to start the installation.</Text>
                  ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
 
         <Control Id="InstalledBody" Type="Text" X="9" Y="63" Width="354" Height="12" NoPrefix="yes"
-                 Text="[ProductName] is being installed."
+                 Text="{\PhvFontNormal}[ProductName] is being installed."
                  HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
         <Control Id="RemovedBody" Type="Text" X="18" Y="63" Width="336" Height="12" NoPrefix="yes" Hidden="yes"
-                 Text="[ProductName] is being removed."
+                 Text="{\PhvFontNormal}[ProductName] is being removed."
                  ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
 
-        <Control Id="ProgressLabel" Type="Text" X="18" Y="96" Width="336" Height="12" NoPrefix="yes" Text="Please wait...">
+        <Control Id="ProgressLabel" Type="Text" X="18" Y="96" Width="336" Height="12" NoPrefix="yes" Text="{\PhvFontNormal}Please wait...">
           <Subscribe Event="ActionText" Attribute="Text" />
         </Control>
         <Control Id="ProgressBar" Type="ProgressBar" X="18" Y="108" Width="336" Height="15" ProgressBlocks="yes" Text="Progress done">
@@ -138,9 +151,9 @@ Click "Next" to start the installation.</Text>
         </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
-        <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Disabled="yes" Text="&amp;Next &gt;" />
-        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
+        <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&amp;Next &gt;" />
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="{\PhvFontNormal}Cancel">
           <Publish Event="SpawnDialog" Value="CancelForm" />
         </Control>
       </Dialog>
@@ -154,23 +167,23 @@ Click "Next" to start the installation.</Text>
 
         <Control Id="BodyText" Type="Text" X="9" Y="63" Width="354" Height="138" NoPrefix="yes"
                  HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL">
-          <Text>[ProductName] has been successfully installed.
+          <Text>{\PhvFontNormal}[ProductName] has been successfully installed.
 
 Click "Close" to exit.</Text>
         </Control>
         <Control Id="BodyTextRemove" Type="Text" X="9" Y="63" Width="354" Height="138" NoPrefix="yes" Hidden="yes"
                  ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL">
-          <Text>[ProductName] has been successfully removed.
+          <Text>{\PhvFontNormal}[ProductName] has been successfully removed.
 
 Click "Close" to exit.</Text>
         </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
-        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="&amp;Close">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
+        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="{\PhvFontNormal}&amp;Close">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
-        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="Cancel" />
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}Cancel" />
       </Dialog>
 
       <!-- ========================== Maintenance =========================== -->
@@ -181,27 +194,27 @@ Click "Close" to exit.</Text>
                  Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
 
         <Control Id="BodyText" Type="Text" X="9" Y="63" Width="354" Height="42" NoPrefix="yes"
-                 Text="Select whether you want to repair or remove [ProductName]." />
+                 Text="{\PhvFontNormal}Select whether you want to repair or remove [ProductName]." />
 
         <!-- wixl requires the RadioButtonGroup nested INSIDE its Control;
              at <UI> level it errors "unhandled child UI node RadioButtonGroup". -->
         <Control Id="RepairRadioGroup" Type="RadioButtonGroup" X="18" Y="108" Width="348" Height="48"
                  Property="MaintenanceForm_Action" Text="MsiRadioButtonGroup">
           <RadioButtonGroup Property="MaintenanceForm_Action">
-            <RadioButton Value="Repair" X="0" Y="0"  Width="342" Height="18" Text="&amp;Repair [ProductName]" />
-            <RadioButton Value="Remove" X="0" Y="24" Width="342" Height="18" Text="Re&amp;move [ProductName]" />
+            <RadioButton Value="Repair" X="0" Y="0"  Width="342" Height="18" Text="{\PhvFontNormal}&amp;Repair [ProductName]" />
+            <RadioButton Value="Remove" X="0" Y="24" Width="342" Height="18" Text="{\PhvFontNormal}Re&amp;move [ProductName]" />
           </RadioButtonGroup>
         </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
-        <Control Id="FinishButton"   Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" ElevationShield="yes" Text="&amp;Finish">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
+        <Control Id="FinishButton"   Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" ElevationShield="yes" Text="{\PhvFontNormal}&amp;Finish">
           <Publish Event="ReinstallMode" Value="ecmus" Condition="MaintenanceForm_Action = &quot;Repair&quot;" />
           <Publish Event="Reinstall"     Value="All"   Condition="MaintenanceForm_Action = &quot;Repair&quot;" />
           <Publish Event="Remove"        Value="All"   Condition="MaintenanceForm_Action = &quot;Remove&quot;" />
           <Publish Event="EndDialog"     Value="Return" />
         </Control>
-        <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="Cancel">
+        <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="{\PhvFontNormal}Cancel">
           <Publish Event="SpawnDialog" Value="CancelForm" />
         </Control>
       </Dialog>
@@ -220,17 +233,17 @@ Click "Close" to exit.</Text>
              says "could be installed". That is an authoring slip in the
              original, not a feature, so the wording is corrected here. -->
         <Control Id="BodyTextInstall" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
-          <Text>The installer was interrupted before [ProductName] could be installed. You need to restart the installer to try again.
+          <Text>{\PhvFontNormal}The installer was interrupted before [ProductName] could be installed. You need to restart the installer to try again.
 
 Click "Close" to exit.</Text>
         </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
-        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="&amp;Close">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
+        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="{\PhvFontNormal}&amp;Close">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
-        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="Cancel" />
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}Cancel" />
       </Dialog>
 
       <!-- ====================== Installation Interrupted =================== -->
@@ -241,14 +254,14 @@ Click "Close" to exit.</Text>
                  Text="{\PhvFontTitle}Installation Interrupted" />
 
         <Control Id="BodyTextInstall" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
-                 Text="The installation was interrupted before [ProductName] could be installed. You need to restart the installer to try again." />
+                 Text="{\PhvFontNormal}The installation was interrupted before [ProductName] could be installed. You need to restart the installer to try again." />
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
-        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
-        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="&amp;Close">
+        <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
+        <Control Id="CloseButton"    Type="PushButton" X="228" Y="261" Width="66" Height="18" Default="yes" Cancel="yes" Text="{\PhvFontNormal}&amp;Close">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
-        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="Cancel" />
+        <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}Cancel" />
       </Dialog>
 
       <!-- ====================== Cancel confirmation ======================== -->
@@ -256,11 +269,11 @@ Click "Close" to exit.</Text>
            avoid colliding with the Cancel control id on every other form. -->
       <Dialog Id="CancelForm" Width="268" Height="78" Title="[ProductName]" NoMinimize="yes">
         <Control Id="BodyText" Type="Text" X="6" Y="9" Width="258" Height="24" NoPrefix="yes"
-                 Text="The installation is not yet complete. Are you sure you want to exit?" />
-        <Control Id="YesButton" Type="PushButton" X="126" Y="48" Width="65" Height="21" Text="&amp;Yes">
+                 Text="{\PhvFontNormal}The installation is not yet complete. Are you sure you want to exit?" />
+        <Control Id="YesButton" Type="PushButton" X="126" Y="48" Width="65" Height="21" Text="{\PhvFontNormal}&amp;Yes">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
-        <Control Id="NoButton" Type="PushButton" X="198" Y="48" Width="65" Height="21" Default="yes" Cancel="yes" Text="&amp;No">
+        <Control Id="NoButton" Type="PushButton" X="198" Y="48" Width="65" Height="21" Default="yes" Cancel="yes" Text="{\PhvFontNormal}&amp;No">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
@@ -270,26 +283,26 @@ Click "Close" to exit.</Text>
            surfaces a mid-install error (locked file, denied write) to the user
            instead of rolling back in silence. -->
       <Dialog Id="ErrorForm" Width="270" Height="105" Title="[ProductName]" ErrorDialog="yes" NoMinimize="yes">
-        <Control Id="ErrorText" Type="Text" X="48" Y="15" Width="205" Height="60" TabSkip="no" Text="Information text" />
-        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Yes">
+        <Control Id="ErrorText" Type="Text" X="48" Y="15" Width="205" Height="60" TabSkip="no" Text="{\PhvFontNormal}Information text" />
+        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;Yes">
           <Publish Event="EndDialog" Value="ErrorYes" />
         </Control>
-        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Cancel">
+        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;Cancel">
           <Publish Event="EndDialog" Value="ErrorAbort" />
         </Control>
-        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Cancel">
+        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;Cancel">
           <Publish Event="EndDialog" Value="ErrorCancel" />
         </Control>
-        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Ignore">
+        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;Ignore">
           <Publish Event="EndDialog" Value="ErrorIgnore" />
         </Control>
-        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;No">
+        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;No">
           <Publish Event="EndDialog" Value="ErrorNo" />
         </Control>
-        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;OK">
+        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;OK">
           <Publish Event="EndDialog" Value="ErrorOk" />
         </Control>
-        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Retry">
+        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="{\PhvFontNormal}&amp;Retry">
           <Publish Event="EndDialog" Value="ErrorRetry" />
         </Control>
       </Dialog>
