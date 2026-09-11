@@ -1,6 +1,9 @@
 # System prompt — building the PhValheim Client Windows installer
 
 Give this to an agent working on the Windows `.msi` for `phvalheim-client`.
+**For work on the client itself (any `.cs` file), read `prompts/client-build.md`
+first** — this document is packaging-only and says nothing about the app or the
+five other package formats it also ships through.
 Everything below is measured against the shipped artifacts, not recalled. Current
 as of `5ba43be` (2026-09-11). The record of what actually broke is in
 "Bugs that shipped" below; read it before you change the wizard or the upgrade
@@ -254,6 +257,12 @@ Two things worth internalising from that list:
 4. Download link: `https://github.com/brianmiller/phvalheim-client/raw/master/builds/phvalheim-client-<version>-x86_64.msi`
    Verify the link before handing it over: fetch it back and confirm the sha256
    matches the local file.
+5. If you cut a GitHub release, **the tag must be bare numeric — `2.0.13`, not
+   `v2.0.13`.** `Version.cs` runs `new Version(releases[0].TagName)` against the
+   newest release; `System.Version` cannot parse a leading `v`, and the throw
+   happens inside an `async void` where nothing can catch it. Every existing tag
+   (`2.0.5` … `2.0.12`) is bare numeric. A pre-release is also picked up as
+   "newest", so it would advertise itself to every client.
 
 ### Before you hand a build over
 
