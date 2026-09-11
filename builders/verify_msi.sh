@@ -125,7 +125,10 @@ fileTable=$(msiexport File)
 expectContains "phvalheim-client.exe is in the File table" "phvalheim-client.exe" "$fileTable"
 expectContains "phvalheim-client.ico is in the File table" "phvalheim-client.ico" "$fileTable"
 
-exeSize=$(echo "$fileTable" | awk -F'\t' '$3=="phvalheim-client.exe" {print $4; exit}')
+# File.FileName can be "SHORT~1.EXE|long-name.exe"; 2.0.12 uses that form.
+# Match on the long name so comparisons against older packages are meaningful.
+longName() { awk -F'\t' -v want="$1" -v col="$2" '{ n=$3; sub(/^.*\|/,"",n); if (n==want) { print $col; exit } }'; }
+exeSize=$(echo "$fileTable" | longName phvalheim-client.exe 4)
 if [ -n "$exeSize" ] && [ "$exeSize" -gt 10000000 ] 2>/dev/null; then
 	ok "phvalheim-client.exe is a plausible size ($exeSize bytes)"
 else
@@ -134,6 +137,34 @@ fi
 
 # The cab has to actually be embedded, or the MSI is useless on its own.
 expectContains "product.cab is embedded" "product.cab" "$(msiexport Media)"
+
+# The exe MUST declare a version, and this is an UPGRADE-ONLY failure that a
+# fresh install can never show.
+#
+# MSI file-versioning rule: an unversioned incoming file never overwrites a
+# versioned existing one. Publishing the single-file exe on Linux leaves it
+# with no Win32 version resource, so wixl wrote an EMPTY File.Version, while
+# 2.0.12 (built on Windows) installed an exe stamped 2.0.12.0. On upgrade,
+# costing runs at CostFinalize while 2.0.12 is still present, sees versioned
+# on disk vs unversioned incoming, and marks the exe SKIP. RemoveExistingProducts
+# then deletes 2.0.12's copy. The machine is left with the .ico and no exe --
+# exactly what 2.0.13 did to a real upgrade.
+#
+# The .ico is unaffected because it is unversioned on both sides, so the
+# unversioned-file rule (overwrite unless locally modified) installs it. That
+# asymmetry is the fingerprint of this bug.
+#
+# Fixed with DefaultVersion in the .wxs. Not testable by the wine gate below:
+# that is a FRESH install, and 2.0.12 cannot be installed under wine at all
+# (its VS custom actions -- MSVBDPCADLL, DIRCA_CheckNETCore -- do not run), so
+# no automated 2.0.12 -> current upgrade is possible here.
+exeVersion=$(echo "$fileTable" | longName phvalheim-client.exe 5)
+if [ -n "$exeVersion" ]; then
+	expect "exe declares a file version (upgrades replace it)" "$expectVersion.0" "$exeVersion"
+else
+	fail "exe declares a file version (upgrades replace it)" "$expectVersion.0" \
+		"EMPTY -- an upgrade over a versioned exe will DELETE it and install nothing"
+fi
 
 echo
 echo "-- phvalheim:// URL scheme --"

@@ -62,9 +62,19 @@
           <Directory Id="INSTALLFOLDER" Name="phvalheim-client">
 
             <Component Id="ClientExe" Guid="03C52D9D-65FD-467A-94CE-71EF091DEE75">
+              <!-- DefaultVersion is load-bearing on UPGRADES. Publishing the
+                   single-file exe on Linux leaves it with no Win32 version
+                   resource, so wixl writes an EMPTY File.Version. MSI then
+                   treats it as unversioned, and an unversioned incoming file
+                   never overwrites a versioned existing one: costing decides
+                   to skip it while 2.0.12 is still installed, then
+                   RemoveExistingProducts deletes 2.0.12's copy, and the
+                   machine is left with no exe at all. 2.0.12 shipped
+                   ver=2.0.12.0 because it was built on Windows. -->
               <File Id="clientExe"
                     Name="phvalheim-client.exe"
                     Source="phvalheim-client.exe"
+                    DefaultVersion="$(var.Version).0"
                     KeyPath="yes" />
             </Component>
 
