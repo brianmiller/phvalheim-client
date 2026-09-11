@@ -1,0 +1,139 @@
+#!/bin/bash
+#
+# Windows .msi build, container side. Runs in two stages because no single
+# image has both the .NET 9 SDK and wixl:
+#
+#   --publish   in mcr.microsoft.com/dotnet/sdk:9.0   -> win-x64 single-file exe
+#   --package   in the builders/dockers/windows image -> wixl, sign, verify
+#
+# The outie drives both. Don't run this on the host.
+
+set -u
+
+stage="${1:-}"
+gitRoot=/git
+stagingDir="$gitRoot/builders/.msi_staging"
+
+version=$(grep -m1 -oP '(?<=<Version>)[^<]+' "$gitRoot/phvalheim-client.csproj")
+if [ -z "$version" ]; then
+	echo "ERROR: could not read <Version> from phvalheim-client.csproj"
+	exit 1
+fi
+
+case "$stage" in
+
+--publish)
+	echo
+	echo "Publishing win-x64 single-file exe (version $version)..."
+	echo
+
+	# PostBuildEvent is cleared: it invokes builders/post_build_vss.bat, which is
+	# Windows-only and would fail the build here.
+	dotnet publish "$gitRoot/phvalheim-client.csproj" \
+		-c Windows-Release \
+		-r win-x64 \
+		-p:PublishSingleFile=true \
+		-p:PublishTrimmed=false \
+		-p:PostBuildEvent= \
+		--self-contained true \
+		/consoleloggerparameters:NoSummary || exit 1
+
+	exe="$gitRoot/bin/Windows-Release/net9.0/win-x64/publish/phvalheim-client.exe"
+	if [ ! -s "$exe" ]; then
+		echo "ERROR: publish produced no exe at $exe"
+		exit 1
+	fi
+
+	# Confirm we actually built a Windows binary and not, say, an ELF with a
+	# .exe name -- dotnet will happily emit the host RID's format if the RID
+	# argument is dropped somewhere upstream.
+	if [ "$(head -c2 "$exe")" != "MZ" ]; then
+		echo "ERROR: $exe is not a PE executable (no MZ header)"
+		exit 1
+	fi
+	echo "Published $(stat -c%s "$exe") bytes: $exe"
+	;;
+
+--package)
+	echo
+	echo "Building phvalheim-client-$version-x86_64.msi..."
+	echo
+
+	exe="$gitRoot/bin/Windows-Release/net9.0/win-x64/publish/phvalheim-client.exe"
+	if [ ! -s "$exe" ]; then
+		echo "ERROR: no published exe at $exe -- run the --publish stage first"
+		exit 1
+	fi
+
+	rm -rf "$stagingDir"
+	mkdir -p "$stagingDir"
+	cp "$exe" "$stagingDir/phvalheim-client.exe" || exit 1
+	cp "$gitRoot/phvalheim-client.ico" "$stagingDir/phvalheim-client.ico" || exit 1
+	cp "$gitRoot/builders/wxs/phvalheim-client.wxs" "$stagingDir/" || exit 1
+
+	out="$gitRoot/builds/phvalheim-client-$version-x86_64.msi"
+	mkdir -p "$gitRoot/builds"
+
+	# -a x64 is what stamps the summary-info arch template. A Platform=
+	# attribute in the .wxs is warned-and-ignored by wixl, so this flag is
+	# load-bearing, not decorative.
+	( cd "$stagingDir" && wixl -a x64 -D Version="$version" -o "$out" phvalheim-client.wxs ) || exit 1
+
+	if [ ! -s "$out" ]; then
+		echo "ERROR: wixl produced no output at $out"
+		exit 1
+	fi
+	echo "Built $(stat -c%s "$out") bytes: $out"
+
+	# Optional Authenticode signing. Same env var contract the retired
+	# scripts/post.ps1 used, so nothing external has to change. Unsigned is a
+	# normal, non-fatal outcome -- the Linux packages ship unsigned too.
+	if [ -n "${CODESIGN_PFX:-}" ]; then
+		if [ ! -s "$CODESIGN_PFX" ]; then
+			echo "ERROR: CODESIGN_PFX is set but $CODESIGN_PFX is missing or empty"
+			exit 1
+		fi
+		if [ -n "${CODESIGN_PFX_PW:-}" ]; then
+			pw="$CODESIGN_PFX_PW"
+		elif [ -n "${CODESIGN_PFX_PW_FILE:-}" ]; then
+			pw=$(tr -d '\r\n' < "$CODESIGN_PFX_PW_FILE")
+		else
+			echo "ERROR: CODESIGN_PFX is set but neither CODESIGN_PFX_PW nor CODESIGN_PFX_PW_FILE is"
+			exit 1
+		fi
+
+		echo "Signing with $CODESIGN_PFX..."
+		# osslsigncode cannot sign in place.
+		if osslsigncode sign \
+			-pkcs12 "$CODESIGN_PFX" \
+			-pass "$pw" \
+			-n "PhValheim Client" \
+			-i "https://github.com/brianmiller/phvalheim-client" \
+			-h sha256 \
+			-in "$out" \
+			-out "$out.signed" > /tmp/ossl.log 2>&1
+		then
+			mv -f "$out.signed" "$out"
+			echo "Signed."
+		else
+			echo "ERROR: signing failed:"
+			tail -20 /tmp/ossl.log
+			rm -f "$out.signed"
+			exit 1
+		fi
+	else
+		echo "CODESIGN_PFX unset -- leaving the MSI unsigned."
+	fi
+
+	# Linux MSI builds get no ICE validation. verify_msi.sh is the substitute
+	# and its exit status gates the build.
+	bash "$gitRoot/builders/verify_msi.sh" "$out" "$version" || exit 1
+
+	rm -rf "$stagingDir"
+	;;
+
+*)
+	echo "usage: build_msi-innie --publish | --package"
+	exit 1
+	;;
+esac

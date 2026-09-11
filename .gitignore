@@ -7,6 +7,13 @@
 .tgz_staging
 .deb_staging
 .rpm_staging
+.msi_staging
+
+# Code-signing key material must never land here. gen-codesign-cert.sh writes
+# outside the repo by design; these patterns are a backstop, not the mechanism.
+*.pfx
+*.pw
+phvalheim-client.key
 
 # User-specific files
 *.rsuser

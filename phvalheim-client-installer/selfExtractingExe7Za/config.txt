@@ -1,5 +1,0 @@
-;!@Install@!UTF-8!
-Title="PhValheim Launcher"
-BeginPrompt="Do you want to install PhValheim's Client?"
-RunProgram="setup.exe"
-;!@InstallEnd@!

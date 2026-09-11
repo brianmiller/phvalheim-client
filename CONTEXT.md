@@ -1,7 +1,7 @@
 # phvalheim-client — Project Context
 
 > Maintained by Skippy. Updated when significant changes are made.
-> Last updated: 2026-03-18
+> Last updated: 2026-09-11
 
 ## Overview
 
@@ -11,10 +11,10 @@ and launches Valheim with the correct BepInEx environment via the `phvalheim://`
 **Flow:** `phvalheim://` URL → client → sync check → download world zip if needed → launch Valheim + BepInEx
 
 ## Current Version
-**2.0.12**
+**2.0.13**
 
 ## Platform Support
-- **Windows:** `.msi` — URL scheme registered automatically by installer
+- **Windows:** `.msi` — URL scheme registered automatically by installer; installs to `%AppData%\PhValheim\phvalheim-client\`
 - **Linux Debian/Ubuntu:** `.deb` — needs `xdg-mime` registration post-install
 - **Linux Fedora/RHEL:** `.rpm` — needs `xdg-mime` registration post-install
 - **Linux Universal:** `.tar.gz` — install via `phvalheim-client-installer.sh`
@@ -25,9 +25,35 @@ and launches Valheim with the correct BepInEx environment via the `phvalheim://`
 - `build_deb-outie` — .deb via Docker
 - `build_rpm-outie` — .rpm via Docker
 - `build_tgz-innie` — .tar.gz local
+- `build_msi-outie` — Windows .msi via Docker, **headless on Linux** (see below)
 - `build_macos-outie` — macOS .tar.gz via SSH to a Mac build host (M4 MacBook Pro).
   Set `MAC_HOST` / `MAC_USER` (and optionally `MAC_PASS`) in your environment; the
   builders deliberately carry no defaults, since this is a public repository.
+
+## Windows MSI Architecture
+
+As of 2.0.13 the `.msi` is built headlessly on Linux. The old Visual Studio Setup
+Project (`phvalheim-client-installer.vdproj`) is **retired** — `.vdproj` is not an
+MSBuild project and could only be built by `devenv.exe` interactively on Windows.
+
+- **Toolchain is `wixl` (GNOME msitools), not the WiX Toolset.** WiX v4/v5 installs
+  on Linux but refuses to work there: `WIX0000: The WiX Toolset only supports
+  Windows`, then hard-fails on ordinary directory names. Do not retry that road.
+- Source of truth: `builders/wxs/phvalheim-client.wxs` (WiX **v3** schema, which is
+  what wixl parses). Version is injected with `-D Version=` read from the csproj.
+- Builder image pinned to `debian:trixie-slim` (wixl 0.106); bookworm's 0.101 has no
+  `--ext ui`. Two-stage build: `sdk:9.0` publishes the exe, the msi image packages it.
+- `-a x64` on the wixl command line is load-bearing — it is what stamps the
+  `x64;1033` summary template. A `Platform=` attribute in the .wxs is silently ignored.
+- **`UpgradeCode {9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}` must never change**, or
+  upgrades over 2.0.12 and earlier silently install side by side instead of replacing.
+- Linux MSI builds run **no ICE validation**. `builders/verify_msi.sh` is the
+  substitute: 34 assertions over the MSI tables plus a real `wine msiexec /qn`
+  install. It gates the build. Each assertion was checked against a deliberately
+  broken MSI to confirm it can actually fail.
+- Signing: `osslsigncode` replaces `signtool.exe`, same `CODESIGN_PFX` /
+  `CODESIGN_PFX_PW[_FILE]` contract. Key material lives outside the repo in
+  `~/.config/phvalheim-client/codesign/` and must never be committed.
 
 ## macOS Architecture
 

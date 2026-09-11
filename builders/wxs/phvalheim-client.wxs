@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WiX v3 source for the PhValheim Client Windows installer.
+
+  Built headlessly on Linux by `wixl` (GNOME msitools), NOT by the WiX Toolset.
+  WiX v4/v5 refuses to build on Linux ("WIX0000: The WiX Toolset only supports
+  Windows"), so this file deliberately targets the WiX v3 schema that wixl parses.
+
+  This replaces phvalheim-client-installer/phvalheim-client-installer.vdproj, a
+  Visual Studio Setup Project that could only be built interactively on Windows.
+  Everything below reproduces that project's shipped behaviour exactly.
+
+  Build:  wixl -a x64 -D Version=<x.y.z> -o out.msi phvalheim-client.wxs
+  Verify: builders/verify_msi.sh out.msi <x.y.z>
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <!--
+    UpgradeCode is inherited verbatim from the .vdproj. It MUST NOT change:
+    it is the only thing tying a 2.0.13 install to the 2.0.12 (and earlier)
+    installs it has to replace. A new UpgradeCode would leave every existing
+    install on disk and register a second, parallel product.
+  -->
+  <Product Id="*"
+           Name="PhValheim Client"
+           Language="1033"
+           Version="$(var.Version)"
+           Manufacturer="Phospher"
+           UpgradeCode="9799CDE9-1240-47AC-9891-AAB1F6FDB5E7">
+
+    <Package InstallerVersion="200"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="PhValheim Client"
+             Comments="PhValheim Client"
+             Manufacturer="Phospher" />
+
+    <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
+
+    <!-- ARP ("Add/Remove Programs") metadata, matching the .vdproj -->
+    <Icon Id="phvalheim.ico" SourceFile="phvalheim-client.ico" />
+    <Property Id="ARPPRODUCTICON" Value="phvalheim.ico" />
+    <Property Id="ARPCONTACT" Value="posixone" />
+
+    <!--
+      .vdproj had RemovePreviousVersions=TRUE + DetectNewerInstalledVersion=TRUE.
+      MajorUpgrade is the exact equivalent: uninstall-then-reinstall on upgrade,
+      and refuse to install over a newer version.
+    -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+
+      <!--
+        The payload lives in %AppData%\PhValheim\phvalheim-client\, NOT in
+        Program Files. This is what the .vdproj shipped and what the registered
+        phvalheim:// command line points at, so it cannot move without breaking
+        both the URL handler and upgrades from 2.0.12.
+      -->
+      <Directory Id="AppDataFolder">
+        <Directory Id="PhValheimDir" Name="PhValheim">
+          <Directory Id="INSTALLFOLDER" Name="phvalheim-client">
+
+            <Component Id="ClientExe" Guid="03C52D9D-65FD-467A-94CE-71EF091DEE75">
+              <File Id="clientExe"
+                    Name="phvalheim-client.exe"
+                    Source="phvalheim-client.exe"
+                    KeyPath="yes" />
+            </Component>
+
+            <Component Id="ClientIco" Guid="B0106DCD-8A66-47DA-8974-A8E780BBE8F7">
+              <File Id="clientIco"
+                    Name="phvalheim-client.ico"
+                    Source="phvalheim-client.ico"
+                    KeyPath="yes" />
+            </Component>
+
+          </Directory>
+        </Directory>
+      </Directory>
+
+      <!--
+        The phvalheim:// URL scheme. This is the whole reason the installer
+        exists: the server hands out phvalheim:// links and Windows needs to
+        know which binary opens them.
+
+        The command value is REG_EXPAND_SZ (Type="expandable") because it
+        contains %appdata% — as REG_SZ, Windows would hand the literal string
+        "%appdata%\..." to CreateProcess and the handler would silently fail.
+      -->
+      <Component Id="UrlScheme" Guid="5C974DAC-CA30-4EF2-9660-76EEF207EB37">
+        <RegistryKey Root="HKCR" Key="phvalheim">
+          <RegistryValue Type="string" Value="PhValheim Client" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryValue Root="HKCR"
+                       Key="phvalheim\shell\open\command"
+                       Type="expandable"
+                       Value="&quot;%appdata%\PhValheim\phvalheim-client\phvalheim-client.exe&quot; &quot;%1&quot;"
+                       KeyPath="yes" />
+      </Component>
+
+      <!--
+        NOT reproduced from the .vdproj: two empty, valueless keys at
+        HKLM\Software\Phospher and HKCU\Software\Phospher. Nothing writes them,
+        nothing reads them (the client's only registry read is
+        HKCU\Software\Valve\Steam, in Platform.cs), and they hold no values.
+        They are vestigial, and 2.0.12's own uninstall removes its copies during
+        the major upgrade, so dropping them orphans nothing. wixl also has no
+        ForceCreateOnInstall support, so reproducing them would have required
+        inventing a registry value this product has never had.
+      -->
+
+    </Directory>
+
+    <Feature Id="Main" Level="1" Title="PhValheim Client">
+      <ComponentRef Id="ClientExe" />
+      <ComponentRef Id="ClientIco" />
+      <ComponentRef Id="UrlScheme" />
+    </Feature>
+
+    <!--
+      No <UIRef>. The .vdproj used the stock VS dialog set (Welcome /
+      Installation Folder / Confirm / Progress / Finished). Its "Installation
+      Folder" page was cosmetic: it edited TARGETDIR, and no file in this
+      product has ever been installed to TARGETDIR. Dropping the wizard loses
+      no real choice, and avoids WixUI_Minimal, which would ADD a licence
+      agreement page this product never had and has no licence text for.
+      Result: msiexec shows a progress bar and finishes.
+    -->
+
+  </Product>
+</Wix>

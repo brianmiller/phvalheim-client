@@ -35,10 +35,12 @@
   </PropertyGroup>
 
 <PropertyGroup>
-	<PostBuildEvent Condition="'$(Configuration)' == 'Windows-Release'">
-		echo "Windows build detected.
-		call ..\..\..\..\builders\post_build_vss.bat $(MSBuildProjectDirectory) $(Configuration)
-	</PostBuildEvent>
+	<!--
+	  The Windows-Release post-build event used to call builders\post_build_vss.bat,
+	  the Windows-only tail of the retired Visual Studio Setup Project. The .msi is
+	  now built headlessly on Linux by builders/build_msi-outie (wixl), so there is
+	  nothing left for a post-build event to do.
+	-->
 	<PostBuildEvent Condition="'$(Configuration)' == 'Linux-Release'">
 		echo "Linux build detected."
 	</PostBuildEvent>

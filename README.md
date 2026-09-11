@@ -58,7 +58,12 @@ curl -fsSL https://raw.githubusercontent.com/brianmiller/phvalheim-client/master
 
 ### Windows (.msi)
 
-Run the installer. The URL scheme handler is registered automatically.
+Run the installer. The URL scheme handler is registered automatically, and the
+client is installed to `%AppData%\PhValheim\phvalheim-client\`.
+
+The installer is currently signed with a self-signed certificate, so Windows
+SmartScreen will warn about an unknown publisher. Choose **More info → Run
+anyway** to proceed.
 
 ## Uninstalling
 
@@ -92,7 +97,24 @@ Package builds use Docker or a remote Mac:
 - **Debian .deb**: `bash builders/build_deb-outie`
 - **Fedora .rpm**: `bash builders/build_rpm-outie`
 - **Universal .tar.gz**: `bash builders/build_tgz-innie`
+- **Windows .msi**: `bash builders/build_msi-outie`
 - **macOS .tar.gz**: `bash builders/build_macos-outie` (requires SSH access to a Mac build host)
+
+The Windows `.msi` builds headlessly on Linux via `wixl` — no Windows machine or
+Visual Studio required. See [docs/MSI-BUILD-PLAN.md](docs/MSI-BUILD-PLAN.md) for
+why, and `builders/wxs/phvalheim-client.wxs` for the installer definition.
+
+To sign the `.msi`, mint a self-signed certificate (written outside the repo) and
+point the builder at it:
+
+```bash
+bash builders/gen-codesign-cert.sh
+export CODESIGN_PFX="$HOME/.config/phvalheim-client/codesign/phvalheim-client.pfx"
+export CODESIGN_PFX_PW_FILE="$HOME/.config/phvalheim-client/codesign/phvalheim-client-pfx.pw"
+bash builders/build_msi-outie
+```
+
+With `CODESIGN_PFX` unset the build still succeeds and emits an unsigned `.msi`.
 
 ## Related
 
