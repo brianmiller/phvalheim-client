@@ -51,7 +51,7 @@ Containers write as root. `chown -R brian:brian builds bin obj` afterwards (need
 | `builders/wxs/banner.bmp` | The .vdproj's banner bitmap, extracted from 2.0.12. |
 | `builders/build_msi-outie` | Host side; orchestrates both containers. |
 | `builders/build_msi-innie` | Container side; `--publish` and `--package` stages. |
-| `builders/verify_msi.sh` | 65 assertions + wine smoke install. Gates the build. |
+| `builders/verify_msi.sh` | 66 assertions + wine smoke install. Gates the build. |
 | `builders/dockers/windows/Dockerfile` | trixie + wixl + wine + osslsigncode. |
 | `builders/gen-codesign-cert.sh` | Mints a self-signed cert **outside** the repo. |
 | `docs/MSI-BUILD-PLAN.md` | Why it is built this way. Read before redesigning anything. |

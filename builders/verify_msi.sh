@@ -53,6 +53,17 @@ prop() { # read a row out of the Property table
 	msiexport Property | awk -F'\t' -v k="$1" '$1==k {print $2; exit}'
 }
 
+# The Control table stores multi-paragraph body text with embedded newlines, so
+# a record can span several output lines and a line-oriented reader sees
+# shifted fields. That is not theoretical: it made the tab-loop check below
+# report a false failure against 2.0.12, a package that demonstrably works.
+# Re-join each record (12 columns, so 11 tabs) onto one line first.
+controlRecords() {
+	msiexport Control | tail -n +4 | awk '
+		{ rec = (rec == "" ? $0 : rec "\001" $0)
+		  if (gsub(/\t/, "\t", rec) >= 11) { print rec; rec = "" } }'
+}
+
 echo
 echo "Verifying $(basename "$msi")"
 echo "================================================================"
@@ -260,7 +271,7 @@ done
 # that nothing references (our cancel path spawns CancelForm); it is unstyled
 # dead weight, not a rendering bug. If a stock dialog ever became reachable the
 # SpawnDialog and named-dialog checks above would catch it.
-unstyled=$(msiexport Control | tail -n +4 | awk -F'\t' -v ours="$ourDialogs" '
+unstyled=$(controlRecords | awk -F'\t' -v ours="$ourDialogs" '
 	BEGIN { n = split(ours, a, " "); for (i = 1; i <= n; i++) mine[a[i]] = 1 }
 	($3 == "Text" || $3 == "PushButton") && ($1 in mine) {
 		if ($10 != "" && $10 !~ /^\{\\/) print $1 "/" $2
@@ -270,6 +281,68 @@ if [ -z "${unstyled// /}" ]; then
 else
 	fail "every Text/PushButton string carries an inline style prefix" \
 		"all prefixed {\\Style}" "$unstyled(renders blue, truncates at first newline)"
+fi
+
+# MSI error 2834, "the next pointers on the dialog do not form a single loop",
+# thrown at RUNTIME the moment the dialog is shown. Windows starts at
+# Dialog.Control_First and walks Control_Next; every control that is not
+# TabSkip must be on that cycle.
+#
+# wixl sets Control_First to the first <Control> in DOCUMENT ORDER regardless
+# of whether it can take focus, and only chains controls it thinks are
+# focusable. So a dialog whose first element is a Text control gets
+# Control_First pointing at a control with no next pointer, and blows up. That
+# is what CancelForm did: clicking Cancel raised 2834. Mark every Text, Line,
+# Bitmap and ProgressBar TabSkip="yes" so both the chain and Control_First
+# skip them.
+#
+# Nothing else here can see this: the tables are individually well-formed and
+# the wine smoke install runs /qn, which never shows a dialog.
+dialogTable=$(msiexport Dialog | tail -n +4)
+controlTable=$(controlRecords)
+loopBad=""
+for dlg in $ourDialogs; do
+	# Absent dialogs are already reported by the named-dialog check above.
+	# Skipping them here keeps this check meaningful when it is pointed at an
+	# older package whose forms have different ids (2.0.12 calls these Cancel
+	# and ErrorDialog), rather than double-reporting a naming difference.
+	echo "$dialogTable" | cut -f1 | grep -qx "$dlg" || continue
+	first=$(echo "$dialogTable" | awk -F'\t' -v d="$dlg" '$1==d {print $8; exit}')
+	report=$(echo "$controlTable" | awk -F'\t' -v d="$dlg" -v start="$first" '
+		$1 == d {
+			next_[$2] = $11
+			if ($11 != "") linked[$2] = 1
+		}
+		END {
+			# Text and Line controls cannot take focus and are legitimately
+			# left unlinked -- 2.0.12 does exactly that and installs fine. The
+			# rule Windows actually enforces is narrower: the walk STARTS at
+			# Control_First, so Control_First must itself sit on a closed
+			# cycle, and there must be only one such cycle.
+			if (start == "") { print "no Control_First"; exit }
+			if (!(start in next_)) { print "Control_First=" start " is not a control on this dialog"; exit }
+			if (!(start in linked)) { print "Control_First=" start " has no next pointer, so the loop is open"; exit }
+			cur = start
+			for (i = 0; i < 500; i++) {
+				seen[cur] = 1
+				cur = next_[cur]
+				if (cur == "") { print "loop from " start " dead-ends"; exit }
+				if (!(cur in next_)) { print "next pointer to unknown control " cur; exit }
+				if (cur == start) break
+			}
+			if (cur != start) { print "walk from " start " never returned"; exit }
+			for (c in linked) if (!(c in seen)) stray = stray " " c
+			if (stray != "") print "second, disjoint loop:" stray
+		}')
+	if [ -n "$report" ]; then
+		loopBad="$loopBad $dlg($report)"
+	fi
+done
+if [ -z "${loopBad// /}" ]; then
+	ok "every dialog's Control_Next forms a single loop from Control_First (no MSI 2834)"
+else
+	fail "every dialog's Control_Next forms a single loop from Control_First" \
+		"one closed loop per dialog" "$loopBad -- MSI error 2834 when the dialog opens"
 fi
 
 # TextStyle.Color NULL renders every styled string BLUE on Windows. 2.0.12
