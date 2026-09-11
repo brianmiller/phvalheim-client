@@ -18,7 +18,7 @@ A .NET 9 console app, ten source files at the repo root:
 | File | Role |
 | --- | --- |
 | `Main.cs` | entry point, argument dispatch |
-| `Arguments.cs` | CLI parsing and `--version` output |
+| `Arguments.cs` | URL parsing, and `Usage()` which prints the version banner |
 | `Launcher.cs` | launches Valheim with the BepInEx environment |
 | `Downloader.cs` | fetches world/mod payloads |
 | `Syncer.cs` | keeps the local mod environment in step with the server |
@@ -30,6 +30,14 @@ A .NET 9 console app, ten source files at the repo root:
 
 It registers the `phvalheim://` URL scheme; the server hands out
 `phvalheim://` links and Windows/macOS/Linux route them here.
+
+**There are no `--version` or `--help` flags.** The only CLI shape is a single
+`phvalheim://?<base64>` argument, where the base64 decodes to
+`command?field?field…`. `launch` needs 7 fields (an 8th, `vanilla`, is optional
+and absent means modded — a 2.40 client must still work against an older
+server); `textures` needs 3. With **no** arguments it prints usage and exits.
+Anything else prints "malformed phvalheim URL". Do not invent flags — check
+`Arguments.argHandler` before documenting or testing one.
 
 ## The version has exactly one source of truth
 
@@ -75,20 +83,31 @@ The non-Windows builders have **not been audited** to the standard the msi one
 now has. Do not assume they are correct because they are old. If you touch
 packaging for them, verify before claiming.
 
-## There are no tests
+## Testing: one smoke test, and a large hole
 
-Zero. No test project, no `dev_tools/`, nothing exercising the ten source
-files. The entire automated suite in this repo tests the Windows *installer*,
-not the application it installs.
+`builders/test_client_smoke.py` is the only thing that **runs the program**. It
+gates the build. It drives the real shipped win-x64 exe under wine and covers:
 
-Consequences to state plainly rather than work around:
+- startup, usage output, and that the binary's reported version matches the
+  csproj (the app-side equivalent of the `.vdproj` drift check)
+- all four malformed-URL early returns in `Arguments.argHandler`
+- **that the process does not block on stdin** — every failure path calls
+  `Console.ReadLine()`, so a naive test hangs forever. Cases run with stdin
+  closed and a 120s timeout, and a hang is reported as a FAIL
 
-- A behavioural change to `Syncer`, `Downloader` or `Launcher` is verified only
-  by running the client against a real server.
-- `builders/test_install_matrix.py` proves the exe is *installed*, not that it
-  *works*. It never runs it.
-- If you are changing logic, the honest handover is "built and packaged
-  cleanly; runtime behaviour unverified" unless you actually ran it.
+Both halves were proven falsifiable: a wrong expected version fails the version
+check, and a well-formed URL does *not* emit "malformed", so that assertion
+discriminates.
+
+**What is still untested is most of the client.** Everything past a well-formed
+launch URL — `Platform.State.init`, `PhValheimPrep`, `Downloader`, `Syncer`,
+`Launcher` — needs a real server and a real Steam install. There is no coverage
+of any of it, and the smoke test prints that as a COVERAGE NOTE on every run.
+
+So: a behavioural change to `Syncer`, `Downloader` or `Launcher` is verified
+only by running the client against a real server. If you did not do that, the
+honest handover is "built, packaged and smoke-tested; runtime behaviour
+unverified".
 
 ## Build facts worth knowing before you change the csproj
 
@@ -112,5 +131,7 @@ Consequences to state plainly rather than work around:
 - [ ] All six packages still build, not just the one you were working on.
 - [ ] The msi gates are green — `verify_msi.sh` **and** `test_install_matrix.py`
       (never `MSI_SKIP_MATRIX=1` for a handover).
-- [ ] You actually ran the client, or you said you did not.
+- [ ] The client smoke test is green (it runs automatically in `--package`).
+- [ ] You actually ran the client against a real server, or you said you did not
+      — the smoke test does not reach any of the sync/launch logic.
 - [ ] Release tag is bare numeric.

@@ -177,6 +177,18 @@ case "$stage" in
 	# and its exit status gates the build.
 	bash "$gitRoot/builders/verify_msi.sh" "$out" "$version" || exit 1
 
+	# The CLIENT, not the installer. Everything else here tests the package;
+	# this is the only thing that runs the program. It exercises the argument
+	# handler -- the path every phvalheim:// click enters first -- against the
+	# real shipped win-x64 exe under wine, and ties the binary's reported
+	# version back to the csproj.
+	export WINEPREFIX="${WINEPREFIX:-/tmp/wineprefix}"
+	export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime}"
+	mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+	wineboot -i >/dev/null 2>&1
+	wineserver -w 2>/dev/null
+	python3 "$gitRoot/builders/test_client_smoke.py" "$exe" "$version" || exit 1
+
 	# verify_msi.sh asserts what is IN the package. The matrix asserts what it
 	# DOES: fresh install, uninstall, repair, upgrade over a predecessor, and
 	# the wizard rendered on a virtual display. Every scenario in it exists

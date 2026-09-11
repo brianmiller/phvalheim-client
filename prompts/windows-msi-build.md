@@ -59,6 +59,7 @@ Containers write as root. `chown -R brian:brian builds bin obj` afterwards (need
 | `builders/build_msi-innie` | Container side; `--publish` and `--package` stages. |
 | `builders/verify_msi.sh` | 67 assertions on what is IN the package. Gates the build. |
 | `builders/test_install_matrix.py` | What the package DOES: install, uninstall, repair, upgrade, wizard screenshots. Also gates. |
+| `builders/test_client_smoke.py` | Runs the shipped exe under wine: startup, version, malformed URLs. Also gates. See `prompts/client-build.md`. |
 | `builders/dockers/windows/Dockerfile` | trixie + wixl + wine + osslsigncode + Xvfb/xdotool/ImageMagick/PIL for the wizard screenshots. |
 | `builders/gen-codesign-cert.sh` | Mints a self-signed cert **outside** the repo. |
 | `docs/MSI-BUILD-PLAN.md` | Why it is built this way. Read before redesigning anything. |
