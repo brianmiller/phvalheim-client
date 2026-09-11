@@ -54,8 +54,9 @@ Containers write as root. `chown -R brian:brian builds bin obj` afterwards (need
 | `builders/wxs/banner.bmp` | The .vdproj's banner bitmap, extracted from 2.0.12. |
 | `builders/build_msi-outie` | Host side; orchestrates both containers. |
 | `builders/build_msi-innie` | Container side; `--publish` and `--package` stages. |
-| `builders/verify_msi.sh` | 67 assertions + wine smoke install. Gates the build. |
-| `builders/dockers/windows/Dockerfile` | trixie + wixl + wine + osslsigncode. |
+| `builders/verify_msi.sh` | 67 assertions on what is IN the package. Gates the build. |
+| `builders/test_install_matrix.py` | What the package DOES: install, uninstall, repair, upgrade, wizard screenshots. Also gates. |
+| `builders/dockers/windows/Dockerfile` | trixie + wixl + wine + osslsigncode + Xvfb/xdotool/ImageMagick/PIL for the wizard screenshots. |
 | `builders/gen-codesign-cert.sh` | Mints a self-signed cert **outside** the repo. |
 | `docs/MSI-BUILD-PLAN.md` | Why it is built this way. Read before redesigning anything. |
 
@@ -98,9 +99,21 @@ swapping in a publicly trusted cert is a one-line `CODESIGN_PFX` change.
 ## Verification — the part that matters most
 
 Building an MSI on Linux runs **no ICE validation**; `light.exe`'s validator is
-Windows-only and wixl has no equivalent. `builders/verify_msi.sh` is the entire
-substitute and its exit status gates the build. Two gates: table assertions via
-`msiinfo`, and a real `wine msiexec /i … /qn` install.
+Windows-only and wixl has no equivalent. Two scripts are the substitute, and
+**both gate the build**:
+
+- **`builders/verify_msi.sh`** — 67 assertions on what is IN the package
+  (tables, summary info, signature) plus a `wine msiexec /i … /qn` smoke install.
+- **`builders/test_install_matrix.py`** — what the package DOES once installed.
+  Fresh install (files at the exact path and size, nothing extra, the full HKCR
+  registration including `REG_EXPAND_SZ`, one ARP entry at the right version);
+  uninstall leaves nothing; repair; upgrade over a predecessor; and **the wizard
+  rendered on a virtual display, screenshotted and asserted on pixels**.
+
+Every scenario in the matrix exists because a bug shipped past a fully green
+`verify_msi.sh`. It is slow — a wine prefix per scenario — so `MSI_SKIP_MATRIX=1`
+exists for iterating on the `.wxs`. **Never skip it for a build you hand over.**
+Screenshots land in `builders/.msi_shots/`; look at them.
 
 **Never weaken a failing assertion to make a build go green.** If a check fails,
 the MSI is wrong until proven otherwise.
@@ -170,13 +183,25 @@ screenshot.
   `DIRCA_CheckNETCore`) never run, and the install leaves nothing on disk or in
   the registry. There is no automated 2.0.12 → current upgrade test. The
   file-version assertion is a proxy for the mechanism, not a test of the upgrade.
-- **Rendering.** Nothing checks fonts, colour, wrapping or clipping. A dialog can
-  be present, correctly wired, carry the right strings, and still render blue,
-  truncated, or in the wrong typeface. Three separate shipped bugs were exactly
-  this.
-- **The full-UI sequence.** `/qn` skips `InstallUISequence` entirely. Running wine
-  in full UI (graphics driver `null`) does execute it — but it passed a package
-  with **zero dialogs**, so it is not a substitute for looking at the thing.
+- **Rendering, mostly.** The matrix now screenshots the wizard, and the
+  maroon-bitmap check is a **proven oracle** — a `WixUI_Minimal` build reports
+  32,616 maroon px (18.4%), exactly the pixel count in the stock
+  `WixUI_Bmp_Dialog`. But **wine does not reproduce Windows' rendering of
+  UNSTYLED strings.** On Windows a string with no `{\Style}` prefix renders blue
+  and stops at its first newline; under wine a build with every prefix stripped
+  renders correctly. Measured, not assumed. So the colour and text-row checks
+  are a render FLOOR (did the page draw anything), not a style check — the style
+  prefixes are guarded by `verify_msi.sh` against the Control table instead.
+- **The upgrade case that actually bit us.** The matrix upgrade scenario uses a
+  predecessor built from this same source, whose exe carries no Win32 version
+  resource. It therefore **cannot** reproduce the 2.0.12 condition (a
+  Windows-built, VERSIONED exe on disk). Verified: the broken build PASSES that
+  scenario. What it does cover is real — `RemoveExistingProducts`, side-by-side
+  installs, ARP state, registry survival — but the file-version bug is guarded by
+  `verify_msi.sh`'s `File.Version` assertion, not here.
+- **Repair.** Reported as SKIP, not PASS: **wine cannot repair any package in
+  this image.** The matrix proves that with a control — a 15-byte minimal MSI
+  fails `/fa` identically — so a red repair is not read as a defect in ours.
 
 ## wixl behaviours that will cost you a build
 
@@ -239,7 +264,8 @@ minute or two after a push.
 Say plainly which of these you did **not** do — none are automated:
 
 - [ ] Fresh install on real Windows, walking the whole wizard: Welcome → Confirm →
-      progress → Finish, plus Cancel, plus a repair/remove pass.
+      progress → Finish, plus Cancel, plus a repair/remove pass. (**Repair has no
+      automated coverage at all** — wine cannot do it.)
 - [ ] **Upgrade over the previous version**, then confirm **both**
       `phvalheim-client.exe` and `phvalheim-client.ico` are in
       `%AppData%\PhValheim\phvalheim-client\`. This is the path with no coverage.

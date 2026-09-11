@@ -369,3 +369,5 @@ debian/**/*
 # This is a PUBLIC repository: never commit it. Do not rely on a global
 # ~/.config/git/ignore rule for this — that protection does not travel with a clone.
 .claude/settings.local.json
+builders/.msi_shots/
+builders/.msi_staging/

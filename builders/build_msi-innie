@@ -177,6 +177,40 @@ case "$stage" in
 	# and its exit status gates the build.
 	bash "$gitRoot/builders/verify_msi.sh" "$out" "$version" || exit 1
 
+	# verify_msi.sh asserts what is IN the package. The matrix asserts what it
+	# DOES: fresh install, uninstall, repair, upgrade over a predecessor, and
+	# the wizard rendered on a virtual display. Every scenario in it exists
+	# because a bug shipped past a fully green verify_msi.sh on 2026-09-11.
+	#
+	# It is slow (a wine prefix per scenario), so MSI_SKIP_MATRIX=1 exists for
+	# fast iteration on the .wxs. NEVER skip it for a build you hand over --
+	# the upgrade and wizard scenarios are the only automated coverage those
+	# paths have ever had.
+	if [ "${MSI_SKIP_MATRIX:-0}" = "1" ]; then
+		echo
+		echo "  SKIP  install matrix (MSI_SKIP_MATRIX=1). Not a release build."
+	else
+		# A predecessor to upgrade from. Built from this same source at a lower
+		# version, because the real 2.0.12 will not install under wine.
+		prevDir="$stagingDir/prev"
+		mkdir -p "$prevDir"
+		cp "$stagingDir"/*.wxs "$stagingDir/banner.bmp" "$stagingDir/phvalheim-client.ico" \
+		   "$stagingDir/phvalheim-client.exe" "$prevDir/" 2>/dev/null
+		prevVersion="${MSI_PREV_VERSION:-2.0.12}"
+		( cd "$prevDir" && wixl -a x64 --ext ui -D Version="$prevVersion" \
+			-o prev.msi phvalheim-client.wxs ui-phvalheim.wxs ) >/dev/null 2>&1
+
+		shots="$gitRoot/builders/.msi_shots"
+		rm -rf "$shots"; mkdir -p "$shots"
+		matrixArgs=("$out" "$version" "--shots" "$shots")
+		if [ -s "$prevDir/prev.msi" ]; then
+			matrixArgs+=("--prev" "$prevDir/prev.msi")
+		else
+			echo "  WARN  could not build a $prevVersion predecessor; upgrade scenario will be skipped"
+		fi
+		python3 "$gitRoot/builders/test_install_matrix.py" "${matrixArgs[@]}" || exit 1
+	fi
+
 	rm -rf "$stagingDir"
 	;;
 
