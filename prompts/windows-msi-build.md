@@ -261,7 +261,13 @@ Give Brian the sha256 with the link. Two rounds were nearly wasted comparing
 against a stale download, and GitHub's raw CDN can serve the old bytes for a
 minute or two after a push.
 
-Say plainly which of these you did **not** do — none are automated:
+Say plainly which of these you did **not** do — none are automated.
+
+**Last verified by hand:** 2.0.13 (`5ba43be`), 2026-09-11, on Windows 11
+26200 — fresh install and upgrade from a real 2.0.12 both confirmed working,
+wizard rendering correct. Repair and the `phvalheim://` launch were not
+exercised. Update this line when you hand over a build, so the next agent
+knows how stale the only real coverage is.
 
 - [ ] Fresh install on real Windows, walking the whole wizard: Welcome → Confirm →
       progress → Finish, plus Cancel, plus a repair/remove pass. (**Repair has no
