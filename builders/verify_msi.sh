@@ -223,13 +223,49 @@ while IFS='|' read -r label needle; do
 	fi
 done <<'STRINGS'
 welcome names the product and version|This is PhValheim [ProductVersion]'s Windows client.
+welcome explains the phvalheim:// registration|A custom phvalheim:// URL will be registered to Windows
+welcome explains world-file sync|kept in sync with the remote PhValheim server
+welcome names the install location|kept in %appdata%\PhValheim
 the .vdproj copyright notice|Zero Cool's garbage file
 completion page confirms success|has been successfully installed.
 confirm page|The installer is ready to install
+confirm page tells the user what Next does|Click "Next" to start the installation.
 progress page|is being installed.
 fatal-error page tells the user what happened|The installer was interrupted before
 maintenance page offers repair/remove|Select whether you want to repair or remove
 STRINGS
+
+# Every paragraph after the first lives past an embedded newline. Two separate
+# mistakes silently drop them and leave a plausible-looking one-liner: reading
+# the source MSI with `msiinfo export | awk` (which stops at the newline), and
+# authoring the value as a Text="..." ATTRIBUTE (XML collapses newlines to
+# spaces). Assert the multi-paragraph controls are actually multi-paragraph.
+for ctl in WelcomeText BodyText1; do
+	para=$(msiexport Control | awk -F'\t' -v c="$ctl" '$2==c {found=1} found && /^$/ {n++} $2!=c && /^[A-Za-z]+Form\t/ && found && $2!=c {exit} END {print n+0}')
+	if [ "${para:-0}" -ge 1 ]; then
+		ok "$ctl keeps its paragraph breaks ($((para+1)) paragraphs)"
+	else
+		fail "$ctl keeps its paragraph breaks" "2+ paragraphs" "1 -- newlines collapsed, text lost"
+	fi
+done
+
+# TextStyle.Color NULL renders every styled string BLUE on Windows. 2.0.12
+# writes 0. No table assertion catches this; it is only visible on screen.
+# The .vdproj's face is MS Sans Serif -- Tahoma renders visibly heavier.
+textStyle=$(msiexport TextStyle | tail -n +4)
+if [ -z "$textStyle" ]; then
+	fail "TextStyle rows exist" "2 styles" "none"
+else
+	while IFS=$'\t' read -r id face size color bits; do
+		[ -z "$id" ] && continue
+		if [ "$color" = "0" ]; then
+			ok "TextStyle $id has an explicit colour (black)"
+		else
+			fail "TextStyle $id has an explicit colour" "Color=0" "Color='${color}' -- NULL renders BLUE on Windows"
+		fi
+		expect "TextStyle $id uses the .vdproj face" "MS Sans Serif" "$face"
+	done <<< "$textStyle"
+fi
 
 # The banner bitmap is the wizard's visual identity: a white 500x70 banner
 # lifted from the .vdproj. Its absence means the stock maroon side-bitmap

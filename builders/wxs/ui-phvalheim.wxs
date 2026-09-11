@@ -32,12 +32,16 @@
 
     <UI Id="WixUI_PhValheim">
 
-      <!-- The .vdproj used VSI_MS_Sans_Serif13.0_0_0 for body and
-           VSI_MS_Sans_Serif16.0_1_0 (bold) for banner headings. MS Sans Serif
-           is a bitmap font Windows maps to Tahoma now; name it Tahoma so the
-           metrics are predictable. 8pt/12pt are the modern equivalents. -->
-      <TextStyle Id="PhvFontNormal" FaceName="Tahoma" Size="8" />
-      <TextStyle Id="PhvFontTitle"  FaceName="Tahoma" Size="12" Bold="yes" />
+      <!-- Exactly the .vdproj's two styles: VSI_MS_Sans_Serif13.0_0_0 is
+           MS Sans Serif 9 and VSI_MS_Sans_Serif16.0_1_0 is MS Sans Serif 12
+           bold. Substituting Tahoma renders visibly heavier than 2.0.12.
+
+           Red/Green/Blue are NOT optional. Omit them and wixl writes NULL to
+           the TextStyle Color column (2.0.12 writes 0), and Windows renders
+           every styled string BLUE. Nothing in the MSI tables looks wrong;
+           you only see it on screen. -->
+      <TextStyle Id="PhvFontNormal" FaceName="MS Sans Serif" Size="9"  Red="0" Green="0" Blue="0" />
+      <TextStyle Id="PhvFontTitle"  FaceName="MS Sans Serif" Size="12" Red="0" Green="0" Blue="0" Bold="yes" />
       <Property Id="DefaultUIFont" Value="PhvFontNormal" />
 
       <!-- Which button the maintenance radio group selected. -->
@@ -50,8 +54,21 @@
         <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
 
-        <Control Id="WelcomeText" Type="Text" X="9" Y="63" Width="354" Height="114" NoPrefix="yes"
-                 Text="This is PhValheim [ProductVersion]'s Windows client. " />
+        <!-- Four paragraphs. They MUST come through a <Text> child element:
+             newlines inside an XML attribute are collapsed to spaces by the
+             parser, so Text="..." silently flattens this to one run-on line.
+             The first re-authoring lost paragraphs 2 to 4 a different way: a
+             naive `msiinfo export | awk` stops at the first embedded newline,
+             so the control looked like a one-liner in the dump. -->
+        <Control Id="WelcomeText" Type="Text" X="9" Y="63" Width="354" Height="114" NoPrefix="yes">
+          <Text>This is PhValheim [ProductVersion]'s Windows client.
+
+A custom phvalheim:// URL will be registered to Windows. Any time these URLs are opened, this client will automatically download, install and launch related world files with unique contexts.
+
+All related world files are kept in sync with the remote PhValheim server.
+
+All PhValheim application and world files are kept in %appdata%\PhValheim.</Text>
+        </Control>
 
         <!-- Verbatim from the .vdproj. Yes, all of it. -->
         <Control Id="CopyrightWarningText" Type="Text" X="9" Y="186" Width="354" Height="66" NoPrefix="yes"
@@ -74,8 +91,11 @@
         <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Confirm Installation" />
 
-        <Control Id="BodyText1" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
-                 Text="The installer is ready to install [ProductName] on your computer." />
+        <Control Id="BodyText1" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
+          <Text>The installer is ready to install [ProductName] on your computer.
+
+Click "Next" to start the installation.</Text>
+        </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Text="&lt; &amp;Back">
@@ -133,11 +153,17 @@
                  Text="{\PhvFontTitle}Installation Complete" />
 
         <Control Id="BodyText" Type="Text" X="9" Y="63" Width="354" Height="138" NoPrefix="yes"
-                 Text="[ProductName] has been successfully installed."
-                 HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
+                 HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL">
+          <Text>[ProductName] has been successfully installed.
+
+Click "Close" to exit.</Text>
+        </Control>
         <Control Id="BodyTextRemove" Type="Text" X="9" Y="63" Width="354" Height="138" NoPrefix="yes" Hidden="yes"
-                 Text="[ProductName] has been successfully removed."
-                 ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
+                 ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL">
+          <Text>[ProductName] has been successfully removed.
+
+Click "Close" to exit.</Text>
+        </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />
@@ -189,8 +215,15 @@
         <Control Id="BannerText" Type="Text"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Installation Incomplete" />
 
-        <Control Id="BodyTextInstall" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
-                 Text="The installer was interrupted before [ProductName] could be installed. You need to restart the installer to try again." />
+        <!-- NOT reproduced verbatim: the .vdproj has this backwards. Its
+             BodyTextInstall says "could be removed" and its BodyTextRemove
+             says "could be installed". That is an authoring slip in the
+             original, not a feature, so the wording is corrected here. -->
+        <Control Id="BodyTextInstall" Type="Text" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
+          <Text>The installer was interrupted before [ProductName] could be installed. You need to restart the installer to try again.
+
+Click "Close" to exit.</Text>
+        </Control>
 
         <Control Id="Line2"          Type="Line"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="&lt; &amp;Back" />

@@ -74,6 +74,39 @@ case "$stage" in
 	cp "$gitRoot/builders/wxs/ui-phvalheim.wxs" "$stagingDir/" || exit 1
 	cp "$gitRoot/builders/wxs/banner.bmp"       "$stagingDir/" || exit 1
 
+	# A literal double hyphen inside an XML comment is illegal, and both .wxs
+	# files carry a lot of explanatory prose. libxml2 (which wixl uses) reports
+	# it as "Extra content at the end of the document" pointing at a line
+	# nowhere near the real fault. That has cost three build cycles, so name it
+	# precisely before handing the file to wixl. xmllint is not in this image.
+	if ! awk '
+		{
+			line = $0
+			while (length(line)) {
+				if (!inComment) {
+					p = index(line, "<!--")
+					if (p == 0) break
+					inComment = 1
+					line = substr(line, p + 4)
+				} else {
+					p = index(line, "-->")
+					if (p == 0) { seg = line; line = "" }
+					else { seg = substr(line, 1, p - 1); line = substr(line, p + 3); inComment = 0 }
+					if (index(seg, "--")) {
+						printf "       %s:%d: \"--\" inside an XML comment\n", FILENAME, FNR
+						bad = 1
+					}
+				}
+			}
+		}
+		END { exit bad ? 1 : 0 }
+	' "$stagingDir"/*.wxs; then
+		echo "ERROR: illegal double hyphen in an XML comment (see above)."
+		echo "       libxml2 would report this as \"Extra content at the end of"
+		echo "       the document\" on an unrelated line. Reword the comment."
+		exit 1
+	fi
+
 	out="$gitRoot/builds/phvalheim-client-$version-x86_64.msi"
 	mkdir -p "$gitRoot/builds"
 
