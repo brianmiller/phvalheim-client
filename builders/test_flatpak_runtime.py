@@ -684,7 +684,9 @@ def main():
     print("  record what they were given. These tests prove the client hands the")
     print("  host the right command, directory and environment. They cannot prove")
     print("  Valheim then starts, and nothing here has run on SteamOS or Bazzite.")
-    print("  A Flatpak Steam is detected and refused, not supported.")
+    print("  The Flatpak Steam path is supported but NOT exercised here: the")
+    print("  open question is whether a real Steam client is reachable, which")
+    print("  a stub answers by construction. Only system Steam is gated.")
     for n in notes:
         print(f"  {n}")
     print("=" * 72)
