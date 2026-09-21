@@ -3,7 +3,7 @@
 Read this before changing any `.cs` file. For work on the Windows installer,
 read `prompts/windows-msi-build.md` instead — that one is packaging-only, and
 until now it was the *only* prompt in this repo, which meant client changes had
-no written guidance at all.
+no written guidance at all. For the Linux Flatpak, read `docs/FLATPAK.md`.
 
 Everything below was measured against the tree on 2026-09-11, not recalled.
 Where something has not been verified, it says so.
@@ -27,6 +27,12 @@ A .NET 9 console app, ten source files at the repo root:
 | `Platform.cs` | per-OS paths; reads `HKCU\Software\Valve\Steam` on Windows |
 | `Tooling.cs` | helpers |
 | `Version.cs` | compares the running version against the newest GitHub release |
+| `Flatpak.cs` | sandbox detection, and running host commands from inside one |
+
+`Flatpak.cs` is **not Flatpak-only code**. `HostCommand()` is a pass-through
+outside a sandbox, so `Platform.cs` and `Launcher.cs` call it unconditionally
+and the `.deb`/`.rpm`/`.tar.gz` builds run exactly what they always ran. Change
+it carelessly and you break every Linux package at once, not just the Flatpak.
 
 It registers the `phvalheim://` URL scheme; the server hands out
 `phvalheim://` links and Windows/macOS/Linux route them here.
@@ -69,19 +75,28 @@ Two related sharp edges in the same method, neither fixed:
 - `async void` means any failure in the check — network, rate limit, parse —
   is unobservable rather than handled.
 
-## One client change ships through SIX packages
+## One client change ships through SEVEN packages
 
-`builders/build_<fmt>-{outie,innie}` for `deb`, `rpm`, `tgz`, `macos`, `pkg`
-and `msi`. A change to any `.cs` file affects all of them.
+`builders/build_<fmt>-{outie,innie}` for `deb`, `rpm`, `tgz`, `macos`, `pkg`,
+`msi` and `flatpak`. A change to any `.cs` file affects all of them.
 
-**Only the `msi` has any verification.** Measured: `build_msi-innie` invokes
-`verify_msi.sh` and `test_install_matrix.py`; the other five innies contain no
-verify or test step whatsoever. So a change that builds a working `.msi` can
-still ship a broken `.deb`, and nothing will say so.
+**Only `msi` and `flatpak` have any verification.** Measured:
+`build_msi-innie` invokes `verify_msi.sh`, `test_client_smoke.py` and
+`test_install_matrix.py`; `build_flatpak-innie` invokes `verify_flatpak.sh`
+and `test_flatpak_runtime.py`. The other **five** innies contain no verify or
+test step whatsoever. So a change that builds a working `.msi` can still ship
+a broken `.deb`, and nothing will say so.
 
-The non-Windows builders have **not been audited** to the standard the msi one
-now has. Do not assume they are correct because they are old. If you touch
+Those five have **not been audited** to the standard the msi and flatpak ones
+now have. Do not assume they are correct because they are old. If you touch
 packaging for them, verify before claiming.
+
+One known defect in that unaudited set, found while building the Flatpak and
+deliberately **not** fixed as out of scope: the `.deb` and `.rpm` install the
+raw `phvalheim-client.ico` into `hicolor/128x128/apps/` and reference it as
+`Icon=`. Icon themes cannot load a `.ico`, so those two packages have had no
+working icon. The Flatpak extracts real PNGs from the same `.ico` at build
+time.
 
 ## Testing: one smoke test, and a large hole
 

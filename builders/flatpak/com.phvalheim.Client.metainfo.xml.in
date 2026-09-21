@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  @VERSION@ and @DATE@ are substituted by build_flatpak-innie from the csproj
+  and the build date. Do not hardcode a version here: the retired .vdproj
+  carried its own copy of the version, drifted to 2.0.12 while the csproj said
+  2.0.13, and shipped an installer that lied about what it contained.
+-->
+<component type="desktop-application">
+  <id>com.phvalheim.Client</id>
+
+  <name>PhValheim Client</name>
+  <summary>Sync and launch Valheim worlds hosted by a PhValheim server</summary>
+
+  <!--
+    The repository carries no LICENSE file, so the project is all-rights-
+    reserved by default and LicenseRef-proprietary is the only accurate SPDX
+    value. AppStream requires the field, and guessing MIT here would be
+    publishing a licence claim the repository does not make.
+
+    This is a hard blocker for a Flathub submission, which requires a real
+    open-source licence. Add a LICENSE file and change this line together.
+  -->
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+
+  <developer id="com.phvalheim">
+    <name>Brian Miller</name>
+  </developer>
+
+  <description>
+    <p>
+      The PhValheim client is the desktop half of a PhValheim server. Clicking a
+      world link on the server's web page hands a phvalheim:// URL to this
+      client, which syncs that world's exact mod set to your machine and then
+      starts Valheim with it, so every player on a world runs an identical
+      loadout without anyone installing mods by hand.
+    </p>
+    <p>
+      Modded worlds are launched through BepInEx; vanilla worlds are launched
+      through Steam with a direct connect. Your existing Valheim install,
+      characters and saves are used as-is and are never moved.
+    </p>
+    <p>
+      This build is intended for Linux gaming distributions such as SteamOS and
+      Bazzite, where installing the .deb or .rpm is awkward or impossible.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.phvalheim.Client.desktop</launchable>
+
+  <provides>
+    <binary>phvalheim-client</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/brianmiller/phvalheim-client</url>
+  <url type="bugtracker">https://github.com/brianmiller/phvalheim-server/issues</url>
+
+  <categories>
+    <category>Game</category>
+  </categories>
+
+  <!--
+    The client has no window of its own: it prints progress in a terminal and
+    hands off to Valheim. Declaring console-only is what stops AppStream from
+    demanding screenshots of a GUI that does not exist.
+  -->
+  <recommends>
+    <control>console</control>
+  </recommends>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="@VERSION@" date="@DATE@" />
+  </releases>
+</component>

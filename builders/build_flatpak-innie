@@ -1,0 +1,229 @@
+#!/bin/bash
+#
+# Linux .flatpak build, container side. Two stages, because no single image has
+# both the .NET 9 SDK and flatpak-builder:
+#
+#   --publish   in mcr.microsoft.com/dotnet/sdk:9.0    -> linux-x64 single file
+#   --package   in the builders/dockers/flatpak image  -> flatpak-builder, verify, test
+#
+# The outie drives both. Don't run this on the host.
+#
+# The --package stage MUST run --privileged. flatpak builds and runs everything
+# through bubblewrap, which needs user namespaces and mount privileges.
+
+set -u
+
+stage="${1:-}"
+gitRoot=/git
+stagingDir="$gitRoot/builders/.flatpak_staging"
+appId="com.phvalheim.Client"
+
+version=$(grep -m1 -oP '(?<=<Version>)[^<]+' "$gitRoot/phvalheim-client.csproj")
+if [ -z "$version" ]; then
+	echo "ERROR: could not read <Version> from phvalheim-client.csproj"
+	exit 1
+fi
+
+case "$stage" in
+
+--publish)
+	echo
+	echo "Publishing linux-x64 single-file binary (version $version)..."
+	echo
+
+	dotnet publish "$gitRoot/phvalheim-client.csproj" \
+		-c Linux-Release \
+		-r linux-x64 \
+		-p:PublishSingleFile=true \
+		-p:PublishTrimmed=false \
+		--self-contained true \
+		/consoleloggerparameters:NoSummary || exit 1
+
+	bin="$gitRoot/bin/Linux-Release/net9.0/linux-x64/publish/phvalheim-client"
+	if [ ! -s "$bin" ]; then
+		echo "ERROR: publish produced no binary at $bin"
+		exit 1
+	fi
+
+	# Confirm we built a Linux binary and not, say, a PE with no extension --
+	# dotnet emits the host RID's format if the -r argument is lost upstream.
+	if [ "$(head -c4 "$bin" | tail -c3)" != "ELF" ]; then
+		echo "ERROR: $bin is not an ELF executable"
+		exit 1
+	fi
+	echo "Published $(stat -c%s "$bin") bytes: $bin"
+	;;
+
+--package)
+	echo
+	echo "Building $appId $version..."
+	echo
+
+	bin="$gitRoot/bin/Linux-Release/net9.0/linux-x64/publish/phvalheim-client"
+	if [ ! -s "$bin" ]; then
+		echo "ERROR: no published binary at $bin -- run the --publish stage first"
+		exit 1
+	fi
+
+	# Sanity-check the privilege requirement up front with a real bubblewrap
+	# run rather than letting flatpak-builder fail three minutes in with a
+	# confusing error about /proc.
+	if ! flatpak --version >/dev/null 2>&1; then
+		echo "ERROR: flatpak is not available in this image"
+		exit 1
+	fi
+	if ! bwrap --ro-bind / / --unshare-user --unshare-pid true 2>/dev/null; then
+		echo "ERROR: bubblewrap cannot create a sandbox here."
+		echo "       The --package stage must run with --privileged."
+		exit 1
+	fi
+
+	rm -rf "$stagingDir"
+	mkdir -p "$stagingDir/icons"
+
+	cp "$bin" "$stagingDir/phvalheim-client" || exit 1
+	chmod 755 "$stagingDir/phvalheim-client"
+	cp "$gitRoot/builders/flatpak/$appId.yml" "$stagingDir/" || exit 1
+	cp "$gitRoot/builders/flatpak/$appId.desktop" "$stagingDir/" || exit 1
+
+	# The version in the AppStream data is substituted, never authored. A
+	# hand-maintained copy of the version is exactly what drifted in the
+	# retired .vdproj and shipped an installer that misreported itself.
+	buildDate=$(date -u +%Y-%m-%d)
+	sed -e "s/@VERSION@/$version/g" -e "s/@DATE@/$buildDate/g" \
+		"$gitRoot/builders/flatpak/$appId.metainfo.xml.in" \
+		> "$stagingDir/$appId.metainfo.xml" || exit 1
+
+	if grep -q '@VERSION@\|@DATE@' "$stagingDir/$appId.metainfo.xml"; then
+		echo "ERROR: metainfo template substitution left placeholders behind"
+		exit 1
+	fi
+
+	# One icon source of truth: the .ico in the repo root. Flatpak (and every
+	# Linux icon theme) wants PNGs at named sizes; the .deb and .rpm install
+	# the raw .ico into hicolor, which no icon theme can actually load.
+	echo "Extracting icons from phvalheim-client.ico..."
+	iconCount=0
+	for size in 16 24 32 48 64 72 96 128 256; do
+		if convert "$gitRoot/phvalheim-client.ico" -alpha on \
+		   -resize "${size}x${size}" -extent "${size}x${size}" \
+		   -gravity center -background none \
+		   "$stagingDir/icons/${size}.png" 2>/dev/null; then
+			# ImageMagick writes name-0.png, name-1.png... when the source
+			# .ico has several frames and the resize did not collapse them.
+			if [ ! -f "$stagingDir/icons/${size}.png" ] && [ -f "$stagingDir/icons/${size}-0.png" ]; then
+				mv "$stagingDir/icons/${size}-0.png" "$stagingDir/icons/${size}.png"
+			fi
+			rm -f "$stagingDir/icons/${size}"-[0-9]*.png
+			[ -s "$stagingDir/icons/${size}.png" ] && iconCount=$((iconCount + 1))
+		fi
+	done
+	if [ "$iconCount" -eq 0 ]; then
+		echo "ERROR: extracted no icons from phvalheim-client.ico"
+		exit 1
+	fi
+	echo "Extracted $iconCount icon sizes."
+
+	# Which flatpak installation to use.
+	#
+	# flatpak REFUSES to install, update or uninstall in a --user installation
+	# when running as root -- "Refusing to operate on a user installation as
+	# root". Read-only commands are allowed, so this only shows up partway
+	# through a build. Containers run as root, so use the system installation
+	# there and --user everywhere else.
+	#
+	# The distinction only decides where files land. Export and URL-scheme
+	# registration behave identically, which is why the tests can run against
+	# either one.
+	if [ "$(id -u)" = "0" ]; then
+		fpScope="--system"
+		fpExports="/var/lib/flatpak/exports/share"
+	else
+		fpScope="--user"
+		fpExports="$HOME/.local/share/flatpak/exports/share"
+	fi
+	export FLATPAK_SCOPE="$fpScope"
+	export FLATPAK_EXPORTS_DIR="$fpExports"
+	echo "Using flatpak installation: $fpScope (exports at $fpExports)"
+
+	# Flathub's runtime, needed to build against and to run. Cached by the
+	# outie so this is a no-op after the first run.
+	echo
+	echo "Ensuring the org.freedesktop runtime is installed..."
+	flatpak remote-add $fpScope --if-not-exists flathub \
+		https://dl.flathub.org/repo/flathub.flatpakrepo || exit 1
+	flatpak install $fpScope --noninteractive --or-update flathub \
+		org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 || exit 1
+
+	repoDir="$stagingDir/repo"
+	buildDir="$stagingDir/build"
+	out="$gitRoot/builds/phvalheim-client-$version-x86_64.flatpak"
+	mkdir -p "$gitRoot/builds"
+
+	echo
+	echo "Running flatpak-builder..."
+	fbScope=""
+	[ "$fpScope" = "--user" ] && fbScope="--user"
+	( cd "$stagingDir" && flatpak-builder $fbScope --disable-rofiles-fuse \
+		--force-clean --repo="$repoDir" "$buildDir" "$appId.yml" ) || exit 1
+
+	# A .flatpak bundle is the single-file deliverable, the counterpart of the
+	# .deb/.rpm/.msi. Installing it needs no remote:
+	#   flatpak install --user ./phvalheim-client-<version>-x86_64.flatpak
+	echo
+	echo "Building single-file bundle..."
+	flatpak build-bundle "$repoDir" "$out" "$appId" --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo || exit 1
+
+	if [ ! -s "$out" ]; then
+		echo "ERROR: flatpak build-bundle produced no output at $out"
+		exit 1
+	fi
+	echo "Built $(stat -c%s "$out") bytes: $out"
+
+	# Gate 1: what is IN the bundle.
+	bash "$gitRoot/builders/verify_flatpak.sh" "$out" "$version" || exit 1
+
+	# Gate 2: what it DOES. Installs the bundle for real, checks the exported
+	# desktop file and URL-scheme registration, and drives a phvalheim:// link
+	# end to end -- including a click in a real browser -- against a stub
+	# Steam and a stub Valheim that record exactly what they were handed.
+	if [ "${FLATPAK_SKIP_RUNTIME_TESTS:-0}" = "1" ]; then
+		echo
+		echo "  SKIP  runtime tests (FLATPAK_SKIP_RUNTIME_TESTS=1). Not a release build."
+	else
+		# A session bus is not optional here. flatpak-spawn --host works by
+		# calling org.freedesktop.Flatpak on the SESSION bus, which is D-Bus
+		# activated from /usr/share/dbus-1/services. With no bus the escape
+		# fails and every launch test fails with it, for a reason that has
+		# nothing to do with the package.
+		export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+		mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+
+		# DISPLAY must be exported BEFORE dbus-run-session, not just set for
+		# the test process. A command run with `flatpak-spawn --host` inherits
+		# the environment of the flatpak session helper, which D-Bus activates
+		# with the bus daemon's activation environment -- fixed at the moment
+		# dbus-run-session starts. Set it afterwards and the game is launched
+		# with no DISPLAY, which on real hardware means no window.
+		# :99 is the display the test's own Xvfb will come up on.
+		export DISPLAY="${DISPLAY:-:99}"
+
+		dbus-run-session -- python3 "$gitRoot/builders/test_flatpak_runtime.py" \
+			"$out" "$version" || exit 1
+
+		# Gate 3: the OTHER Linux packages. Flatpak.cs is shared code, so a
+		# mistake in the non-sandboxed pass-through breaks the .deb, .rpm and
+		# .tar.gz -- none of which have gates of their own. Runs the same
+		# published binary they ship, with no flatpak involved.
+		chmod +x "$bin" 2>/dev/null
+		python3 "$gitRoot/builders/test_native_passthrough.py" "$bin" || exit 1
+	fi
+
+	rm -rf "$stagingDir"
+	;;
+
+*)
+	echo "usage: build_flatpak-innie --publish | --package"
+	exit 1
+	;;
+esac

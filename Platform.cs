@@ -57,28 +57,45 @@ namespace PhValheim.Platform
       {
         try
         {
-          var psi = new ProcessStartInfo();
-          psi.FileName = "/bin/bash";
-          psi.Arguments = "-c \"which steam\"";
-          psi.RedirectStandardOutput = true;
-          psi.UseShellExecute = false;
-          psi.CreateNoWindow = true;
+          // Sandbox.Flatpak.HostShell runs this on the host when we are inside
+          // a Flatpak and locally when we are not. It matters here: our sandbox
+          // has its own PATH and its own /usr, so "command -v steam" answered
+          // from inside it is always "no" no matter what the user has
+          // installed.
+          var (exitCode, steamPath) = Sandbox.Flatpak.HostShell("command -v steam");
 
-          using var process = Process.Start(psi);
-
-          if (process == null)
+          if (exitCode < 0)
           {
             Console.WriteLine("ERROR: Unable to query for steam executable, exiting...");
+            if (Sandbox.Flatpak.InSandbox)
+            {
+              Console.WriteLine("       Running as a Flatpak but could not reach the host.");
+              Console.WriteLine("       This build needs --talk-name=org.freedesktop.Flatpak.");
+            }
             return false;
           }
-          process.WaitForExit();
 
-          //   get the output and trim the trailing newline
-          Instance.steamExe = process.StandardOutput.ReadToEnd().Trim();
+          Instance.steamExe = steamPath;
+
           //   if the output is empty, steam isn't installed
           if (Instance.steamExe == "")
           {
               Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+
+              // A very likely case on Bazzite and other immutable distros, and
+              // one worth naming precisely rather than letting the user hunt.
+              // We cannot drive a Flatpak Steam from here: its game files live
+              // inside its own sandbox and Valheim would have to be launched
+              // within that sandbox to get the Steam Runtime and a reachable
+              // Steam client.
+              if (Sandbox.Flatpak.HostShell("flatpak info com.valvesoftware.Steam >/dev/null 2>&1").exitCode == 0)
+              {
+                Console.WriteLine("");
+                Console.WriteLine("       Steam is installed as a Flatpak (com.valvesoftware.Steam).");
+                Console.WriteLine("       The PhValheim client cannot drive a Flatpak Steam -- it needs a");
+                Console.WriteLine("       system Steam it can launch Valheim from. Install Steam from your");
+                Console.WriteLine("       distribution instead. On SteamOS and Bazzite it is already there.");
+              }
               return false;
           }
           Instance.steamDir = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.steam/steam";

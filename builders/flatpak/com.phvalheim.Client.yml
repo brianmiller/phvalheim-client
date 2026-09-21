@@ -1,0 +1,84 @@
+# Flatpak manifest for the PhValheim client.
+#
+# The binary is NOT built here. build_flatpak-innie publishes a self-contained
+# linux-x64 single file with the .NET SDK first and drops it next to this
+# manifest, so this module is a pure install step. That keeps one publish
+# command shared with the .deb/.rpm/.tar.gz builders instead of a second,
+# subtly different one that could drift.
+#
+# On the permissions below: this application is an orchestrator for host
+# software. It has to find the host's Steam, read game files that may live on
+# any drive, and exec Valheim on the host with a doorstop environment. There is
+# no version of that which is meaningfully sandboxed, and --talk-name=
+# org.freedesktop.Flatpak is full host access by itself. Every entry here is
+# load-bearing; see docs/FLATPAK.md for why each one is present.
+
+app-id: com.phvalheim.Client
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: phvalheim-client
+
+finish-args:
+  # Mod payloads are downloaded from the PhValheim server.
+  - --share=network
+  - --share=ipc
+
+  # No graphics sockets. This is a console application: it prints progress and
+  # execs the game, and the terminal it prints into is started by the host's
+  # desktop, not by us.
+  #
+  # It is tempting to grant x11/wayland so DISPLAY can be forwarded to Valheim.
+  # That is unnecessary, and was measured rather than assumed: a command run
+  # through `flatpak-spawn --host` does NOT inherit our sandbox environment, it
+  # inherits the environment of the host's flatpak session helper -- the user's
+  # real session. So the game already gets the session's own DISPLAY,
+  # WAYLAND_DISPLAY and XAUTHORITY, which are the correct ones. Forwarding our
+  # copies would be worse than useless: inside the sandbox XAUTHORITY and
+  # DBUS_SESSION_BUS_ADDRESS are rewritten to sandbox-only paths.
+
+  # ~/.steam, ~/.local/share/Steam, the Valheim install and our own state under
+  # ~/.config/PhValheim. Sharing that last path with the .deb and .rpm installs
+  # is deliberate: a user who switches package format keeps their synced worlds.
+  - --filesystem=home
+
+  # Steam libraries on secondary drives, SD cards and external disks. This is
+  # the normal case on a Steam Deck, where the second library is under
+  # /run/media, not under home.
+  - --filesystem=/run/media
+  - --filesystem=/media
+  - --filesystem=/mnt
+
+  # The escape hatch itself: required by flatpak-spawn --host, which is how
+  # Steam and Valheim get started outside the sandbox. Remove this and the
+  # client can still sync a world but can never launch one.
+  - --talk-name=org.freedesktop.Flatpak
+
+modules:
+  - name: phvalheim-client
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 phvalheim-client /app/bin/phvalheim-client
+      - install -Dm644 com.phvalheim.Client.desktop
+        /app/share/applications/com.phvalheim.Client.desktop
+      - install -Dm644 com.phvalheim.Client.metainfo.xml
+        /app/share/metainfo/com.phvalheim.Client.metainfo.xml
+      # Icons are extracted from the one phvalheim-client.ico in the repo root
+      # by the innie, so there is a single source of truth for the artwork.
+      - |
+        for size in 16 24 32 48 64 72 96 128 256; do
+          if [ -f "icons/${size}.png" ]; then
+            install -Dm644 "icons/${size}.png" \
+              "/app/share/icons/hicolor/${size}x${size}/apps/com.phvalheim.Client.png"
+          fi
+        done
+    sources:
+      - type: file
+        path: phvalheim-client
+      - type: file
+        path: com.phvalheim.Client.desktop
+      - type: file
+        path: com.phvalheim.Client.metainfo.xml
+      - type: dir
+        path: icons
+        dest: icons

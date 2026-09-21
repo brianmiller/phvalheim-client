@@ -37,24 +37,21 @@ namespace PhValheim.Launcher
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 string steamProcess = RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "steam_osx" : "steam";
-                if (Process.GetProcessesByName(steamProcess).Length == 0)
+
+                // Sandbox-aware: inside a Flatpak our PID namespace contains
+                // nothing but us, so asking the local process list whether
+                // Steam is up always answers "no".
+                if (!Sandbox.Flatpak.HostProcessRunning(steamProcess))
                 {
                     Console.WriteLine("  Starting Steam...");
-                    ProcessStartInfo steamStartInfo = new ProcessStartInfo(steamExe);
-                    steamStartInfo.UseShellExecute = false;
-                    steamStartInfo.Arguments = "-nofriendsui -console";
-                    Process.Start(steamStartInfo);
+                    Process.Start(Sandbox.Flatpak.HostCommand(steamExe,
+                        new[] { "-nofriendsui", "-console" }));
                     Thread.Sleep(10000);
                 }
             }
 
-            ProcessStartInfo startInfo = new ProcessStartInfo(steamExe);
-            startInfo.ArgumentList.Add("-applaunch");
-            startInfo.ArgumentList.Add("892970");
-            startInfo.ArgumentList.Add("+connect");
-            startInfo.ArgumentList.Add(connect);
-            startInfo.UseShellExecute = false;
-            Process.Start(startInfo);
+            Process.Start(Sandbox.Flatpak.HostCommand(steamExe,
+                new[] { "-applaunch", "892970", "+connect", connect }));
         }
 
         public static void Launch(ref string worldPassword, ref string worldHost, ref string worldPort, bool isVanilla = false)
@@ -90,19 +87,23 @@ namespace PhValheim.Launcher
 
                 Console.WriteLine("  Linux launch detected...");
 
+                if (Sandbox.Flatpak.InSandbox)
+                {
+                    Console.WriteLine("  Running as a Flatpak - Steam and Valheim will be started on the host.");
+                }
+
                 // Check if steam is already running
                 // If its not, we need to launch steam, otherwise velheim will crash on startup
-                string[] pids = Process.GetProcessesByName("steam").Select(p => p.Id.ToString()).ToArray();
-                if (pids.Length == 0)
+                //
+                // Sandbox-aware: see the note in Flatpak.HostProcessRunning.
+                // Asking our own process list from inside the sandbox always
+                // answers "not running", so a Flatpak would start a second
+                // Steam and then sleep ten seconds on every single launch.
+                if (!Sandbox.Flatpak.HostProcessRunning("steam"))
                 {
                     Console.WriteLine("  Starting Steam...");
-                    ProcessStartInfo steamStartInfo = new ProcessStartInfo(@steamExe);
-                    steamStartInfo.RedirectStandardOutput = true;
-                    steamStartInfo.RedirectStandardError = true;
-                    steamStartInfo.UseShellExecute = false;
-                    steamStartInfo.WindowStyle = ProcessWindowStyle.Minimized;
-                    steamStartInfo.Arguments = "-nofriendsui -console";
-                    Process.Start(steamStartInfo);
+                    Process.Start(Sandbox.Flatpak.HostCommand(@steamExe,
+                        new[] { "-nofriendsui", "-console" }));
 
                     // I honestly don't know a better way to do this, so we sleep
                     Thread.Sleep(10000);
@@ -113,11 +114,12 @@ namespace PhValheim.Launcher
                   // IronGate needs to send a pong back to the different display managers to satisfy this timeout
                   try
                   {
-                        string gsettingsExec = "/usr/bin/gsettings";
-                        ProcessStartInfo gsettingsCmd = new ProcessStartInfo(gsettingsExec);
-                        gsettingsCmd.UseShellExecute = true;
+                        // Must run on the host: the sandbox has its own dconf
+                        // and setting mutter's timeout in here would change
+                        // nothing the user's compositor ever reads.
+                        ProcessStartInfo gsettingsCmd = Sandbox.Flatpak.HostCommand("/usr/bin/gsettings",
+                            new[] { "set", "org.gnome.mutter", "check-alive-timeout", "0" });
                         gsettingsCmd.CreateNoWindow = true;
-                        gsettingsCmd.Arguments = "set org.gnome.mutter check-alive-timeout 0";
                         Process.Start(gsettingsCmd);
                    }
                    catch
@@ -137,19 +139,28 @@ namespace PhValheim.Launcher
                       ? "libdoorstop_x64.so"
                       : $"libdoorstop_x64.so:{existingLdPreload}";
 
-                  ProcessStartInfo startInfo = new ProcessStartInfo(setsid);
+                  // The doorstop environment. Passing it as a dictionary rather
+                  // than mutating psi.EnvironmentVariables is what lets the
+                  // same call work in both worlds: outside a sandbox these
+                  // become process environment variables exactly as before,
+                  // inside one they become --env= arguments to flatpak-spawn.
+                  var doorstopEnv = new Dictionary<string, string>
+                  {
+                      ["DOORSTOP_ENABLED"] = "1",
+                      ["DOORSTOP_TARGET_ASSEMBLY"] = BepInEx_Preloader,
+                      ["DOORSTOP_MONO_LIB_PATH"] = Path.Combine(valheimDir, "valheim_Data", "MonoBleedingEdge", "x86_64", "libmonobdwgc-2.0.so"),
+                      //["DOORSTOP_CORLIB_OVERRIDE_PATH"] = Path.Combine(valheimDir, "unstripped_corlib"),
+                      ["LD_LIBRARY_PATH"] = ld_library_path,
+                      ["LD_PRELOAD"] = ld_preload,
+                  };
 
-                  startInfo.UseShellExecute = false;
+                  ProcessStartInfo startInfo = Sandbox.Flatpak.HostCommand(
+                      setsid,
+                      new[] { exec, "-console" },
+                      doorstopEnv,
+                      valheimDir);
+
                   startInfo.CreateNoWindow = false;
-                  startInfo.ArgumentList.Add(exec);
-                  startInfo.ArgumentList.Add("-console");
-                  startInfo.WorkingDirectory = valheimDir;
-                  startInfo.EnvironmentVariables["DOORSTOP_ENABLED"] =  "1";
-                  startInfo.EnvironmentVariables["DOORSTOP_TARGET_ASSEMBLY"] =  BepInEx_Preloader;
-                  startInfo.EnvironmentVariables["DOORSTOP_MONO_LIB_PATH"] =  Path.Combine(valheimDir, "valheim_Data", "MonoBleedingEdge", "x86_64", "libmonobdwgc-2.0.so");
-                  //startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"] =  Path.Combine(valheimDir, "unstripped_corlib");
-                  startInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = ld_library_path;
-                  startInfo.EnvironmentVariables["LD_PRELOAD"] = ld_preload;                 
 
                   //Console.WriteLine("  Executable: " + exec);
                   //Console.WriteLine("  Arguments: " + startInfo.Arguments);

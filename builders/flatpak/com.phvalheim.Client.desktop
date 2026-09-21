@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PhValheim Client
+GenericName=Valheim World Launcher
+Comment=Sync and launch Valheim worlds hosted by a PhValheim server
+Exec=phvalheim-client %u
+Icon=com.phvalheim.Client
+Terminal=true
+Categories=Game;
+Keywords=Valheim;PhValheim;modpack;BepInEx;
+MimeType=x-scheme-handler/phvalheim;

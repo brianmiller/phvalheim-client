@@ -8,6 +8,12 @@
 .deb_staging
 .rpm_staging
 .msi_staging
+.flatpak_staging
+
+# Screenshots from the flatpak URL-handler tests. Diagnostic output, not
+# artifacts -- they are only worth looking at when a browser test fails.
+builders/.flatpak_shots/
+builders/.msi_shots/
 
 # Code-signing key material must never land here. gen-codesign-cert.sh writes
 # outside the repo by design; these patterns are a backstop, not the mechanism.
