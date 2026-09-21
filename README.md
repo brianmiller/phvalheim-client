@@ -39,9 +39,23 @@ xdg-mime default phvalheim-client.desktop x-scheme-handler/phvalheim
 flatpak install --user ./phvalheim-client-<version>-x86_64.flatpak
 ```
 
-The `phvalheim://` URL scheme is registered automatically — no `xdg-mime`
-step. Synced worlds live in `~/.config/PhValheim`, the same place the `.deb`
-and `.rpm` use, so switching package format keeps your worlds.
+On GNOME and KDE that is the whole installation — the `phvalheim://` handler
+registers itself, with no `xdg-mime` step. On Hyprland, Sway, i3 and other
+bare window managers, also run this once and then **log out and back in**,
+or clicking a world link will silently do nothing:
+
+```bash
+mkdir -p ~/.config/environment.d && printf 'XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/flatpak/exports/share:%s/.local/share/flatpak/exports/share\n' "$HOME" > ~/.config/environment.d/flatpak.conf
+```
+
+That puts Flatpak's applications directory on your session's search path. It
+is safe to run on any desktop, it is needed by every Flatpak you install
+rather than this one in particular, and
+[there is more on it below](#if-clicking-a-world-link-does-nothing) if links
+still don't open.
+
+Synced worlds live in `~/.config/PhValheim`, the same place the `.deb` and
+`.rpm` use, so switching package format keeps your worlds.
 
 Requires a **system Steam**, which is what SteamOS and Bazzite ship. A Steam
 installed as a Flatpak is not supported; the client detects it and says so.
@@ -120,6 +134,76 @@ flatpak override --user --filesystem=/data/games com.phvalheim.Client
 The client prints its progress to a terminal, which your desktop opens for it.
 **In Steam Deck Game Mode there is no terminal**, so a launch there runs
 silently — it works, but you get no progress output.
+
+#### If clicking a world link does nothing
+
+Your session isn't exposing Flatpak's applications directory, so nothing can
+find the handler. This affects **every** Flatpak you install, not just this
+one — GNOME and KDE set it up for you, bare Hyprland/Sway/i3 often don't.
+Flatpak warns about it at install time and it scrolls past.
+
+Copy and paste this once, then **log out and back in**:
+
+```bash
+mkdir -p ~/.config/environment.d && printf 'XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/flatpak/exports/share:%s/.local/share/flatpak/exports/share\n' "$HOME" > ~/.config/environment.d/flatpak.conf
+```
+
+To confirm after logging back in — this should print
+`com.phvalheim.Client.desktop`:
+
+```bash
+gio mime x-scheme-handler/phvalheim
+```
+
+<details>
+<summary>Didn't work, or you don't use systemd</summary>
+
+Set the handler explicitly:
+
+```bash
+xdg-mime default com.phvalheim.Client.desktop x-scheme-handler/phvalheim
+```
+
+Without a systemd user session, add the same value to your shell profile
+instead — `~/.profile` for bash/zsh, or `~/.config/fish/conf.d/flatpak.fish`
+for fish, which never reads `/etc/profile.d`:
+
+```bash
+echo 'export XDG_DATA_DIRS="$XDG_DATA_DIRS:/var/lib/flatpak/exports/share:$HOME/.local/share/flatpak/exports/share"' >> ~/.profile
+```
+
+Test the whole chain in one go — this should open a terminal reading
+`malformed phvalheim URL`:
+
+```bash
+gio open 'phvalheim://?bogus'
+```
+
+Note that fixing this in a terminal only fixes that terminal. Your browser
+inherits the **session's** environment, so a real link click needs the change
+above plus a logout.
+
+One rarer cause: the desktop entry is `Terminal=true`, so your desktop needs
+some way to open a terminal. Modern GLib uses `xdg-terminal-exec`; older
+versions search a fixed list containing none of foot, Alacritty, Ghostty or
+kitty. With none of `xdg-terminal-exec`, `xterm`, `gnome-terminal` or
+`konsole` installed, a click can fail silently even when everything else is
+correct.
+
+</details>
+
+#### Testing without any of that
+
+The URL handler is only the delivery mechanism. To exercise the client itself
+— sync, Steam, launching Valheim — copy a world's launch link from the server
+web UI (right-click → **Copy Link Address**) and hand it over directly:
+
+```bash
+flatpak run com.phvalheim.Client '<paste the phvalheim:// link here>'
+```
+
+Same binary, same sandbox, same everything a click produces, with progress
+printed in your current terminal.
 
 ## Uninstalling
 

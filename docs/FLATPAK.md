@@ -229,6 +229,58 @@ without it the only observable outcome is that a confirmation dialog appeared.
   identical. The innie picks the scope by uid and hands it to the tests.
 - **A Flatpak Steam is refused, and that refusal is not tested** — only the
   system-Steam path is exercised.
+- **The test rig sets up its own session.** It exports `XDG_DATA_DIRS` with
+  the Flatpak exports directory on it before anything runs, because otherwise
+  nothing could resolve the handler. A real user's session may not — see
+  below, which is exactly what the first real-hardware run hit.
+
+### What the first real-hardware run found (Omarchy/Hyprland, 2026-09-21)
+
+Everything in the package was correct: the desktop file was exported, the
+permissions matched the manifest exactly, the app ran and reported 2.0.13,
+and `gio open 'phvalheim://?bogus'` produced the expected `malformed
+phvalheim URL` through `xdg-terminal-exec` → `foot`. **One thing was wrong,
+and it was in the session, not the package:**
+
+```
+XDG_DATA_DIRS = /usr/local/share:/usr/share
+```
+
+No `~/.local/share/flatpak/exports/share`. Flatpak warns about this at
+install time and the warning scrolls past. With it missing, nothing can
+resolve `x-scheme-handler/phvalheim` and **clicking a world link does
+absolutely nothing, silently** — which is indistinguishable from a broken
+package. GNOME and KDE set the variable; bare Hyprland and Sway often do not.
+
+This cannot be fixed from inside the Flatpak: an application cannot edit its
+own session's environment, and Flatpak has no post-install hooks by design.
+It is a documentation problem, and the README now carries both the fix and a
+troubleshooting section.
+
+**When triaging any "the Flatpak doesn't work" report, ask for
+`echo $XDG_DATA_DIRS` first.** The one-command fix the README gives:
+
+```bash
+mkdir -p ~/.config/environment.d && printf 'XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/flatpak/exports/share:%s/.local/share/flatpak/exports/share\n' "$HOME" > ~/.config/environment.d/flatpak.conf
+```
+
+`~/.config/environment.d/` is deliberate. It is read by
+`systemd-environment-d-generator`, so it applies to the whole systemd user
+session — GNOME, KDE, uwsm-launched Hyprland — and it is shell-agnostic,
+which a `~/.profile` line is not (fish never reads `/etc/profile.d` or
+`~/.profile`). `$HOME` is expanded at write time rather than relying on the
+generator's variable substitution.
+
+Two related traps for whoever tests this next:
+
+- **Fixing it in a shell does not fix it for the browser.** The browser
+  inherits the session environment, so the shell-level `export` proves the
+  chain works but says nothing about a real click. The session fix plus a
+  re-login is the only thing that tests what a user does.
+- **`Terminal=true` survived contact with a terminal-less-looking desktop**,
+  but only because `xdg-terminal-exec` was installed. Modern GLib prefers it;
+  older GLib searches a fixed list containing none of foot, Alacritty,
+  Ghostty or kitty. Still unverified on a desktop with none of those.
 
 ### The negative controls that were actually run
 
