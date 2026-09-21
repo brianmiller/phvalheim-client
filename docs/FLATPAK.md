@@ -217,12 +217,14 @@ without it the only observable outcome is that a confirmation dialog appeared.
 
 - **No real Steam, Valheim or GPU.** The stubs prove the client hands the host
   the right command, in the right directory, with the right environment. They
-  cannot prove Valheim then starts.
+  cannot prove Valheim then starts. That gap is now closed by hand rather than
+  by the gates — see the real-hardware section below — but it is still not
+  something a build can check.
 - **Nothing runs on SteamOS or Bazzite.** The tests run in a Debian trixie
   container. Game Mode on a Steam Deck in particular has no terminal emulator,
   and the desktop entry is `Terminal=true` to match the other Linux packages —
   so a Deck user in Game Mode will see no progress output at all. Untested and
-  unaddressed.
+  unaddressed. **Arch/Hyprland is confirmed working; the Deck is not.**
 - **The tests install with `--system`, users install with `--user`.** flatpak
   refuses every modifying `--user` operation as root, and the container is
   root. Only the install location differs; export and URL registration are
@@ -234,7 +236,18 @@ without it the only observable outcome is that a confirmation dialog appeared.
   nothing could resolve the handler. A real user's session may not — see
   below, which is exactly what the first real-hardware run hit.
 
-### What the first real-hardware run found (Omarchy/Hyprland, 2026-09-21)
+### Confirmed working on real hardware (Omarchy / Arch + Hyprland, 2026-09-21)
+
+**A modded world ran end to end: synced, installed BepInEx, launched Valheim,
+and every mod loaded correctly.** That is the one thing no harness here can
+reach — the stubs prove the right command goes to the host, not that the game
+starts — so treat this as the real verification and the 102 checks as the
+regression net.
+
+Still unconfirmed on SteamOS and Bazzite, which are the distros the feature
+request actually named.
+
+#### What that run found on the way (the package was fine, the session was not)
 
 Everything in the package was correct: the desktop file was exported, the
 permissions matched the manifest exactly, the app ran and reported 2.0.13,
