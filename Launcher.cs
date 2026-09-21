@@ -45,13 +45,16 @@ namespace PhValheim.Launcher
                 {
                     Console.WriteLine("  Starting Steam...");
                     Process.Start(Sandbox.Flatpak.HostCommand(steamExe,
-                        new[] { "-nofriendsui", "-console" }));
+                        Platform.State.SteamArgs("-nofriendsui", "-console")));
                     Thread.Sleep(10000);
                 }
             }
 
+            // -applaunch works identically through `flatpak run com.valvesoftware.Steam`,
+            // because it is Steam itself that starts the game -- inside its own
+            // sandbox, with its own runtime, exactly as a Library click would.
             Process.Start(Sandbox.Flatpak.HostCommand(steamExe,
-                new[] { "-applaunch", "892970", "+connect", connect }));
+                Platform.State.SteamArgs("-applaunch", "892970", "+connect", connect)));
         }
 
         public static void Launch(ref string worldPassword, ref string worldHost, ref string worldPort, bool isVanilla = false)
@@ -99,11 +102,16 @@ namespace PhValheim.Launcher
                 // Asking our own process list from inside the sandbox always
                 // answers "not running", so a Flatpak would start a second
                 // Steam and then sleep ten seconds on every single launch.
+                if (Platform.State.SteamIsFlatpak)
+                {
+                    Console.WriteLine("  Steam is a Flatpak - Valheim will be started inside Steam's sandbox.");
+                }
+
                 if (!Sandbox.Flatpak.HostProcessRunning("steam"))
                 {
                     Console.WriteLine("  Starting Steam...");
                     Process.Start(Sandbox.Flatpak.HostCommand(@steamExe,
-                        new[] { "-nofriendsui", "-console" }));
+                        Platform.State.SteamArgs("-nofriendsui", "-console")));
 
                     // I honestly don't know a better way to do this, so we sleep
                     Thread.Sleep(10000);
@@ -154,11 +162,57 @@ namespace PhValheim.Launcher
                       ["LD_PRELOAD"] = ld_preload,
                   };
 
-                  ProcessStartInfo startInfo = Sandbox.Flatpak.HostCommand(
-                      setsid,
-                      new[] { exec, "-console" },
-                      doorstopEnv,
-                      valheimDir);
+                  ProcessStartInfo startInfo;
+
+                  if (Platform.State.SteamIsFlatpak)
+                  {
+                      // A Flatpak Steam cannot be driven the way a system one
+                      // can. Exec'ing valheim.x86_64 on the host would give it
+                      // the host's libraries instead of the Steam Runtime, and
+                      // -- the part that actually decides it -- no route to the
+                      // Steam client, whose IPC pipe lives inside Steam's
+                      // sandbox under ~/.var/app/com.valvesoftware.Steam. A
+                      // Steamworks game with no client to talk to exits at
+                      // startup.
+                      //
+                      // So we run the game inside Steam's own sandbox instead,
+                      // where the runtime and the pipe both already are. The
+                      // doorstop variables go in as `flatpak run --env=`
+                      // rather than through HostCommand's env dictionary:
+                      // HostCommand's would set them on the host, one layer
+                      // out from the process that has to read them.
+                      //
+                      // setsid still runs on the host, so the game outlives
+                      // this client exactly as it does everywhere else.
+                      var fpArgs = new List<string>
+                      {
+                          "flatpak", "run",
+                          "--cwd=" + valheimDir,
+                      };
+
+                      foreach (var kv in doorstopEnv)
+                          fpArgs.Add("--env=" + kv.Key + "=" + kv.Value);
+
+                      // BepInEx and the mod payload live in our own directory,
+                      // which Steam's sandbox has no reason to be able to see.
+                      // Granted per-run, so nothing about the user's Steam
+                      // install is permanently changed.
+                      fpArgs.Add("--filesystem=" + Platform.State.PhValheimDir);
+
+                      fpArgs.Add("--command=" + exec);
+                      fpArgs.Add(Platform.State.SteamFlatpakId);
+                      fpArgs.Add("-console");
+
+                      startInfo = Sandbox.Flatpak.HostCommand(setsid, fpArgs);
+                  }
+                  else
+                  {
+                      startInfo = Sandbox.Flatpak.HostCommand(
+                          setsid,
+                          new[] { exec, "-console" },
+                          doorstopEnv,
+                          valheimDir);
+                  }
 
                   startInfo.CreateNoWindow = false;
 

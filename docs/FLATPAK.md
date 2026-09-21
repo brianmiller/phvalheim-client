@@ -147,13 +147,9 @@ no error message.
 
 ## Known limitations
 
-- **A Flatpak Steam is detected and refused, not supported.** Its game files
-  live inside its own sandbox and Valheim would have to be launched within
-  that sandbox to get the Steam Runtime and a reachable client. The client
-  prints a specific message naming `com.valvesoftware.Steam` and telling the
-  user to install a system Steam, rather than failing as "Steam isn't
-  installed". SteamOS and Bazzite both ship a system Steam, which is the
-  configuration this targets.
+- **A Flatpak Steam is supported but UNTESTED.** See the section below. No one
+  has run it against a real `com.valvesoftware.Steam`; treat any report of it
+  failing as credible.
 - **The host's `LD_PRELOAD` is not read.** On the other packages the client
   appends doorstop to any existing `LD_PRELOAD`. From inside the sandbox there
   is no way to see the host session's value — a shell spawned through
@@ -170,6 +166,75 @@ no error message.
   `io.github.brianmiller.*`. Renaming later is disruptive — it changes the
   desktop file name, the icon names and the `~/.var/app` directory — so it is
   worth settling before publishing anywhere.
+
+## Driving a Flatpak Steam (UNTESTED)
+
+The client used to refuse `com.valvesoftware.Steam` outright. That refusal
+rested on two claims, and only one of them was true.
+
+**False:** *its game files live inside its own sandbox.* They do not. A Flatpak
+Steam keeps its Steam root at
+`~/.var/app/com.valvesoftware.Steam/.local/share/Steam` — an ordinary host
+path. `libraryfolders.vdf` parses there exactly as it does under `~/.steam`,
+so `Steam.cs` needed no changes at all; `Platform.cs` just points `SteamDir`
+somewhere else.
+
+It is not reachable via `--filesystem=home`, though. Flatpak masks `~/.var/app`
+so one app cannot read another's data, so the manifest names Steam's directory
+explicitly. That is a scoped grant to one app's data, not a broadening of the
+existing home access.
+
+**True:** *Valheim must be launched inside that sandbox.* Two reasons, and the
+second is the decisive one:
+
+1. The Steam Runtime is inside Steam's sandbox. A host-side `valheim.x86_64`
+   would link against whatever the host happens to have.
+2. **The Steam client's IPC pipe is inside Steam's sandbox**, under
+   `~/.var/app/com.valvesoftware.Steam/.steam/`. Valheim is a Steamworks game;
+   with no client to talk to it exits during startup. This is the failure to
+   expect if the approach is wrong, and it will look like "the game flashed
+   and closed".
+
+So the modded launch becomes, on the host:
+
+```
+setsid flatpak run --cwd=<valheimDir> \
+  --env=DOORSTOP_ENABLED=1 --env=DOORSTOP_TARGET_ASSEMBLY=... \
+  --filesystem=<~/.config/PhValheim> \
+  --command=<valheimDir>/valheim.x86_64 \
+  com.valvesoftware.Steam -console
+```
+
+Three things about that are load-bearing:
+
+- **The doorstop variables are `flatpak run --env=`, not `HostCommand`'s env
+  dictionary.** `HostCommand`'s would set them on the *host* process — one
+  layer out from the process that has to read them. Same words, wrong scope.
+- **`--filesystem=` grants Steam's sandbox access to our mod payload** for that
+  run only. BepInEx and the mods live under `~/.config/PhValheim`, which
+  Steam has no standing reason to see. Nothing about the user's Steam
+  installation is permanently modified.
+- **`setsid` still runs on the host**, outside `flatpak run`, so the game
+  outlives the client the same way it does everywhere else. `flatpak run` is
+  an ordinary child process; it does not detach on its own.
+
+Vanilla is far less interesting: `-applaunch 892970` works the same through
+`flatpak run com.valvesoftware.Steam`, because Steam itself starts the game,
+inside its own sandbox, exactly as a Library click would. `Platform.SteamArgs()`
+prefixes the arguments and everything downstream is unchanged.
+
+Note that this path is reached whether or not *we* are a Flatpak — a `.deb`
+client on a machine with only a Flatpak Steam takes it too, with
+`Sandbox.Flatpak.HostCommand` in pass-through mode. One code path, as
+everywhere else here.
+
+### What would tell us it works
+
+Not a stub. The rig proves the right command reaches the host, which this
+design already assumes. The only real test is a machine with
+`com.valvesoftware.Steam` and Valheim installed, running a modded world to the
+main menu with mods loaded. Until someone does that, this section is a design
+argument, not a result.
 
 ## What the gates cover
 
@@ -229,8 +294,10 @@ without it the only observable outcome is that a confirmation dialog appeared.
   refuses every modifying `--user` operation as root, and the container is
   root. Only the install location differs; export and URL registration are
   identical. The innie picks the scope by uid and hands it to the tests.
-- **A Flatpak Steam is refused, and that refusal is not tested** — only the
-  system-Steam path is exercised.
+- **The Flatpak Steam path is not exercised at all** — no check installs
+  `com.valvesoftware.Steam`, and the stub rig cannot simulate it (the whole
+  question is whether a real Steam client is reachable, which a stub answers
+  by construction). Only the system-Steam path is gated.
 - **The test rig sets up its own session.** It exports `XDG_DATA_DIRS` with
   the Flatpak exports directory on it before anything runs, because otherwise
   nothing could resolve the handler. A real user's session may not — see

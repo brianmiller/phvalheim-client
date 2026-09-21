@@ -8,9 +8,16 @@ namespace PhValheim.Platform
   {
     private static State _instance;
 
+    /// <summary>
+    /// The Flatpak application id of Valve's official Steam package. Used on
+    /// immutable distros (Bazzite, Silverblue) where there is no system Steam.
+    /// </summary>
+    public const string SteamFlatpakId = "com.valvesoftware.Steam";
+
     private string worldName;
     private string steamDir;
     private string steamExe;
+    private bool steamIsFlatpak;
     private string valheimDir;
     private string phvalheimHostNoPort;
     private string phvalheimDir;
@@ -77,28 +84,57 @@ namespace PhValheim.Platform
 
           Instance.steamExe = steamPath;
 
-          //   if the output is empty, steam isn't installed
+          string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+          //   if the output is empty, there is no system steam -- but there
+          //   may still be a Flatpak one, which is the normal arrangement on
+          //   Bazzite, Silverblue and other immutable distros.
           if (Instance.steamExe == "")
           {
-              Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+              if (Sandbox.Flatpak.HostShell($"flatpak info {SteamFlatpakId} >/dev/null 2>&1").exitCode != 0)
+              {
+                Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+                return false;
+              }
 
-              // A very likely case on Bazzite and other immutable distros, and
-              // one worth naming precisely rather than letting the user hunt.
-              // We cannot drive a Flatpak Steam from here: its game files live
-              // inside its own sandbox and Valheim would have to be launched
-              // within that sandbox to get the Steam Runtime and a reachable
-              // Steam client.
-              if (Sandbox.Flatpak.HostShell("flatpak info com.valvesoftware.Steam >/dev/null 2>&1").exitCode == 0)
+              // A Flatpak Steam keeps its whole Steam root under its per-app
+              // data directory. That is an ordinary path on the host -- not,
+              // as this code used to claim, something sealed inside the
+              // sandbox -- so libraryfolders.vdf and the game files are
+              // readable with no special handling beyond pointing at them.
+              //
+              // Launching is the part that genuinely differs, and is handled
+              // in Launcher: the game has to run INSIDE Steam's sandbox to
+              // get the Steam Runtime and reach the Steam client's IPC pipe.
+              Instance.steamIsFlatpak = true;
+              Instance.steamExe = "flatpak";
+              Instance.steamDir = $"{home}/.var/app/{SteamFlatpakId}/.local/share/Steam";
+
+              Console.WriteLine("Steam is installed as a Flatpak (" + SteamFlatpakId + ").");
+              Console.WriteLine("Steam root directory was found: " + Instance.steamDir);
+
+              if (!Directory.Exists(Instance.steamDir))
               {
                 Console.WriteLine("");
-                Console.WriteLine("       Steam is installed as a Flatpak (com.valvesoftware.Steam).");
-                Console.WriteLine("       The PhValheim client cannot drive a Flatpak Steam -- it needs a");
-                Console.WriteLine("       system Steam it can launch Valheim from. Install Steam from your");
-                Console.WriteLine("       distribution instead. On SteamOS and Bazzite it is already there.");
+                Console.WriteLine("WARNING: that directory is not readable from here.");
+                if (Sandbox.Flatpak.InSandbox)
+                {
+                  Console.WriteLine("         Grant this client access to it with:");
+                  Console.WriteLine("           flatpak override --user \\");
+                  Console.WriteLine("             --filesystem=~/.var/app/" + SteamFlatpakId + " \\");
+                  Console.WriteLine("             com.phvalheim.Client");
+                }
+                else
+                {
+                  Console.WriteLine("         Has Steam been run at least once?");
+                }
+                return false;
               }
-              return false;
           }
-          Instance.steamDir = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.steam/steam";
+          else
+          {
+              Instance.steamDir = $"{home}/.steam/steam";
+          }
         } catch (Exception)
         {
           Console.WriteLine("ERROR: Steam isn't installed, exiting...");
@@ -136,6 +172,24 @@ namespace PhValheim.Platform
     // Steam Path Accessors
     public static string SteamDir => Instance.steamDir;
     public static string SteamExe => Instance.steamExe;
+
+    /// <summary>
+    /// True when the Steam we are driving is com.valvesoftware.Steam rather
+    /// than a distribution package. Changes how Steam is invoked, not where
+    /// its files are: SteamExe is "flatpak" and every Steam argument has to be
+    /// prefixed with "run com.valvesoftware.Steam".
+    /// </summary>
+    public static bool SteamIsFlatpak => Instance.steamIsFlatpak;
+
+    /// <summary>
+    /// Wrap a Steam argument list so it reaches Steam however Steam is
+    /// installed. For a system Steam this is the identity function.
+    /// </summary>
+    public static string[] SteamArgs(params string[] args)
+    {
+      if (!Instance.steamIsFlatpak) return args;
+      return new[] { "run", SteamFlatpakId }.Concat(args).ToArray();
+    }
     public static string ValheimDir {
       get {
         return Instance.valheimDir;

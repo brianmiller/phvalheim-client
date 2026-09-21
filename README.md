@@ -57,8 +57,9 @@ still don't open.
 Synced worlds live in `~/.config/PhValheim`, the same place the `.deb` and
 `.rpm` use, so switching package format keeps your worlds.
 
-Requires a **system Steam**, which is what SteamOS and Bazzite ship. A Steam
-installed as a Flatpak is not supported; the client detects it and says so.
+Works with a **system Steam**, which is what SteamOS and Bazzite ship. A Steam
+installed as a Flatpak (`com.valvesoftware.Steam`) is also supported, though
+that path is **untested** — see [Flatpak Steam](#flatpak-steam) below.
 
 Note that this package is not meaningfully sandboxed: launching Valheim means
 running host programs and reading your Steam library wherever it lives. See
@@ -134,6 +135,31 @@ flatpak override --user --filesystem=/data/games com.phvalheim.Client
 The client prints its progress to a terminal, which your desktop opens for it.
 **In Steam Deck Game Mode there is no terminal**, so a launch there runs
 silently — it works, but you get no progress output.
+
+#### Flatpak Steam
+
+> **Untested.** This works in theory and is implemented, but nobody has run it
+> against a real `com.valvesoftware.Steam` yet. If you try it, please report
+> what happens on
+> [issue #86](https://github.com/brianmiller/phvalheim-server/issues/86).
+
+If you have no system Steam, the client falls back to
+`com.valvesoftware.Steam` automatically — there is nothing to configure. It
+reads your library from `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`
+and launches Valheim *inside* Steam's own sandbox, which is where the Steam
+Runtime and the Steam client both live.
+
+One grant may be needed, because `--filesystem=home` deliberately does not
+reach another app's data directory. New installs have it already; if you are
+upgrading in place, or the client reports that the Steam directory is not
+readable:
+
+```bash
+flatpak override --user --filesystem=~/.var/app/com.valvesoftware.Steam com.phvalheim.Client
+```
+
+If a modded world launches and then exits immediately, that is the case worth
+reporting — it most likely means the game could not reach the Steam client.
 
 #### If clicking a world link does nothing
 

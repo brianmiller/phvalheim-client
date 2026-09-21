@@ -49,6 +49,13 @@ finish-args:
   - --filesystem=/media
   - --filesystem=/mnt
 
+  # A Steam installed as a Flatpak keeps its entire Steam root -- libraryfolders.vdf,
+  # the Valheim install, everything -- under its own per-app data directory. Those
+  # are ordinary paths on the host, but --filesystem=home does NOT reach them:
+  # flatpak masks ~/.var/app so one app cannot rummage through another's data.
+  # Naming it explicitly is the only way in, and it is scoped to Steam alone.
+  - --filesystem=~/.var/app/com.valvesoftware.Steam
+
   # The escape hatch itself: required by flatpak-spawn --host, which is how
   # Steam and Valheim get started outside the sandbox. Remove this and the
   # client can still sync a world but can never launch one.
