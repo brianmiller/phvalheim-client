@@ -61,7 +61,19 @@ chmod 755 $gitRoot/builders/.rpm_staging/*
 
 
 # generate spec
-echo "Summary: PhValheim Client for PhValheim Server
+echo "# rpmbuild's default __os_install_post strips every ELF it installs and
+# splits the debug info out. That is right for a normal program and fatal for
+# a .NET single-file bundle: the managed assemblies are APPENDED past the end
+# of the ELF, so strip rewrites the file without them. The result still looks
+# like a working binary -- it is executable, rpm -qlp lists it -- but running
+# it dies with 'Arithmetic overflow while reading bundle'.
+#
+# That is how the .rpm shipped broken from 2.0.11 to 2.0.13: the package went
+# from 23.6 MB to 4.1 MB and nobody looked, because every build still said OK.
+# Disabling both keeps the 72 MB bundle intact.
+%global __os_install_post %{nil}
+%global debug_package %{nil}
+Summary: PhValheim Client for PhValheim Server
 Name: phvalheim-client
 Version: $thisVersion
 Release: 1
