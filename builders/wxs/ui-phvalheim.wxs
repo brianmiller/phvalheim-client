@@ -20,6 +20,20 @@
     dialog 373x287 | banner bitmap 0,0 375x52 | rule y=52 | body y=63
     rule y=252 | buttons y=261 h=18 w=66, at x=156 (Back) 228 (Next) 300 (Cancel)
 
+  TABSKIP IS LOAD-BEARING. Every Bitmap, Line and Text control here says
+  TabSkip="yes". It used to say "no", and that shipped the 2814 in 2.0.13:
+  "On the dialog [2] the control [3] names a nonexistent control [4] as the
+  next control." TabSkip="no" clears the TABSKIP attribute bit, which promises
+  Windows Installer the control is part of the tab cycle -- but wixl only
+  writes Control_Next for focusable types, so those controls got an EMPTY next
+  and the promise was broken. 2.0.12's MaintenanceForm was one complete
+  9-control cycle; 2.0.13's was a 5-control cycle plus 4 orphans. Repair and
+  Remove are where it surfaced, because MaintenanceForm is the only dialog
+  with a RadioButtonGroup for focus to land on.
+
+  Only the PushButtons keep TabSkip="no" -- they are genuinely focusable and
+  wixl does chain them.
+
   Built by wixl. wixl rejects <UI> under <Product>, so this is a Fragment that
   builders/wxs/phvalheim-client.wxs pulls in with <UIRef Id="WixUI_PhValheim"/>.
   Both files are passed to wixl together; see builders/build_msi-innie.
@@ -62,9 +76,9 @@
           <Publish Event="NewDialog" Value="ConfirmInstallForm" />
         </Control>
 
-        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"      Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
-        <Control Id="BannerText" Type="Text" TabSkip="no"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text" TabSkip="yes"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
 
         <!-- Four paragraphs, and they must come through a Text CHILD ELEMENT:
@@ -77,7 +91,7 @@
              The leading style prefix is also mandatory: see the TextStyle
              comment above. Without it this renders blue AND stops at the
              first paragraph. -->
-        <Control Id="WelcomeText" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="114" NoPrefix="yes">
+        <Control Id="WelcomeText" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="114" NoPrefix="yes">
           <Text>{\PhvFontNormal}This is PhValheim [ProductVersion]'s Windows client.
 
 A custom phvalheim:// URL will be registered to Windows. Any time these URLs are opened, this client will automatically download, install and launch related world files with unique contexts.
@@ -88,10 +102,10 @@ All PhValheim application and world files are kept in %appdata%\PhValheim.</Text
         </Control>
 
         <!-- Verbatim from the .vdproj. Yes, all of it. -->
-        <Control Id="CopyrightWarningText" Type="Text" TabSkip="no" X="9" Y="186" Width="354" Height="66" NoPrefix="yes"
+        <Control Id="CopyrightWarningText" Type="Text" TabSkip="yes" X="9" Y="186" Width="354" Height="66" NoPrefix="yes"
                  Text="{\PhvFontNormal}WARNING: This computer program is protected by copyright law and international treaties and Zero Cool's garbage file. Unauthorized duplication or distribution of this program, or any portion of it, may result in severe civil or criminal penalties, and will be prosecuted to the maximum extent possible under the law. Including, but not limited to flu shots." />
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
 
         <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="{\PhvFontNormal}Cancel">
@@ -105,18 +119,18 @@ All PhValheim application and world files are kept in %appdata%\PhValheim.</Text
           <Publish Event="EndDialog" Value="Return" />
         </Control>
 
-        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"      Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
-        <Control Id="BannerText" Type="Text" TabSkip="no"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text" TabSkip="yes"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Confirm Installation" />
 
-        <Control Id="BodyText1" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
+        <Control Id="BodyText1" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
           <Text>{\PhvFontNormal}The installer is ready to install [ProductName] on your computer.
 
 Click "Next" to start the installation.</Text>
         </Control>
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Text="{\PhvFontNormal}&lt; &amp;Back">
           <Publish Event="NewDialog" Value="WelcomeForm" />
         </Control>
@@ -134,31 +148,31 @@ Click "Next" to start the installation.</Text>
           <Publish Event="SpawnDialog" Value="CancelForm" />
         </Control>
 
-        <Control Id="BannerBmp" Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"     Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerBmp" Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"     Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
 
-        <Control Id="InstalledBannerText" Type="Text" TabSkip="no" X="9" Y="9" Width="255" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="InstalledBannerText" Type="Text" TabSkip="yes" X="9" Y="9" Width="255" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Installing [ProductName]"
                  HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
-        <Control Id="RemoveBannerText" Type="Text" TabSkip="no" X="9" Y="9" Width="306" Height="33" Transparent="yes" NoPrefix="yes" Hidden="yes"
+        <Control Id="RemoveBannerText" Type="Text" TabSkip="yes" X="9" Y="9" Width="306" Height="33" Transparent="yes" NoPrefix="yes" Hidden="yes"
                  Text="{\PhvFontTitle}Removing [ProductName]"
                  ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
 
-        <Control Id="InstalledBody" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="12" NoPrefix="yes"
+        <Control Id="InstalledBody" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="12" NoPrefix="yes"
                  Text="{\PhvFontNormal}[ProductName] is being installed."
                  HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL" />
-        <Control Id="RemovedBody" Type="Text" TabSkip="no" X="18" Y="63" Width="336" Height="12" NoPrefix="yes" Hidden="yes"
+        <Control Id="RemovedBody" Type="Text" TabSkip="yes" X="18" Y="63" Width="336" Height="12" NoPrefix="yes" Hidden="yes"
                  Text="{\PhvFontNormal}[ProductName] is being removed."
                  ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL" />
 
-        <Control Id="ProgressLabel" Type="Text" TabSkip="no" X="18" Y="96" Width="336" Height="12" NoPrefix="yes" Text="{\PhvFontNormal}Please wait...">
+        <Control Id="ProgressLabel" Type="Text" TabSkip="yes" X="18" Y="96" Width="336" Height="12" NoPrefix="yes" Text="{\PhvFontNormal}Please wait...">
           <Subscribe Event="ActionText" Attribute="Text" />
         </Control>
         <Control Id="ProgressBar" Type="ProgressBar" TabSkip="no" X="18" Y="108" Width="336" Height="15" ProgressBlocks="yes" Text="Progress done">
           <Subscribe Event="SetProgress" Attribute="Progress" />
         </Control>
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
         <Control Id="NextButton"     Type="PushButton" X="228" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&amp;Next &gt;" />
 
@@ -170,25 +184,25 @@ Click "Next" to start the installation.</Text>
           <Publish Event="EndDialog" Value="Return" />
         </Control>
 
-        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"      Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
-        <Control Id="BannerText" Type="Text" TabSkip="no"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text" TabSkip="yes"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Installation Complete" />
 
-        <Control Id="BodyText" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="138" NoPrefix="yes"
+        <Control Id="BodyText" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="138" NoPrefix="yes"
                  HideCondition="Installed AND NOT REINSTALL" ShowCondition="NOT Installed OR REINSTALL">
           <Text>{\PhvFontNormal}[ProductName] has been successfully installed.
 
 Click "Close" to exit.</Text>
         </Control>
-        <Control Id="BodyTextRemove" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="138" NoPrefix="yes" Hidden="yes"
+        <Control Id="BodyTextRemove" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="138" NoPrefix="yes" Hidden="yes"
                  ShowCondition="Installed AND NOT REINSTALL" HideCondition="NOT Installed OR REINSTALL">
           <Text>{\PhvFontNormal}[ProductName] has been successfully removed.
 
 Click "Close" to exit.</Text>
         </Control>
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
 
         <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}Cancel" />
@@ -203,12 +217,12 @@ Click "Close" to exit.</Text>
           <Publish Event="EndDialog"     Value="Return" />
         </Control>
 
-        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"      Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
-        <Control Id="BannerText" Type="Text" TabSkip="no"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text" TabSkip="yes"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Welcome to the [ProductName] Setup Wizard" />
 
-        <Control Id="BodyText" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="42" NoPrefix="yes"
+        <Control Id="BodyText" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="42" NoPrefix="yes"
                  Text="{\PhvFontNormal}Select whether you want to repair or remove [ProductName]." />
 
         <!-- wixl requires the RadioButtonGroup nested INSIDE its Control;
@@ -221,7 +235,7 @@ Click "Close" to exit.</Text>
           </RadioButtonGroup>
         </Control>
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
 
         <Control Id="CancelButton" Type="PushButton" X="300" Y="261" Width="66" Height="18" Cancel="yes" Text="{\PhvFontNormal}Cancel">
@@ -237,22 +251,22 @@ Click "Close" to exit.</Text>
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
 
-        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"      Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
-        <Control Id="BannerText" Type="Text" TabSkip="no"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text" TabSkip="yes"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Installation Incomplete" />
 
         <!-- NOT reproduced verbatim: the .vdproj has this backwards. Its
              BodyTextInstall says "could be removed" and its BodyTextRemove
              says "could be installed". That is an authoring slip in the
              original, not a feature, so the wording is corrected here. -->
-        <Control Id="BodyTextInstall" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
+        <Control Id="BodyTextInstall" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="180" NoPrefix="yes">
           <Text>{\PhvFontNormal}The installer was interrupted before [ProductName] could be installed. You need to restart the installer to try again.
 
 Click "Close" to exit.</Text>
         </Control>
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
 
         <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}Cancel" />
@@ -264,15 +278,15 @@ Click "Close" to exit.</Text>
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
 
-        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="no" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
-        <Control Id="Line1"      Type="Line" TabSkip="no"   X="0" Y="52" Width="375" Height="0" />
-        <Control Id="BannerText" Type="Text" TabSkip="no"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
+        <Control Id="BannerBmp"  Type="Bitmap" TabSkip="yes" X="0" Y="0"  Width="375" Height="52" Text="PhvBanner" />
+        <Control Id="Line1"      Type="Line" TabSkip="yes"   X="0" Y="52" Width="375" Height="0" />
+        <Control Id="BannerText" Type="Text" TabSkip="yes"   X="9" Y="9"  Width="306" Height="33" Transparent="yes" NoPrefix="yes"
                  Text="{\PhvFontTitle}Installation Interrupted" />
 
-        <Control Id="BodyTextInstall" Type="Text" TabSkip="no" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
+        <Control Id="BodyTextInstall" Type="Text" TabSkip="yes" X="9" Y="63" Width="354" Height="180" NoPrefix="yes"
                  Text="{\PhvFontNormal}The installation was interrupted before [ProductName] could be installed. You need to restart the installer to try again." />
 
-        <Control Id="Line2"          Type="Line" TabSkip="no"       X="0"   Y="252" Width="375" Height="0" />
+        <Control Id="Line2"          Type="Line" TabSkip="yes"       X="0"   Y="252" Width="375" Height="0" />
         <Control Id="PreviousButton" Type="PushButton" X="156" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}&lt; &amp;Back" />
 
         <Control Id="CancelButton"   Type="PushButton" X="300" Y="261" Width="66" Height="18" Disabled="yes" Text="{\PhvFontNormal}Cancel" />
@@ -286,7 +300,7 @@ Click "Close" to exit.</Text>
           <Publish Event="EndDialog" Value="Return" />
         </Control>
 
-        <Control Id="BodyText" Type="Text" TabSkip="no" X="6" Y="9" Width="258" Height="24" NoPrefix="yes"
+        <Control Id="BodyText" Type="Text" TabSkip="yes" X="6" Y="9" Width="258" Height="24" NoPrefix="yes"
                  Text="{\PhvFontNormal}The installation is not yet complete. Are you sure you want to exit?" />
         <Control Id="YesButton" Type="PushButton" X="126" Y="48" Width="65" Height="21" Text="{\PhvFontNormal}&amp;Yes">
           <Publish Event="EndDialog" Value="Exit" />
@@ -303,7 +317,7 @@ Click "Close" to exit.</Text>
           <Publish Event="EndDialog" Value="ErrorYes" />
         </Control>
 
-        <Control Id="ErrorText" Type="Text" TabSkip="no" X="48" Y="15" Width="205" Height="60" Text="{\PhvFontNormal}Information text" />
+        <Control Id="ErrorText" Type="Text" TabSkip="yes" X="48" Y="15" Width="205" Height="60" Text="{\PhvFontNormal}Information text" />
 
         <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="no" Text="{\PhvFontNormal}&amp;Cancel">
           <Publish Event="EndDialog" Value="ErrorAbort" />
