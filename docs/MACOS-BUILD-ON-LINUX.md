@@ -12,8 +12,10 @@ theoretical unless it says so — the measured results were produced on that box
 >
 > The runner also reports `launchctl managername = Aqua` with WindowServer
 > running and `screencapture` working — so the hosted runner has a real GUI
-> session, and `phvalheim://` *activation* (not just registration) is testable
-> there. That was an open question below; it is now answered.
+> session. `builders/verify_macos_gui.sh` now drives a live `phvalheim://` URL
+> through `open(1)` → Launch Services → GetURL Apple Event → `url-handler.swift`
+> → Terminal.app → **the argv the client receives**, 7/7 in ~1.8s. Activation,
+> not just registration, is covered.
 
 ## Summary
 
