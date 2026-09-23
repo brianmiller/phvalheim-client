@@ -1,210 +1,139 @@
-# MSI error 2814 on Repair / Remove — open investigation
+# MSI error 2814 on Repair / Remove — SOLVED
 
-**Status: OPEN.** Install works. Repair and Remove from the wizard die with
-"The installer encountered an unexpected error installing this package. This
-may indicate a problem with this package. The error code is 2814."
+**Status: root cause found and fixed 2026-09-23.** Install always worked;
+Repair and Remove from the wizard died with "The installer encountered an
+unexpected error installing this package... The error code is 2814."
 
-Reported by Brian on real Windows against 2.0.13. Both features worked in
-2.0.12, which was built by the retired Visual Studio Setup Project
-(`phvalheim-client-installer.vdproj`). 2.0.13 is the first release built on
-Linux with `wixl`, so the regression came in with that port.
-
-This file exists because one session burned a lot of effort here and reached a
-wrong fix. Read it before touching `builders/wxs/ui-phvalheim.wxs`.
+Keep this file. Most of the effort here went into theories that were wrong, and
+the way they were wrong is the useful part.
 
 ---
 
-## What 2814 actually is
+## Root cause
 
-From Microsoft's own error list (`MicrosoftDocs/win32`,
-`desktop-src/Msi/windows-installer-error-messages.md`, the row for 2814):
+The dialogs were scheduled **relatively** in `builders/wxs/ui-phvalheim.wxs`:
 
-> On the dialog [2] the control [3] names a nonexistent control [4] as the
-> next control.
+```xml
+<Show Dialog="WelcomeForm"     Before="ProgressForm"  Condition="NOT Installed" />
+<Show Dialog="MaintenanceForm" Before="ProgressForm"  Condition="Installed AND ..." />
+<Show Dialog="ProgressForm"    Before="ExecuteAction" />
+```
 
-Note the exact claim: a control **names** a next control that does not exist.
-It is about the `Control_Next` column of the `Control` table.
+**wixl's relative-sequence resolver is not stable.** From byte-identical
+authoring it produced two completely different orderings on two builds:
 
-Do not take this from a search-result summary. Fetch the row:
+| action | 09-21 build (2814) | 09-22 23:44 build (works) |
+|---|---|---|
+| WelcomeForm | **1** | 1202 |
+| MaintenanceForm | **2** | 1201 |
+| ProgressForm | **3** | 1203 |
+
+At 1/2/3 every dialog runs *before* `CostInitialize` (800), `FileCost` (900),
+`CostFinalize` (1000) and `MigrateFeatureStates` (1200).
+
+A fresh install tolerates that, which is why install was never affected. The
+maintenance path cannot: `MaintenanceForm` sets `Reinstall`, `Remove` and
+`ReinstallMode`, and with costing scheduled *after* the dialog those properties
+land on a product whose feature states have not been migrated or costed.
+
+## The fix
+
+1. **Absolute sequence numbers, pinned** in `ui-phvalheim.wxs` — 1201 / 1202 /
+   1203, which keeps all three dialogs between `MigrateFeatureStates` and
+   `ExecuteAction` no matter how wixl resolves things on a given day. wixl
+   honours `Sequence=` on `<Show>`; verified in the rebuilt package.
+2. **A gate in `builders/verify_msi.sh`** asserting each dialog's sequence is
+   greater than `CostFinalize` and `MigrateFeatureStates` and less than
+   `ExecuteAction`.
+
+The gate was tested against the known-bad package **first**: 3 FAILs on the
+09-21 MSI, 3 PASSes on the working one. A check that passes on both proves
+nothing, and that is exactly how this shipped green.
+
+## How it was found
+
+Not by reasoning about 2814 — by **diffing a broken package against a working
+one**. `builds/*.msi` is tracked in git, so every historical revision is
+retrievable:
 
 ```bash
-gh api repos/MicrosoftDocs/win32/contents/desktop-src/Msi/windows-installer-error-messages.md \
-  -H "Accept: application/vnd.github.raw" | grep -n "^| 2814"
+git log --oneline -- builds/phvalheim-client-2.0.13-x86_64.msi
+git show <sha>:builds/phvalheim-client-2.0.13-x86_64.msi > /tmp/old.msi
 ```
 
-## Established by measurement
+Comparing all 43 tables, only four differed: `File` and `MsiFileHash` (the exe
+changed), `Property` (a new `ProductCode`), and **`InstallUISequence`**. The
+new `ProductCode` GUID is the likely reason wixl's resolution order shifted.
 
-Both MSIs are in `builds/`, so every claim below is reproducible.
+**Have a known-good and a known-bad artifact and diff them.** That took one
+command and beat two sessions of reading the spec.
 
-1. **wixl chains only focusable controls.** It writes `Control_Next` for
-   PushButton, RadioButtonGroup and Bitmap. Every `Text` and `Line` gets an
-   EMPTY `Control_Next`.
+## Wrong theories — all measured, all dead
 
-2. **2.0.12 chains everything.** Its `MaintenanceForm` is one complete cycle
-   over all nine controls, zero left out:
+Every one of these was checked against the actual bytes with
+`dev_tools/msi_rawtable.py`, which parses the MSI OLE compound document
+directly (string pool, `_Columns` schema, column-major blobs) and can print a
+cell's **raw string-pool reference** — the one thing `msiinfo export` cannot
+show, since it renders NULL and `""` identically.
 
-   ```
-   FinishButton -> BannerText -> BannerBmp -> Line1 -> BodyText
-     -> RepairRadioGroup -> Line2 -> PreviousButton -> CancelButton -> (Finish)
-   ```
+- **Orphan / empty-string `Control_Next`.** MaintenanceForm's four orphans are
+  genuine NULL (ref=0), zero empty strings. The queued "make them NULL" fix was
+  a no-op against the bytes. And `WelcomeForm` carries **five** NULL nexts while
+  rendering fine on every install, so NULL was never the variable.
+- **`TabSkip`.** wixl never sets the TABSKIP bit either way; setting it made
+  things worse. The `.wxs` stays at `"no"`.
+- **Bitmap in the tab chain.** `ProgressForm`'s working chain also contains
+  `BannerBmp`.
+- **RadioButtonGroup.** Property default, RadioButton rows, attributes and
+  geometry all match 2.0.12.
+- **Everything else:** 0 dangling `Control_Next` across 78 controls / 10
+  dialogs; 0 dangling `Control_First`/`Default`/`Cancel`; all 10 tab cycles
+  close back to `Control_First`; 0 dangling refs from ControlEvent /
+  ControlCondition / EventMapping; both font tokens defined in `TextStyle`;
+  `Dialog.Attributes` identical to 2.0.12.
 
-   2.0.13's is a five-control cycle plus four controls with an empty next.
+**The Control and Dialog tables were byte-identical between the package that
+produced 2814 and the package that works.** Every static theory above was
+chasing something that never differed.
 
-3. **`TabSkip` cannot change this.** Measured both ways: wixl never sets the
-   TABSKIP attribute bit (8) at all. Control `Attributes` come out
-   byte-identical to 2.0.12's (1, 196611, 131075, 3) whether the authoring
-   says `TabSkip="yes"` or `"no"`. Setting `"yes"` only drops the control out
-   of the chain as well, taking MaintenanceForm from 4 orphans to 5. Strictly
-   worse. The `.wxs` is back to `"no"` and should stay there.
+The lesson: 2814's documented text ("the control names a nonexistent control as
+the next control") pointed hard at `Control_Next`, and that was a blind alley.
+The error surfaced in a dialog, but the defect was in *when the dialog ran*.
 
-4. **MaintenanceForm is the only dialog with a RadioButtonGroup.** That is the
-   most obvious reason Repair/Remove is where it surfaces while a fresh
-   install is fine, but it is a hypothesis, not a measured fact.
+## Dead ends — do not repeat
 
-## REFUTED 2026-09-23: the orphan / empty-string theory is dead
+### `msibuild -i` cannot rewrite the Control table
 
-`dev_tools/msi_rawtable.py` (new) parses the MSI's OLE compound document
-directly — string pool, `_Columns` schema, and the column-major table blobs —
-so it can print the **raw string-pool reference** of every cell. That is the one
-thing `msiinfo export` cannot show: ref 0 is NULL, a non-zero ref pointing at
-`""` is an empty string.
+It **segfaults (exit 139)** on any table with an embedded newline, and does so
+*silently* — the table is left untouched, so a round-trip check reports
+"unchanged, therefore clean". That is a false pass; a no-op and a success look
+identical to any check that only asserts sameness. Importing only the
+newline-free dialogs rewrites the whole table anyway and mangles the
+multi-paragraph text: 12 of 67 verify checks failed.
 
-```bash
-python3 dev_tools/msi_rawtable.py builds/phvalheim-client-2.0.13-x86_64.msi \
-        Control Dialog_=MaintenanceForm
-```
+### wine cannot observe this bug at all
 
-Result on the broken package: **4 NULL (ref=0), 0 empty-string.** The four
-orphans were already NULL. The proposed fix ("make those cells NULL") was a
-no-op against the actual bytes.
+`MigrateFeatureStates` is **InstallUISequence 1200** and `MaintenanceForm` is
+**1201**. Wine dies at 1200 with its own `Error 2726: Action not found:
+MigrateFeatureStates` — one action *before* the dialog is ever created. The
+whole maintenance log is 23 lines and a `/fa` repair logs nothing. A clean wine
+run says nothing here. (`xauth` is missing, so drive `Xvfb :99` directly, not
+`xvfb-run`.)
 
-And the decisive control: **`WelcomeForm` has FIVE NULL `Control_Next` cells and
-renders perfectly during a working install.** `ProgressForm` has eight. A NULL
-next is normal and harmless, exactly as the MSI docs say. Orphan count was never
-the variable.
+## The gate gap that let it ship
 
-## Everything else the static tables can be wrong about — all measured clean
+`test_install_matrix.py` has a full-UI `scenario_wizard` on Xvfb, but it runs
+against a **fresh** prefix, so it renders WelcomeForm — `MaintenanceForm` is
+never rendered by any check. `scenario_repair` and `scenario_uninstall` use
+`/qn`, and silent mode never builds a dialog. The new sequence gate covers the
+specific defect; a maintenance-wizard scenario is still worth adding, and will
+trip over wine's 2726 first.
 
-All on 2.0.13, all reproducible with `msi_rawtable.py`:
+## Parsing notes
 
-| check | result |
-|---|---|
-| `Control_Next` naming a control absent from its dialog | **0** dangling, all 78 controls / 10 dialogs |
-| `Dialog.Control_First` / `Control_Default` / `Control_Cancel` dangling | **0** |
-| Tab cycle walked from `Control_First` closes back to it | **10 / 10 dialogs** |
-| `ControlEvent` / `ControlCondition` / `EventMapping` naming a missing control | **0** |
-| Font tokens `{\PhvFontNormal}` / `{\PhvFontTitle}` defined in `TextStyle` | both defined (2.0.12 actually had 2 *undefined* ones and shipped fine) |
-| `RadioButtonGroup` property has `RadioButton` rows | yes, 2 rows, geometry sane |
-| `MaintenanceForm_Action` has a default in `Property` | `'Repair'`, same as 2.0.12 |
-| `Dialog.Attributes` (Visible/Modal/Minimize) vs 2.0.12 | byte-identical; ProgressForm modeless in both |
-
-Two further hypotheses killed by the same data:
-
-- **Bitmap-in-the-tab-chain.** wixl chains `BannerBmp`, which looked wrong — but
-  `ProgressForm`'s chain also contains `BannerBmp` and ProgressForm renders on
-  every successful install.
-- **RadioButtonGroup is the odd one out.** It is the only control type unique to
-  MaintenanceForm's chain, but its `Property`, `RadioButton` rows, attributes
-  and geometry all match 2.0.12.
-
-**Conclusion: no static defect in the UI tables explains 2814.** Either Windows
-enforces a rule not modelled here, or the failing control is one that exists in
-the table but is not *created* at runtime. Static analysis has been exhausted;
-the next evidence must come from Windows.
-
-## What will actually settle it
-
-Error 2814's message embeds the three things we are missing — the dialog, the
-control, and the name it could not resolve. One verbose log prints them:
-
-```
-msiexec /i phvalheim-client-2.0.13-x86_64.msi /l*v %USERPROFILE%\Desktop\maint.log
-```
-
-Run that on a machine where 2.0.13 is **already installed**, pick Repair or
-Remove, let it fail, then search the log for `2814`. The line reads
-`On the dialog <X> the control <Y> names a nonexistent control <Z>`.
-
-Without it we are guessing; with it the fix is mechanical.
-
-## Dead ends — already paid for, do not repeat
-
-### `msibuild -i` cannot be used to rewrite the Control table
-
-- It **segfaults (exit 139)** on any table containing an embedded newline, and
-  does so *silently*: the table is left untouched. A naive round-trip check
-  reports "unchanged, therefore clean", which is a false pass. Several dialogs
-  here carry multi-paragraph body text with real newlines.
-- Importing only the newline-free dialogs does **not** avoid it. msibuild
-  rewrites the whole table even for a partial `.idt`, and the multi-paragraph
-  text comes back mangled. Measured: **12 of 67 `verify_msi.sh` checks failed**,
-  including `WelcomeText keeps its paragraph breaks` and
-  `BodyText1 keeps its paragraph breaks`, on dialogs the script had skipped.
-
-A post-build table rewrite therefore needs a different tool than msitools, or
-must not touch `Control` at all.
-
-### wine cannot adjudicate this bug
-
-`wine` and `msiexec` ARE in `phvalheim-msi-env` and the maintenance path is
-reachable there, but wine fails earlier with its own error:
-
-```
-DEBUG: Error 2726:  Action not found: MigrateFeatureStates
-```
-
-`MigrateFeatureStates` is a standard action wine does not implement. Re-run
-2026-09-23 and measured precisely this time: `MigrateFeatureStates` is
-**InstallUISequence 1200**, and `MaintenanceForm` is **1201**. Wine dies one
-action *before* the dialog is created — the entire maintenance log is 23 lines,
-and a subsequent `/fa` repair logs nothing at all. Wine therefore cannot observe
-2814 even in principle. A clean wine run says **nothing** about this bug; do not
-read one as confirmation or refutation.
-
-Reproducing the wine run (`xauth` is missing, so drive Xvfb directly):
-
-```bash
-docker run --rm -v "$PWD/builds":/b:ro phvalheim-msi-env:latest bash -c '
-export WINEPREFIX=/tmp/wp WINEDEBUG=-all XDG_RUNTIME_DIR=/tmp/xdg
-mkdir -p /tmp/xdg && chmod 700 /tmp/xdg
-Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 & sleep 3
-export DISPLAY=:99
-wineboot -i >/dev/null 2>&1; wineserver -w
-wine msiexec /i "Z:\\b\\phvalheim-client-2.0.13-x86_64.msi" /qn
-timeout 90 wine msiexec /i "Z:\\b\\phvalheim-client-2.0.13-x86_64.msi" /l*v "C:\\ui.log"
-cat /tmp/wp/drive_c/ui.log'
-```
-
-## The gate gap
-
-`test_install_matrix.py` has a `scenario_wizard` that runs the wizard in FULL
-UI on Xvfb and asserts on pixels, plus `scenario_repair` and
-`scenario_uninstall`. But:
-
-- `scenario_wizard` runs against a **fresh** prefix, so it renders
-  WelcomeForm. `MaintenanceForm` needs an already-installed prefix and is
-  therefore **never rendered by any check**.
-- `scenario_repair` and `scenario_uninstall` use `/qn`. Silent mode never
-  builds a dialog, so no UI-table defect can fail them.
-
-That intersection is exactly where this bug lives, which is why it shipped
-green. **A maintenance-wizard scenario — install, then run full UI on Xvfb and
-screenshot MaintenanceForm — is the gate worth adding**, independent of the
-fix. Note it will currently trip over wine's 2726 first.
-
-## Comparing the two packages
-
-```bash
-docker run --rm -v "$PWD/builds":/b:ro phvalheim-msi-env:latest bash -c '
-for v in 2.0.12 2.0.13; do
-  echo "### $v MaintenanceForm: Control | Type | Attributes | next"
-  msiinfo export /b/phvalheim-client-$v-x86_64.msi Control 2>/dev/null |
-    awk -F"\t" "\$1==\"MaintenanceForm\"{printf \"  %-18s %-18s attr=%-10s next=%s\n\", \$2,\$3,\$8,\$11}"
-done'
-```
-
-**A row is not a line.** `msiinfo export` writes real newlines inside `Text`
-fields, so any parser must reassemble rows by tab count (the `Control` table
-has 12 columns, so a complete row has 11 tabs). Splitting on newlines invents
-fake dialogs named after fragments of body text, and that produced a whole
-round of wrong numbers before it was caught.
+- `msiinfo export` puts **real newlines inside `Text` fields**, so a row is not
+  a line. Reassemble by tab count (`Control` has 12 columns / 11 tabs) or you
+  invent fake dialogs named after fragments of body text.
+- MSI stream names are mangled into U+3800..U+484F. **U+4840 is the
+  table-stream marker and is not in the 64-char alphabet** — strip it or every
+  lookup misses.

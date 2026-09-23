@@ -361,11 +361,30 @@ Click "Close" to exit.</Text>
 
       <!-- ========================== Sequencing ============================ -->
       <!-- Fresh install / reinstall goes Welcome -> Confirm; an existing
-           install goes straight to the repair/remove chooser. -->
+           install goes straight to the repair/remove chooser.
+
+           These sequence numbers are PINNED on purpose. They used to be
+           authored relatively (Before="ProgressForm" / Before="ExecuteAction")
+           and wixl's resolver is NOT stable: from byte-identical authoring it
+           emitted 1201/1202/1203 on one build and 1/2/3 on another. At 1/2/3
+           every dialog runs before CostInitialize (800), FileCost (900),
+           CostFinalize (1000) and MigrateFeatureStates (1200).
+
+           A fresh install survives that, which is why it went unnoticed. The
+           maintenance path does not: MaintenanceForm sets Reinstall / Remove /
+           ReinstallMode, and with costing scheduled AFTER the dialog those
+           properties are applied to a product whose feature states have not
+           been migrated or costed yet. That shipped as the 2.0.13 Repair /
+           Remove failure.
+
+           Absolute numbers keep the dialogs between MigrateFeatureStates
+           (1200) and ExecuteAction (1300) on every build, regardless of how
+           wixl happens to order its resolution that day. verify_msi.sh asserts
+           this window; do not go back to relative scheduling. -->
       <InstallUISequence>
-        <Show Dialog="WelcomeForm"     Before="ProgressForm" Condition="NOT Installed" />
-        <Show Dialog="MaintenanceForm" Before="ProgressForm" Condition="Installed AND NOT RESUME AND NOT Preselected AND NOT PATCH" />
-        <Show Dialog="ProgressForm"    Before="ExecuteAction" />
+        <Show Dialog="MaintenanceForm" Sequence="1201" Condition="Installed AND NOT RESUME AND NOT Preselected AND NOT PATCH" />
+        <Show Dialog="WelcomeForm"     Sequence="1202" Condition="NOT Installed" />
+        <Show Dialog="ProgressForm"    Sequence="1203" />
         <Show Dialog="FinishedForm"    OnExit="success" />
         <Show Dialog="FatalErrorForm"  OnExit="error" />
         <Show Dialog="UserExitForm"    OnExit="cancel" />

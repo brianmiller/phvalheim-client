@@ -394,6 +394,38 @@ else
 	done <<< "$textStyle"
 fi
 
+# Dialog scheduling. wixl's relative-sequence resolver is NOT stable: from
+# byte-identical .wxs it emitted 1201/1202/1203 on one build and 1/2/3 on
+# another. At 1/2/3 every dialog runs before CostInitialize (800), FileCost
+# (900), CostFinalize (1000) and MigrateFeatureStates (1200). A fresh install
+# survives that; the maintenance path does not, because MaintenanceForm sets
+# Reinstall / Remove / ReinstallMode and costing would then run afterwards.
+# That shipped as the 2.0.13 Repair/Remove failure and no check here caught it.
+# The .wxs now pins absolute numbers -- this asserts they survived the build.
+seqOf() {
+	msiexport InstallUISequence | awk -F'\t' -v k="$1" '$1==k {print $3; exit}'
+}
+execSeq=$(seqOf ExecuteAction)
+costSeq=$(seqOf CostFinalize)
+migrSeq=$(seqOf MigrateFeatureStates)
+if [ -z "$execSeq" ] || [ -z "$costSeq" ] || [ -z "$migrSeq" ]; then
+	fail "InstallUISequence has the standard costing actions" \
+	     "CostFinalize, MigrateFeatureStates and ExecuteAction present" \
+	     "CostFinalize='$costSeq' MigrateFeatureStates='$migrSeq' ExecuteAction='$execSeq'"
+else
+	for dlg in MaintenanceForm WelcomeForm ProgressForm; do
+		s=$(seqOf "$dlg")
+		if [ -z "$s" ]; then
+			fail "$dlg is scheduled in InstallUISequence" "a sequence number" "absent"
+		elif [ "$s" -gt "$costSeq" ] && [ "$s" -gt "$migrSeq" ] && [ "$s" -lt "$execSeq" ]; then
+			ok "$dlg is sequenced after costing and before ExecuteAction (seq $s)"
+		else
+			fail "$dlg is sequenced after costing and before ExecuteAction" \
+			     "greater than $costSeq and $migrSeq, less than $execSeq" "seq $s"
+		fi
+	done
+fi
+
 # The banner bitmap is the wizard's visual identity: a white 500x70 banner
 # lifted from the .vdproj. Its absence means the stock maroon side-bitmap
 # dialogs are back.
