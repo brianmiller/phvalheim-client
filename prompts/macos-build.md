@@ -234,26 +234,26 @@ all testing was on Apple Silicon.
 **Lesson:** when a bundle has two binaries, assert on both. A check that covers
 "the main artifact" is not coverage.
 
-### 2.0.13's macOS tarball is a renamed 2.0.12
+### 2.0.13's macOS tarball was a renamed 2.0.12 — FIXED 2026-09-23
 
-When 2.0.13 was promoted to Latest there was no Mac to build on, so 2.0.12's
-macOS assets were copied under 2.0.13 names to stop `macinstall.sh` 404-ing.
-Measured against the **served** asset on 2026-09-23:
+When 2.0.13 was first promoted to Latest there was no Mac to build on, so
+2.0.12's macOS assets were copied under 2.0.13 names to stop `macinstall.sh`
+404-ing. The served asset carried **both** defects — `CFBundleVersion` read
+`2.0.12` (permanent update notice) and the launcher was arm64-thin (no
+`phvalheim://` on Intel).
+
+Rebuilt from CI run `35815621719` and re-uploaded. The served asset now reads:
 
 ```
-$ gh release download 2.0.13 -p '*macos-universal.tar.gz' && tar xzf *.tar.gz
-CFBundleVersion: 2.0.12          # not 2.0.13
-launcher archs:  ['arm64']       # not universal
+CFBundleVersion: 2.0.13
+client archs:    ['x86_64', 'arm64']
+launcher archs:  ['x86_64', 'arm64']
 ```
 
-So the tarball macOS users are installing right now carries **both** defects:
-it reports the wrong version (permanent update notice) and has the arm64-only
-launcher (no `phvalheim://` on Intel).
-
-CI removes the reason this happened. **Rebuild and re-upload the macOS asset for
-2.0.13, or for whatever ships next, and do not repeat the workaround.** Note the
-method: the claim was checked by downloading what the release actually serves,
-not by trusting what was built — do that every time.
+**Never ship a macOS asset you did not build.** CI has removed every reason to.
+And note the method both times: the claim was settled by downloading what the
+release actually *serves*, not by trusting what was built. Do that every time —
+`gh release upload --clobber` succeeding tells you nothing about the bytes.
 
 ### The diags that could not see it
 

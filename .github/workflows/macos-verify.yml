@@ -125,8 +125,13 @@ jobs:
         if: always()
         with:
           name: macos-universal-tarball
-          path: builds/*macos-universal.tar.gz
-          if-no-files-found: warn
+          # Pin the version. `builds/*macos-universal.tar.gz` also matches the
+          # 2.0.12 tarball committed in the repo, so the artifact arrived with
+          # two files in it and whoever downloads it has to pick correctly --
+          # which is exactly the mistake that put a renamed 2.0.12 on the
+          # 2.0.13 release in the first place.
+          path: builds/phvalheim-client-${{ steps.ver.outputs.version }}-macos-universal.tar.gz
+          if-no-files-found: error
 
   # ── Does the Linux-built artifact run on Apple Silicon? ──────────────────────
   # docs/MACOS-BUILD-ON-LINUX.md proved a Linux box can produce a signed
