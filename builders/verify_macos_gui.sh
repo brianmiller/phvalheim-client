@@ -105,7 +105,14 @@ if [ -e "$ARGV_LOG" ]; then
 fi
 ok "Negative control: no argv log before the trigger"
 
-nonce="ciprobe$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 12)"
+# Bash builtins only. `tr -dc 'a-f0-9' </dev/urandom | head -c 12` hung this
+# step for the full 5-minute cap on macos-15: BSD tr buffers its output, so it
+# keeps draining /dev/urandom looking for enough matching bytes to flush, and
+# head never gets its 12 -- while $( ) waits on every process in the pipeline.
+# Uniqueness within one run is all this needs, and the negative control above
+# already guarantees the log is fresh.
+step "generating nonce"
+nonce="ciprobe${RANDOM}${RANDOM}$$"
 URL="phvalheim://activation?$nonce"
 
 # ── Fire it the way a browser would ────────────────────────────────────────────
