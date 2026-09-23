@@ -61,30 +61,71 @@ Both MSIs are in `builds/`, so every claim below is reproducible.
    most obvious reason Repair/Remove is where it surfaces while a fresh
    install is fine, but it is a hypothesis, not a measured fact.
 
-## What argues AGAINST the orphan theory
+## REFUTED 2026-09-23: the orphan / empty-string theory is dead
 
-`builders/verify_msi.sh` already asserts *"every dialog's Control_Next forms a
-single loop from Control_First"* — and that check **passes** on the broken
-package. The loop reachable from `Control_First` is valid and closed; the
-orphans sit outside it, unreferenced. Windows may never look at them.
+`dev_tools/msi_rawtable.py` (new) parses the MSI's OLE compound document
+directly — string pool, `_Columns` schema, and the column-major table blobs —
+so it can print the **raw string-pool reference** of every cell. That is the one
+thing `msiinfo export` cannot show: ref 0 is NULL, a non-zero ref pointing at
+`""` is an empty string.
 
-So the orphans are suspicious but unproven. Treat the theory as open.
+```bash
+python3 dev_tools/msi_rawtable.py builds/phvalheim-client-2.0.13-x86_64.msi \
+        Control Dialog_=MaintenanceForm
+```
 
-## The next thing to try
+Result on the broken package: **4 NULL (ref=0), 0 empty-string.** The four
+orphans were already NULL. The proposed fix ("make those cells NULL") was a
+no-op against the actual bytes.
 
-**Is `Control_Next` NULL, or an empty string?**
+And the decisive control: **`WelcomeForm` has FIVE NULL `Control_Next` cells and
+renders perfectly during a working install.** `ProgressForm` has eight. A NULL
+next is normal and harmless, exactly as the MSI docs say. Orphan count was never
+the variable.
 
-- NULL means "this control is not in the tab order". Legal, common, harmless.
-- An empty string is a lookup for a control *named* `""` — which is precisely
-  "names a nonexistent control" and would explain 2814 exactly.
+## Everything else the static tables can be wrong about — all measured clean
 
-`msiinfo export` renders both as a blank field, so it cannot tell them apart.
-This needs the raw table bytes: read the MSI's OLE compound-document streams
-and look at the `Control` table's string-reference for that column. A nonzero
-string ref pointing at an empty string is very different from a zero ref.
+All on 2.0.13, all reproducible with `msi_rawtable.py`:
 
-If it turns out to be an empty string, the fix is to make those cells NULL,
-and the question becomes how to do that without `msibuild`.
+| check | result |
+|---|---|
+| `Control_Next` naming a control absent from its dialog | **0** dangling, all 78 controls / 10 dialogs |
+| `Dialog.Control_First` / `Control_Default` / `Control_Cancel` dangling | **0** |
+| Tab cycle walked from `Control_First` closes back to it | **10 / 10 dialogs** |
+| `ControlEvent` / `ControlCondition` / `EventMapping` naming a missing control | **0** |
+| Font tokens `{\PhvFontNormal}` / `{\PhvFontTitle}` defined in `TextStyle` | both defined (2.0.12 actually had 2 *undefined* ones and shipped fine) |
+| `RadioButtonGroup` property has `RadioButton` rows | yes, 2 rows, geometry sane |
+| `MaintenanceForm_Action` has a default in `Property` | `'Repair'`, same as 2.0.12 |
+| `Dialog.Attributes` (Visible/Modal/Minimize) vs 2.0.12 | byte-identical; ProgressForm modeless in both |
+
+Two further hypotheses killed by the same data:
+
+- **Bitmap-in-the-tab-chain.** wixl chains `BannerBmp`, which looked wrong — but
+  `ProgressForm`'s chain also contains `BannerBmp` and ProgressForm renders on
+  every successful install.
+- **RadioButtonGroup is the odd one out.** It is the only control type unique to
+  MaintenanceForm's chain, but its `Property`, `RadioButton` rows, attributes
+  and geometry all match 2.0.12.
+
+**Conclusion: no static defect in the UI tables explains 2814.** Either Windows
+enforces a rule not modelled here, or the failing control is one that exists in
+the table but is not *created* at runtime. Static analysis has been exhausted;
+the next evidence must come from Windows.
+
+## What will actually settle it
+
+Error 2814's message embeds the three things we are missing — the dialog, the
+control, and the name it could not resolve. One verbose log prints them:
+
+```
+msiexec /i phvalheim-client-2.0.13-x86_64.msi /l*v %USERPROFILE%\Desktop\maint.log
+```
+
+Run that on a machine where 2.0.13 is **already installed**, pick Repair or
+Remove, let it fail, then search the log for `2814`. The line reads
+`On the dialog <X> the control <Y> names a nonexistent control <Z>`.
+
+Without it we are guessing; with it the fix is mechanical.
 
 ## Dead ends — already paid for, do not repeat
 
@@ -112,10 +153,13 @@ reachable there, but wine fails earlier with its own error:
 DEBUG: Error 2726:  Action not found: MigrateFeatureStates
 ```
 
-`MigrateFeatureStates` is a standard action wine does not implement. It only
-runs on the maintenance path, so wine breaks in the same *place* Brian does,
-with the same user-facing wrapper text, for an unrelated reason. Do not read a
-wine run as confirmation or refutation of 2814.
+`MigrateFeatureStates` is a standard action wine does not implement. Re-run
+2026-09-23 and measured precisely this time: `MigrateFeatureStates` is
+**InstallUISequence 1200**, and `MaintenanceForm` is **1201**. Wine dies one
+action *before* the dialog is created — the entire maintenance log is 23 lines,
+and a subsequent `/fa` repair logs nothing at all. Wine therefore cannot observe
+2814 even in principle. A clean wine run says **nothing** about this bug; do not
+read one as confirmation or refutation.
 
 Reproducing the wine run (`xauth` is missing, so drive Xvfb directly):
 
