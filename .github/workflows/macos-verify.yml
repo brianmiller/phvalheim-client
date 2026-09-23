@@ -49,7 +49,9 @@ jobs:
             echo "A GUI session is what the \`phvalheim://\` handler needs — it forwards the"
             echo "URL to Terminal.app via an Apple Event. Without one, scheme *registration*"
             echo "is still testable but *activation* is not."
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # tee, not plain redirect: a probe whose answer only exists in the
+          # rendered summary cannot be read from `gh run view --log`.
 
   # ── The gate: build natively, install, prove it runs ─────────────────────────
   native:

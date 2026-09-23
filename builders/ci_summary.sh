@@ -10,7 +10,7 @@ set -u
 
 title="${1:?usage: ci_summary.sh <title> <results.tsv>}"
 tsv="${2:?usage: ci_summary.sh <title> <results.tsv>}"
-out="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+out="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 {
 	echo "## $title"
@@ -46,4 +46,4 @@ out="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 			}' "$tsv"
 	done
 	echo
-} >> "$out"
+} | tee -a "$out"
