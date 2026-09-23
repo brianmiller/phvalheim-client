@@ -3,6 +3,18 @@
 Research + live experiments run on 37648-dev1, 2026-09-23. Nothing here is
 theoretical unless it says so — the measured results were produced on that box.
 
+> **CONFIRMED ON REAL HARDWARE 2026-09-23.** `.github/workflows/macos-verify.yml`
+> now builds the client both ways and runs both on a free `macos-15` Apple
+> Silicon runner. The Linux-cross-built, `rcodesign`-signed binary **executes on
+> arm64** (`rc=0`, printed usage) and `codesign --verify --strict` accepts the
+> signature. A Mac is not required to build a working macOS client. The native
+> path passes 15/15 checks.
+>
+> The runner also reports `launchctl managername = Aqua` with WindowServer
+> running and `screencapture` working — so the hosted runner has a real GUI
+> session, and `phvalheim://` *activation* (not just registration) is testable
+> there. That was an open question below; it is now answered.
+
 ## Summary
 
 **Yes, and most of it already works.** Of the four macOS-only steps in
