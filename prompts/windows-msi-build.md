@@ -106,8 +106,9 @@ Building an MSI on Linux runs **no ICE validation**; `light.exe`'s validator is
 Windows-only and wixl has no equivalent. Two scripts are the substitute, and
 **both gate the build**:
 
-- **`builders/verify_msi.sh`** — 67 assertions on what is IN the package
-  (tables, summary info, signature) plus a `wine msiexec /i … /qn` smoke install.
+- **`builders/verify_msi.sh`** — ~68 assertions on what is IN the package
+  (tables, summary info, signature, **dialog sequencing**) plus a
+  `wine msiexec /i … /qn` smoke install.
 - **`builders/test_install_matrix.py`** — what the package DOES once installed.
   Fresh install (files at the exact path and size, nothing extra, the full HKCR
   registration including `REG_EXPAND_SZ`, one ARP entry at the right version);
@@ -168,10 +169,40 @@ the thing it claimed to test.
    exactly made the 2.0.12 control read EMPTY — which looked like agreement with a
    broken build. Match on the part after `|`.
 
+7. **A round-trip test whose tool had SEGFAULTED reported "clean".** Checking
+   whether `msibuild -i` could safely rewrite the `Control` table: export,
+   re-import unchanged, re-export, compare md5. Identical → printed clean. In
+   fact `msibuild` had **segfaulted (exit 139)** and written nothing, so of
+   course the table was unchanged. **A no-op and a success are indistinguishable
+   to any check that only asserts sameness.** Pair an identity test with the
+   exit status, or better, with a deliberately DIFFERENT value that must appear.
+
 Also know: **REG_EXPAND_SZ is stored with a `#%` prefix on the value.** Strip it
 before comparing the command line, and assert the marker separately. As plain
 REG_SZ, Windows hands the literal `%appdata%\…` to CreateProcess and the URL
 handler silently never launches — invisible to every other check.
+
+### Reading the raw tables when `msiinfo` is not enough
+
+`dev_tools/msi_rawtable.py` parses the MSI OLE compound document directly
+(string pool, `_Columns` schema, column-major blobs) and prints each cell's
+**raw string-pool reference**. Needed because `msiinfo export` renders a NULL
+cell and an empty-string cell identically — ref 0 is NULL, a non-zero ref at
+`""` is not. Runs on the host; needs only `python3` + `olefile`.
+
+```bash
+python3 dev_tools/msi_rawtable.py builds/phvalheim-client-2.0.13-x86_64.msi \
+        Control Dialog_=MaintenanceForm
+```
+
+Two traps it encodes, both of which produced wrong numbers first:
+
+- MSI stream names are mangled into U+3800..U+484F, and **U+4840 is the
+  table-stream marker — it is not in the 64-char alphabet.** Strip it or every
+  lookup misses.
+- `msiinfo export` puts **real newlines inside `Text` fields**, so a row is not
+  a line. Reassemble by tab count (`Control` = 12 columns / 11 tabs) or you
+  invent fake dialogs named after fragments of body text.
 
 ## What the gates CANNOT see
 
@@ -206,6 +237,23 @@ screenshot.
 - **Repair.** Reported as SKIP, not PASS: **wine cannot repair any package in
   this image.** The matrix proves that with a control — a 15-byte minimal MSI
   fails `/fa` identically — so a red repair is not read as a defect in ours.
+- **The whole maintenance path, and `MaintenanceForm` in particular.** This is
+  the hole 2814 came through, and it is worth knowing exactly how deep it goes:
+  - `scenario_wizard` renders the full UI on Xvfb, but against a **fresh**
+    prefix, so it draws `WelcomeForm`. **`MaintenanceForm` is not rendered by
+    any check in the repo.**
+  - `scenario_repair` and `scenario_uninstall` use `/qn`, and silent mode never
+    builds a dialog, so no UI-table or UI-sequencing defect can fail them.
+  - Wine cannot close the gap even in principle: it dies at
+    `MigrateFeatureStates` (**InstallUISequence 1200**) with its own
+    `Error 2726: Action not found` — one action *before* `MaintenanceForm`
+    (1201). The entire maintenance log is 23 lines; a `/fa` repair logs nothing.
+    A clean wine run over the maintenance path says **nothing**.
+
+  So the 2814 fix is guarded structurally — `verify_msi.sh` asserts each dialog's
+  sequence sits above `CostFinalize`/`MigrateFeatureStates` and below
+  `ExecuteAction` — not behaviourally. A maintenance-wizard scenario is still
+  unwritten and would trip over wine's 2726 first.
 
 ## wixl behaviours that will cost you a build
 
@@ -216,6 +264,7 @@ Consolidated, because they are not discoverable and none of them are documented.
 | `<UI>` rejected as a child of `<Product>` | `unhandled child Product node UI`. Put it in a `<Fragment>`, pull in with `<UIRef>`. |
 | `<RadioButtonGroup>` must nest **inside** its `<Control>` | `unhandled child UI node RadioButtonGroup` at `<UI>` level. |
 | **`--ext ui` is required even when you author every dialog yourself** | It is what makes wixl create the `Dialog`/`Control`/`ControlEvent` tables. Without it wixl prints `wixl_msi_table_control_add: assertion 'self != NULL' failed` per control, **still exits 0**, and emits an MSI with an empty UI. It also drags in unreferenced stock `WixUI_Bmp_*` binaries and a `CancelDlg`; harmless dead weight. |
+| **Relative sequencing (`Before=` / `After=`) is resolved UNSTABLY** | The single worst trap in this file. From byte-identical `.wxs`, wixl emitted `MaintenanceForm=1201, WelcomeForm=1202, ProgressForm=1203` on one build and **`2, 1, 3`** on the next. At 1/2/3 every dialog runs before `CostInitialize` (800), `FileCost` (900), `CostFinalize` (1000) and `MigrateFeatureStates` (1200), which breaks Repair/Remove — see the 2814 row below. **Always author absolute `Sequence=` numbers on `<Show>`.** wixl honours them. A new `ProductCode` GUID appears to be enough to flip the ordering, so any build can regress it. |
 | `Dialog.Control_First` = first `<Control>` in **document order** | No regard for focusability. Lead a dialog with a `Text` control and Windows throws **MSI 2834** when it opens. Put the default button first. |
 | Only `PushButton`, `Bitmap` and `RadioButtonGroup` are chained into `Control_Next` | `Text`/`Line` are never chained. That is fine — they cannot take focus and 2.0.12 leaves them unlinked too. |
 | `TabSkip` is honoured for chaining but **the attribute bit is never written** | So it cannot be used to exclude a control from MSI's loop rule. Not a fix for 2834. |
@@ -233,13 +282,24 @@ Consolidated, because they are not discoverable and none of them are documented.
 | All body text rendered **blue**, still truncated | Strings had no inline `{\Style}` prefix. **Setting `DefaultUIFont` is not enough — Windows Installer ignores it.** An unstyled string renders blue *and* stops at its first newline | Prefix every string (`6f67518`) |
 | Error 2834 on Cancel | `Control_First` pointed at a `Text` control with no next pointer | Default button first in every dialog (`d7c9598`) |
 | **Upgrade from 2.0.12 left only the `.ico`; the exe vanished** | Publishing the single-file exe on Linux leaves **no Win32 version resource**, so `File.Version` was EMPTY. An unversioned incoming file never overwrites a versioned existing one, so costing marked the exe SKIP while 2.0.12 was still installed — then `RemoveExistingProducts` deleted 2.0.12's copy | `DefaultVersion="$(var.Version).0"` (`5ba43be`) |
+| **Error 2814 on Repair and Remove; install fine** | Dialogs were scheduled relatively, and wixl put them at sequence **1/2/3** — before all costing and before `MigrateFeatureStates`. A fresh install tolerates that; the maintenance path cannot, because `MaintenanceForm` sets `Reinstall`/`Remove`/`ReinstallMode` and costing would then run *after* the dialog that set them | Pin absolute `Sequence=` 1201/1202/1203 + a `verify_msi.sh` gate (`213c962`) |
 
-Two things worth internalising from that list:
+Three things worth internalising from that list:
 
 - **The asymmetry is the clue.** The `.ico` surviving while the exe vanished is what
   identified the file-versioning rule. The heading rendering black while the body
   rendered blue is what identified the missing style prefix. When one of two similar
   things works, diff them before theorising.
+- **Diff the artifacts before you reason about the bug.** 2814 cost two sessions of
+  reasoning forward from the error's documented meaning, and every theory was wrong
+  in the same way: the `Control` and `Dialog` tables were **byte-identical** between
+  the failing and the working package. `builds/*.msi` is tracked in git, so a broken
+  revision is one command away —
+  `git show <sha>:builds/phvalheim-client-X.msi > /tmp/old.msi` — and diffing **all**
+  43 tables found it immediately. Only four differed, and one was `InstallUISequence`.
+  **An MSI error code localises the symptom, not the defect.** 2814 reads "the control
+  names a nonexistent control as the next control", which is pure `Control_Next`
+  language and pointed straight at the one table that was provably innocent.
 - **`RemoveExistingProducts` stays at 1401** (between `InstallValidate` and
   `InstallInitialize`). Moving it after `InstallFiles`, where 2.0.12 had it, would be
   worse: component GUIDs differ between the .vdproj and this package, so removing the
@@ -259,11 +319,25 @@ Two things worth internalising from that list:
    Verify the link before handing it over: fetch it back and confirm the sha256
    matches the local file.
 5. If you cut a GitHub release, **the tag must be bare numeric — `2.0.13`, not
-   `v2.0.13`.** `Version.cs` runs `new Version(releases[0].TagName)` against the
-   newest release; `System.Version` cannot parse a leading `v`, and the throw
-   happens inside an `async void` where nothing can catch it. Every existing tag
-   (`2.0.5` … `2.0.12`) is bare numeric. A pre-release is also picked up as
-   "newest", so it would advertise itself to every client.
+   `v2.0.13`.** `Version.cs` parses tags with `System.Version`, which cannot
+   parse a leading `v`, and the throw happens inside an `async void` where
+   nothing can catch it. Every existing tag (`2.0.5` … `2.0.12`) is bare numeric.
+   Since the issue #14 fix, `Version.cs` filters out drafts and pre-releases and
+   takes the **`Max()`** of what remains, so a pre-release no longer advertises
+   itself to every client — but an unparseable tag still kills the check
+   silently.
+6. Uploading assets: `gh release upload <tag> <files> --clobber`. It prints
+   **nothing** on success, so verify rather than assume. `gh release upload`
+   does **not** change the pre-release flag; check it explicitly if it matters:
+   `gh release view <tag> --json isPrerelease,isDraft,assets`.
+7. **Verify what is SERVED, not what you built.** Download the asset back and
+   compare the hash to the local file, then re-run the structural check on the
+   *downloaded* copy:
+   ```bash
+   gh release download <tag> -p '*.msi' -D /tmp/served --clobber
+   md5sum /tmp/served/*.msi builds/phvalheim-client-<version>-x86_64.msi
+   python3 dev_tools/msi_rawtable.py /tmp/served/*.msi InstallUISequence
+   ```
 
 ### Before you hand a build over
 
@@ -273,15 +347,23 @@ minute or two after a push.
 
 Say plainly which of these you did **not** do — none are automated.
 
-**Last verified by hand:** 2.0.13 (`5ba43be`), 2026-09-11, on Windows 11
-26200 — fresh install and upgrade from a real 2.0.12 both confirmed working,
-wizard rendering correct. Repair and the `phvalheim://` launch were not
-exercised. Update this line when you hand over a build, so the next agent
-knows how stale the only real coverage is.
+**Last verified by hand:** 2.0.13 (`213c962`), 2026-09-23, on real Windows —
+**Repair and Remove from the wizard both confirmed working** (this is the 2814
+fix, and it is the first time the maintenance path has ever been exercised), and
+the phvalheim-server icon renders correctly. The `phvalheim://` launch and the
+upgrade-from-2.0.12 path were **not** re-exercised in this round; the last
+confirmation of those was 2.0.13 (`5ba43be`), 2026-09-11, on Windows 11 26200.
+Update this line when you hand over a build, so the next agent knows how stale
+the only real coverage is.
 
 - [ ] Fresh install on real Windows, walking the whole wizard: Welcome → Confirm →
-      progress → Finish, plus Cancel, plus a repair/remove pass. (**Repair has no
-      automated coverage at all** — wine cannot do it.)
+      progress → Finish, plus Cancel.
+- [ ] **Repair and Remove from the wizard.** Not optional, and not covered by
+      anything: no check in this repo ever renders `MaintenanceForm`, and wine
+      cannot reach it (see "What the gates CANNOT see"). This is where 2814 hid.
+      If it fails, get a verbose log — the message names the dialog, the control
+      and the unresolvable name:
+      `msiexec /i <msi> /l*v %USERPROFILE%\Desktop\maint.log`
 - [ ] **Upgrade over the previous version**, then confirm **both**
       `phvalheim-client.exe` and `phvalheim-client.ico` are in
       `%AppData%\PhValheim\phvalheim-client\`. This is the path with no coverage.
