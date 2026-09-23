@@ -29,6 +29,7 @@ jobs:
   runner-probe:
     name: Probe runner capabilities
     runs-on: macos-15
+    timeout-minutes: 10
     steps:
       - name: Report session and tooling
         run: |
@@ -59,6 +60,7 @@ jobs:
   native:
     name: Native build + install + verify
     runs-on: macos-15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -93,6 +95,10 @@ jobs:
       # Launch Services and follows it to the argv the client receives.
       - name: phvalheim:// activation
         if: always()
+        # Hard cap: this step drives the window server. Run 35813131570 hung
+        # here and had to be cancelled by hand; without a cap the default is 6h.
+        # The script's own waits total well under 2 minutes.
+        timeout-minutes: 5
         run: bash builders/verify_macos_gui.sh "$RUNNER_TEMP/gui.tsv"
 
       - name: Activation report
@@ -129,6 +135,7 @@ jobs:
   cross-build:
     name: Cross-build on Linux
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -167,6 +174,7 @@ jobs:
     name: Run the Linux-built binary on Apple Silicon
     runs-on: macos-15
     needs: cross-build
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

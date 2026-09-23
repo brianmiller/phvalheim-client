@@ -36,6 +36,19 @@ STASH="/tmp/phvalheim-client.real"
 fails=0
 checks=0
 
+# macOS ships no timeout(1). Anything here that touches the window server or
+# Launch Services can block forever on a runner -- there is no one to dismiss a
+# consent dialog -- and an unbounded call took a whole job slot hostage once.
+# perl is always present and its alarm survives exec, so this kills the real
+# process rather than an orphaned wrapper.
+bounded() { # bounded <seconds> <cmd...>
+	perl -e 'alarm shift; exec @ARGV or exit 127' "$@"
+}
+
+# Breadcrumb before every call that could hang, so a future hang is located by
+# reading the log instead of by bisecting the script.
+step() { echo "  ..$1"; }
+
 emit() { [ -n "$RESULTS" ] && printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS"; return 0; }
 ok()   { checks=$((checks+1)); echo "  PASS  $1"; emit PASS "$1" "${2:-}"; }
 warn() { checks=$((checks+1)); echo "  WARN  $1"; echo "        $2"; emit WARN "$1" "$2"; }
@@ -94,22 +107,24 @@ ok "Negative control: no argv log before the trigger"
 
 nonce="ciprobe$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 12)"
 URL="phvalheim://activation?$nonce"
-echo "  ..triggering: $URL"
 
 # ── Fire it the way a browser would ────────────────────────────────────────────
-open "$URL" 2>/dev/null || true
+step "triggering: open $URL"
+bounded 20 open "$URL" 2>/dev/null || echo "  ..open(1) returned non-zero or timed out; continuing to the observations"
+step "open(1) returned"
 
 waitfor() { # waitfor <seconds> <test-command...>
 	local n="$1"; shift
 	local i=0
 	while [ "$i" -lt "$n" ]; do
-		if "$@" >/dev/null 2>&1; then return 0; fi
+		if bounded 5 "$@" >/dev/null 2>&1; then return 0; fi
 		sleep 1; i=$((i+1))
 	done
 	return 1
 }
 
 # ── 1. did the handler app come up? ────────────────────────────────────────────
+step "check 1: waiting for the handler process"
 if waitfor 15 pgrep -f 'PhValheim Client.app/Contents/MacOS'; then
 	ok "Launch Services started the handler app"
 else
@@ -120,8 +135,10 @@ fi
 # ── 2. did the Apple Event arrive with our URL? ────────────────────────────────
 # url-handler.swift only writes this file from inside application(_:open:), so
 # its existence IS the proof that the GetURL event was delivered and parsed.
-launchScriptExists() { ls /tmp/phvalheim-launch-*.sh >/dev/null 2>&1; }
-if waitfor 15 launchScriptExists; then
+step "check 2: waiting for the launch script"
+# External command, not a shell function: waitfor runs its argument through
+# bounded(), which execs, and exec cannot exec a function.
+if waitfor 15 bash -c 'ls /tmp/phvalheim-launch-*.sh'; then
 	script=$(ls -t /tmp/phvalheim-launch-*.sh 2>/dev/null | head -1)
 	ok "GetURL Apple Event delivered to the handler" "wrote $(basename "$script")"
 
@@ -138,6 +155,7 @@ else
 fi
 
 # ── 4. did Terminal actually get opened? ───────────────────────────────────────
+step "check 4: waiting for Terminal.app"
 if waitfor 15 pgrep -x Terminal; then
 	ok "Handler opened Terminal.app"
 else
@@ -145,8 +163,8 @@ else
 fi
 
 # ── 5. the whole chain: did the client receive the URL as argv? ────────────────
-argvHasNonce() { grep -q "$nonce" "$ARGV_LOG" 2>/dev/null; }
-if waitfor 30 argvHasNonce; then
+step "check 5: waiting for argv delivery"
+if waitfor 30 grep -q "$nonce" "$ARGV_LOG"; then
 	ok "Client received the URL as argv" "$(grep -m1 "$nonce" "$ARGV_LOG")"
 else
 	if [ -f "$ARGV_LOG" ]; then
@@ -159,9 +177,17 @@ else
 fi
 
 # ── tidy ───────────────────────────────────────────────────────────────────────
-osascript -e 'tell application "Terminal" to quit' >/dev/null 2>&1 || true
+# Signals, not Apple Events. `osascript -e 'tell application "Terminal" to quit'`
+# needs TCC Automation consent, and with no one to click the dialog it can block
+# forever. Run 35813131570 hung in this step and produced no retrievable log, so
+# the culprit was never pinned down; osascript was the leading suspect and is
+# the one call here that was both unbounded and consent-gated. The breadcrumbs
+# above exist so the next hang does not have to be guessed at.
+step "cleanup"
+pkill -x Terminal 2>/dev/null || true
 pkill -f 'PhValheim Client.app/Contents/MacOS' 2>/dev/null || true
 rm -f "$ARGV_LOG" /tmp/phvalheim-launch-*.sh
+step "cleanup done"
 
 echo
 echo "=== $((checks - fails))/$checks activation checks passed ==="
