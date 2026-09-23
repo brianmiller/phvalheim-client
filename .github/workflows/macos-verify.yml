@@ -15,6 +15,8 @@ on:
       - 'builders/build_macos-innie'
       - 'builders/url-handler.swift'
       - 'builders/verify_macos.sh'
+      - 'builders/verify_macos_gui.sh'
+      - 'builders/ci_summary.sh'
       - 'macinstall.sh'
       - '.github/workflows/macos-verify.yml'
   pull_request:
@@ -86,6 +88,16 @@ jobs:
       - name: Functionality report
         if: always()
         run: bash builders/ci_summary.sh "Native build — \`${{ steps.ver.outputs.version }}\` on Apple Silicon" "$RUNNER_TEMP/results.tsv"
+
+      # Registration is not delivery. This drives a real phvalheim:// URL through
+      # Launch Services and follows it to the argv the client receives.
+      - name: phvalheim:// activation
+        if: always()
+        run: bash builders/verify_macos_gui.sh "$RUNNER_TEMP/gui.tsv"
+
+      - name: Activation report
+        if: always()
+        run: bash builders/ci_summary.sh "phvalheim:// activation — the full chain" "$RUNNER_TEMP/gui.tsv"
 
       # The installer's own diags are a separate voice: if they disagree with
       # verify_macos.sh, one of the two is lying and that is worth seeing.
