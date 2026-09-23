@@ -1,0 +1,199 @@
+name: macOS build + verify
+
+# Apple Silicon runners are free and unlimited on public repos, which makes this
+# the only place we can answer the question no Linux check can: does macOS agree
+# to RUN what we shipped? An unsigned or wrongly-signed arm64 Mach-O is SIGKILLed
+# by AMFI at exec and looks perfectly healthy to every static check.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '**.cs'
+      - 'phvalheim-client.csproj'
+      - 'builders/build_macos-innie'
+      - 'builders/url-handler.swift'
+      - 'builders/verify_macos.sh'
+      - 'macinstall.sh'
+      - '.github/workflows/macos-verify.yml'
+  pull_request:
+
+jobs:
+  # ── What can this runner actually observe? ───────────────────────────────────
+  # Reports whether there is a GUI (Aqua) session. Never fails: it exists to
+  # replace a guess with a measurement, not to gate anything. Whether the
+  # phvalheim:// handler can be exercised end-to-end depends on the answer.
+  runner-probe:
+    name: Probe runner capabilities
+    runs-on: macos-15
+    steps:
+      - name: Report session and tooling
+        run: |
+          {
+            echo "## ℹ️ Runner capabilities"
+            echo
+            echo "| Property | Value |"
+            echo "|---|---|"
+            echo "| Hardware | \`$(uname -m)\` |"
+            echo "| macOS | $(sw_vers -productVersion) ($(sw_vers -buildVersion)) |"
+            echo "| CPUs / RAM | $(sysctl -n hw.ncpu) / $(( $(sysctl -n hw.memsize) / 1073741824 )) GB |"
+            echo "| launchd session type | \`$(launchctl managername 2>/dev/null || echo unknown)\` |"
+            echo "| Console owner | \`$(stat -f%Su /dev/console 2>/dev/null || echo unknown)\` |"
+            echo "| WindowServer running | $(pgrep -x WindowServer >/dev/null && echo 'yes' || echo 'no') |"
+            echo "| Can screencapture | $(screencapture -x /tmp/p.png 2>/dev/null && echo 'yes' || echo 'no') |"
+            echo "| Terminal.app present | $([ -d /System/Applications/Utilities/Terminal.app ] && echo 'yes' || echo 'no') |"
+            echo "| swiftc | $(swiftc --version 2>/dev/null | head -1) |"
+            echo "| Passwordless sudo | $(sudo -n true 2>/dev/null && echo 'yes' || echo 'no') |"
+            echo
+            echo "A GUI session is what the \`phvalheim://\` handler needs — it forwards the"
+            echo "URL to Terminal.app via an Apple Event. Without one, scheme *registration*"
+            echo "is still testable but *activation* is not."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── The gate: build natively, install, prove it runs ─────────────────────────
+  native:
+    name: Native build + install + verify
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Read version
+        id: ver
+        run: |
+          v=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' phvalheim-client.csproj | head -1)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Building $v"
+
+      - name: Build the macOS tarball
+        run: bash builders/build_macos-innie
+
+      - name: Install via the shipped installer
+        env:
+          PHVALHEIM_TARBALL: builds/phvalheim-client-${{ steps.ver.outputs.version }}-macos-universal.tar.gz
+        run: bash macinstall.sh install
+
+      - name: Verify
+        id: verify
+        run: bash builders/verify_macos.sh "${{ steps.ver.outputs.version }}" "$RUNNER_TEMP/results.tsv"
+
+      - name: Functionality report
+        if: always()
+        run: bash builders/ci_summary.sh "Native build — \`${{ steps.ver.outputs.version }}\` on Apple Silicon" "$RUNNER_TEMP/results.tsv"
+
+      # The installer's own diags are a separate voice: if they disagree with
+      # verify_macos.sh, one of the two is lying and that is worth seeing.
+      - name: Installer diags
+        if: always()
+        run: bash macinstall.sh diags || true
+
+      - name: Uninstall cleanly
+        if: always()
+        run: |
+          bash macinstall.sh uninstall
+          rc=0
+          [ -e /usr/local/bin/phvalheim-client ] && { echo "FAIL: binary survived uninstall"; rc=1; }
+          [ -e "/Applications/PhValheim Client.app" ] && { echo "FAIL: app survived uninstall"; rc=1; }
+          [ $rc -eq 0 ] && echo "✅ Uninstall removed both artifacts" >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-universal-tarball
+          path: builds/*macos-universal.tar.gz
+          if-no-files-found: warn
+
+  # ── Does the Linux-built artifact run on Apple Silicon? ──────────────────────
+  # docs/MACOS-BUILD-ON-LINUX.md proved a Linux box can produce a signed
+  # universal binary that is structurally identical to a Mac-built one. Only a
+  # real Mac can tell us whether "structurally identical" means "runs".
+  cross-build:
+    name: Cross-build on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish both slices
+        run: |
+          for rid in osx-x64 osx-arm64; do
+            dotnet publish -c macOS-Release -r $rid \
+              -p:PublishSingleFile=true --self-contained true /p:PublishTrimmed=false \
+              ./phvalheim-client.csproj
+          done
+
+      - name: Fuse and ad-hoc sign with rcodesign
+        run: |
+          gh release download apple-codesign/0.29.0 --repo indygreg/apple-platform-rs \
+            --pattern '*x86_64-unknown-linux-musl*.tar.gz' --dir /tmp
+          tar -xzf /tmp/*x86_64-unknown-linux-musl.tar.gz -C /tmp
+          rc=$(find /tmp -name rcodesign -type f | head -1)
+          mkdir -p out
+          "$rc" macho-universal-create -o out/phvalheim-client \
+            bin/macOS-Release/net9.0/osx-x64/publish/phvalheim-client \
+            bin/macOS-Release/net9.0/osx-arm64/publish/phvalheim-client
+          "$rc" sign out/phvalheim-client
+          chmod 755 out/phvalheim-client
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-crossbuilt-binary
+          path: out/phvalheim-client
+
+  cross-verify:
+    name: Run the Linux-built binary on Apple Silicon
+    runs-on: macos-15
+    needs: cross-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-crossbuilt-binary
+          path: out
+
+      - name: Smoke the cross-built binary
+        run: |
+          chmod 755 out/phvalheim-client
+          R="$RUNNER_TEMP/cross.tsv"; : > "$R"
+          row() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$R"; }
+
+          archs=$(lipo -archs out/phvalheim-client 2>/dev/null || echo none)
+          case "$archs" in
+            *x86_64*arm64*|*arm64*x86_64*) row PASS "Universal binary" "$archs" ;;
+            *) row FAIL "Universal binary" "got: $archs" ;;
+          esac
+
+          if codesign --verify --strict out/phvalheim-client 2>/dev/null; then
+            row PASS "Apple accepts the rcodesign signature" "codesign --verify --strict"
+          else
+            row FAIL "Apple accepts the rcodesign signature" "$(codesign --verify --strict out/phvalheim-client 2>&1 | head -1)"
+          fi
+
+          # The whole question, in one line.
+          set +e
+          o=$(./out/phvalheim-client 2>&1); rc=$?
+          set -e
+          case "$o" in
+            *"No arguments passed"*) row PASS "Linux-built binary EXECUTES on $(uname -m)" "rc=$rc, printed usage" ;;
+            *) if [ "$rc" -ge 128 ]; then
+                 row FAIL "Linux-built binary EXECUTES on $(uname -m)" "killed by signal $((rc-128)) — AMFI rejected it"
+               else
+                 row FAIL "Linux-built binary EXECUTES on $(uname -m)" "rc=$rc: $(echo "$o" | head -1)"
+               fi ;;
+          esac
+
+          cat "$R"
+          if awk -F'\t' '$1=="FAIL"' "$R" | grep -q .; then exit 1; fi
+
+      - name: Cross-build report
+        if: always()
+        run: bash builders/ci_summary.sh "Linux cross-build, executed on Apple Silicon" "$RUNNER_TEMP/cross.tsv"

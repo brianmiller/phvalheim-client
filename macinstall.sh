@@ -28,6 +28,24 @@ do_install() {
     echo "=== PhValheim Client - macOS Installer ==="
     echo
 
+    # CI / local-testing hook: install a tarball already on disk instead of the
+    # latest published release. Everything from the extract onward is the same
+    # code the real installer runs, so a test exercises the SHIPPED path rather
+    # than a CI-only reimplementation that can drift away from it.
+    if [ -n "${PHVALHEIM_TARBALL:-}" ]; then
+        if [ ! -f "$PHVALHEIM_TARBALL" ]; then
+            echo "ERROR: PHVALHEIM_TARBALL is set but not a file: $PHVALHEIM_TARBALL"
+            exit 1
+        fi
+        VERSION="local"
+        TMPDIR=$(mktemp -d)
+        trap "rm -rf '$TMPDIR'" EXIT
+        echo "Installing local tarball: $PHVALHEIM_TARBALL"
+        tar xzf "$PHVALHEIM_TARBALL" -C "$TMPDIR"
+        do_install_from "$TMPDIR" "$VERSION"
+        return
+    fi
+
     # fetch latest release version from GitHub API
     echo "Fetching latest release info..."
     RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases/latest")
@@ -53,17 +71,25 @@ do_install() {
     echo "Extracting..."
     tar xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
 
+    do_install_from "$TMPDIR" "$VERSION"
+}
+
+# Place an already-extracted tree. Shared by the release path and the
+# PHVALHEIM_TARBALL path so both install identically.
+do_install_from() {
+    local src="$1" version="$2"
+
     # install binary
     echo "Installing binary..."
     sudo mkdir -p /usr/local/bin
-    sudo cp "$TMPDIR/phvalheim-client" "$INSTALL_BIN"
+    sudo cp "$src/phvalheim-client" "$INSTALL_BIN"
     sudo chmod 755 "$INSTALL_BIN"
     sudo xattr -rd com.apple.quarantine "$INSTALL_BIN" 2>/dev/null || true
 
     # install .app bundle
     echo "Installing URL handler app..."
     sudo rm -rf "$INSTALL_APP"
-    sudo cp -r "$TMPDIR/PhValheim Client.app" "$INSTALL_APP"
+    sudo cp -r "$src/PhValheim Client.app" "$INSTALL_APP"
     sudo xattr -rd com.apple.quarantine "$INSTALL_APP" 2>/dev/null || true
 
     # register phvalheim:// URL scheme
@@ -71,7 +97,7 @@ do_install() {
     "$LSREGISTER" -f "$INSTALL_APP"
 
     echo
-    echo "Done. PhValheim Client $VERSION installed."
+    echo "Done. PhValheim Client $version installed."
     echo "  Binary:      $INSTALL_BIN"
     echo "  URL handler: $INSTALL_APP"
     echo
