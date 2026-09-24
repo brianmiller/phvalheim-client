@@ -134,6 +134,22 @@ $Uninstaller = Join-Path $InstallDir 'uninstall.ps1'
 $ClassesKey = 'Software\Classes\phvalheim'
 $ArpKey     = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\PhValheimClient'
 
+# Print which copy of this script is actually running.
+#
+# raw.githubusercontent.com is CDN-cached. Re-downloading right after a push
+# can hand back the PREVIOUS version, and the run then looks like the fix
+# failed when the fix never executed. That happened: a 1603 was reported twice
+# against a build that did not contain the change, and only the line number in
+# the stack trace gave it away. A fingerprint on every run makes it obvious.
+function Write-ScriptIdentity {
+    $id = 'unknown (piped from the network -- no file to hash)'
+    if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+        $h = (Get-FileHash -Path $PSCommandPath -Algorithm SHA256).Hash
+        $id = "$($h.Substring(0,12).ToLower())  ($PSCommandPath)"
+    }
+    Write-Host "  script: $id"
+}
+
 function Write-Ok   { param([string] $m) Write-Host "  [OK]  $m" }
 function Write-Warn { param([string] $m) Write-Host "  [!!]  $m" -ForegroundColor Yellow }
 function Write-Fail { param([string] $m) Write-Host "  [XX]  $m" -ForegroundColor Red }
@@ -478,6 +494,7 @@ Write-Host ''
 function Invoke-Install {
     Write-Host ''
     Write-Host "=== $ProductName - Windows Installer ==="
+    Write-ScriptIdentity
     Write-Host ''
 
     # Detected now, acted on later. Removing the MSI is the only destructive
@@ -540,6 +557,7 @@ function Invoke-Install {
 function Invoke-Uninstall {
     Write-Host ''
     Write-Host "=== $ProductName - Uninstall ==="
+    Write-ScriptIdentity
     Write-Host ''
 
     $proc = Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue
@@ -583,6 +601,7 @@ function Invoke-Uninstall {
 function Invoke-Diags {
     Write-Host ''
     Write-Host "=== $ProductName - Diagnostics ==="
+    Write-ScriptIdentity
     Write-Host ''
 
     Write-Host '-- Payload --'
