@@ -2,9 +2,20 @@
 
 `winstall.ps1` — a per-user Windows install, the counterpart to `macinstall.sh`.
 
-**Status: UNTESTED on real Windows.** The static gate passes; nobody has run it
-on a Windows machine yet. Do not put the one-liner in front of users until the
-manual plan at the bottom of this file has been worked through.
+## Status
+
+**The `.msi` remains the shipping method.** Brian's call on 2026-09-24, after the
+script was confirmed working. This script stays in the repo as a verified
+alternative; phvalheim.com is untouched and the one-liner is not offered to
+users. Do not assume Windows users install this way — they do not.
+
+**Install path: CONFIRMED on real Windows**, 2026-09-24. Download, extract and
+install complete successfully.
+
+**Still unverified** — steps 4–13 of the manual plan below: `diags`,
+`phvalheim://` activation, the ARP entry, uninstall, the MSI migration and its
+`-WhatIf` and declined-UAC cases. Work those through before this is offered to
+anyone.
 
 ## Why it exists
 
