@@ -281,6 +281,25 @@ function Expand-MsiPayload {
 
     Write-Host 'Extracting...'
 
+    # TARGETDIR must NOT be the folder holding the .msi. An administrative
+    # install copies the package into TARGETDIR during InstallFinalize, so if
+    # the two coincide Windows Installer copies the file onto itself and the
+    # open database handle dies:
+    #
+    #   Error 2203: Cannot open database file. System error -2147287008
+    #   Action ended: InstallFinalize. Return value 3.          -> exit 1603
+    #
+    # Shipped that way once. It is invisible to a wine repro unless the repro
+    # also puts the source and the target in one directory, which is exactly
+    # the mistake being made.
+    $msiDir = [IO.Path]::GetFullPath((Split-Path -Parent $MsiPath))
+    $destFull = [IO.Path]::GetFullPath($Destination)
+    if ($msiDir.TrimEnd('\') -ieq $destFull.TrimEnd('\')) {
+        throw ("Refusing to extract into the folder holding the package " +
+               "($destFull). An administrative install writes the .msi there and would collide with it.")
+    }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+
     # The log lives OUTSIDE $Destination on purpose. $Destination is the temp
     # directory the caller deletes in its finally block, so a log written there
     # is destroyed by the very failure it documents.
@@ -492,7 +511,10 @@ function Invoke-Install {
             Invoke-WebRequest -Uri $url -OutFile $msiPath -UseBasicParsing
         }
 
-        $payloadDir = Expand-MsiPayload -MsiPath $msiPath -Destination $tmp
+        # A subdirectory, NOT $tmp. $tmp holds the downloaded .msi, and an
+        # administrative install writes a copy of the package into TARGETDIR --
+        # onto itself if they are the same folder. See Expand-MsiPayload.
+        $payloadDir = Expand-MsiPayload -MsiPath $msiPath -Destination (Join-Path $tmp 'extract')
 
         # The payload is on disk and verified to contain the exe. Only now is
         # it safe to take the old install out. Both write the same directory,

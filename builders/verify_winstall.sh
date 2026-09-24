@@ -216,6 +216,72 @@ else
 fi
 
 echo
+echo "-- Administrative-install extraction --"
+
+# An administrative install copies the .msi into TARGETDIR during
+# InstallFinalize. Point TARGETDIR at the folder already holding the package
+# and Windows Installer copies it onto itself:
+#   Error 2203: Cannot open database file. System error -2147287008 -> 1603
+# That shipped. The call site must pass a subdirectory.
+if grep -q "Expand-MsiPayload -MsiPath \$msiPath -Destination (Join-Path \$tmp" "$script"; then
+	ok "extraction target is a subdirectory of the download folder"
+elif grep -q 'Expand-MsiPayload -MsiPath \$msiPath -Destination \$tmp *$' "$script"; then
+	bad "extraction target" \
+	    "a subdirectory of \$tmp" \
+	    "\$tmp itself -- the admin install writes the .msi there and collides with the source"
+else
+	bad "extraction target" "Expand-MsiPayload called with a Join-Path destination" "call site not recognised"
+fi
+
+if grep -q 'Refusing to extract into the folder holding the package' "$script"; then
+	ok "runtime guard rejects a same-folder TARGETDIR"
+else
+	bad "same-folder guard" "a runtime check in Expand-MsiPayload" "not found"
+fi
+
+# Behavioural, not static: actually run both layouts through msiexec and check
+# that one extracts the exe and the other does not. Wine's msiexec is a
+# reimplementation and is NOT an oracle for whether the install is correct on
+# Windows -- but it does discriminate between these two layouts, which is the
+# single fact being asserted. Skipped when no built .msi is around.
+builtMsi=$(ls -1 "$gitRoot"/builds/phvalheim-client-*-x86_64.msi 2>/dev/null | tail -1)
+if [ -z "$builtMsi" ]; then
+	echo "  [!!]  no .msi in builds/ -- skipping the live extraction test"
+elif ! docker image inspect phvalheim-msi-env >/dev/null 2>&1; then
+	echo "  [!!]  phvalheim-msi-env image absent -- skipping the live extraction test"
+else
+	rel=${builtMsi#"$gitRoot"/}
+	res=$(docker run --rm -v "$gitRoot":/g:ro -e WINEDEBUG=-all phvalheim-msi-env sh -c '
+		export WINEPREFIX=/tmp/wp HOME=/tmp
+		wineboot -i >/dev/null 2>&1
+		mkdir -p /tmp/same /tmp/sep/extract
+		cp "/g/'"$rel"'" /tmp/same/p.msi
+		cp "/g/'"$rel"'" /tmp/sep/p.msi
+		wine msiexec /a "Z:\\tmp\\same\\p.msi" /qn TARGETDIR="Z:\\tmp\\same" >/dev/null 2>&1
+		wine msiexec /a "Z:\\tmp\\sep\\p.msi" /qn TARGETDIR="Z:\\tmp\\sep\\extract" >/dev/null 2>&1
+		echo "same=$(find /tmp/same -name phvalheim-client.exe 2>/dev/null | wc -l)"
+		echo "sep=$(find /tmp/sep/extract -name phvalheim-client.exe 2>/dev/null | wc -l)"
+	' 2>/dev/null)
+	same=$(echo "$res" | sed -n 's/^same=//p')
+	sep=$(echo "$res" | sed -n 's/^sep=//p')
+
+	if [ "$sep" = "1" ]; then
+		ok "separate-subdirectory extraction yields the exe"
+	else
+		bad "separate-subdirectory extraction" "phvalheim-client.exe extracted" "got $sep file(s)"
+	fi
+	# The negative control. If BOTH layouts worked, the check above would pass
+	# no matter which one the script used, and would prove nothing.
+	if [ "$same" = "0" ]; then
+		ok "same-folder extraction fails, as the shipped bug did"
+	else
+		bad "same-folder negative control" \
+		    "the broken layout to fail" \
+		    "it extracted $same file(s) -- this harness cannot tell the layouts apart"
+	fi
+fi
+
+echo
 echo "=== $pass passed, $fail failed ==="
 echo
 [ "$fail" -eq 0 ] || exit 1
