@@ -166,6 +166,56 @@ else
 fi
 
 echo
+echo "-- MSI-to-script migration --"
+
+# Ordering is the whole correctness argument for migration and it is invisible
+# to any parser: both installs own the same directory, so the MSI's uninstall
+# must run BEFORE the payload is placed, or it deletes what was just written --
+# and every step still reports success. Assert the order by line number.
+lnRemove=$(grep -n 'Remove-MsiInstall -Existing' "$script" | head -1 | cut -d: -f1)
+lnInstall=$(grep -n 'Install-FromTree -SourceDir' "$script" | head -1 | cut -d: -f1)
+lnExpand=$(grep -n 'Expand-MsiPayload -MsiPath' "$script" | head -1 | cut -d: -f1)
+
+if [ -z "$lnRemove" ]; then
+	bad "migration removes the MSI" "a Remove-MsiInstall call in the install path" "not found"
+elif [ -z "$lnInstall" ] || [ -z "$lnExpand" ]; then
+	bad "migration ordering" "Expand-MsiPayload and Install-FromTree calls" "not found"
+else
+	if [ "$lnRemove" -lt "$lnInstall" ]; then
+		ok "MSI removal precedes Install-FromTree (line $lnRemove < $lnInstall)"
+	else
+		bad "MSI removal ordering" \
+		    "Remove-MsiInstall before Install-FromTree" \
+		    "removal at line $lnRemove, install at line $lnInstall -- the uninstall would delete the new payload"
+	fi
+
+	# The other half: the removal must come AFTER the payload exists, so a
+	# failed download cannot leave the user with neither install.
+	if [ "$lnRemove" -gt "$lnExpand" ]; then
+		ok "MSI removal follows payload extraction (line $lnExpand < $lnRemove)"
+	else
+		bad "MSI removal ordering" \
+		    "Remove-MsiInstall after Expand-MsiPayload" \
+		    "removal at line $lnRemove, extract at line $lnExpand -- a failed download would leave nothing installed"
+	fi
+fi
+
+# msiexec reporting success and msiexec having done nothing are indistinguishable
+# from the exit code, and installing on top of a surviving MSI is the exact
+# broken state migration exists to avoid.
+if grep -q 'still = Get-MsiInstall' "$script"; then
+	ok "removal is re-checked rather than trusted to the exit code"
+else
+	bad "removal verification" "a Get-MsiInstall re-check after msiexec /x" "not found"
+fi
+
+if grep -q "'/x'" "$script" && grep -q 'Verb RunAs' "$script"; then
+	ok "uninstall runs msiexec /x elevated"
+else
+	bad "elevated uninstall" "msiexec /x via -Verb RunAs" "not found"
+fi
+
+echo
 echo "=== $pass passed, $fail failed ==="
 echo
 [ "$fail" -eq 0 ] || exit 1

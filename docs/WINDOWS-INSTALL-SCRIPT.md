@@ -74,11 +74,41 @@ per-machine:
 `builders/verify_winstall.sh` asserts the first three still agree. They are a
 contract with installs already on users' machines, not free choices.
 
+### Migrating off the MSI
+
 **The two cannot coexist.** Both write the same directory, but the MSI still
 owns those files as far as Windows Installer is concerned — repairing it
 overwrites the script's copy, uninstalling it deletes them and leaves the
-script's registry entries pointing at nothing. The script detects an MSI install
-and refuses unless `-Force`.
+script's registry entries pointing at nothing.
+
+So an MSI install is **migrated, not coexisted with**: detected, removed, then
+replaced. Two orderings are load-bearing and both are asserted by
+`verify_winstall.sh`, because getting either wrong still reports success the
+whole way through:
+
+- The removal must happen **before** the payload is placed. The MSI's uninstall
+  deletes files in that directory, so the other order removes the install that
+  was just made.
+- The removal must happen **after** the payload is downloaded and extracted. A
+  failed download would otherwise leave the user with neither install — worse
+  off than the working MSI they started with.
+
+Removal runs `msiexec /x <ProductCode> /qn` elevated. **This is the one step
+that needs administrator rights**, because the package is `InstallScope
+perMachine`. It happens once, on migration only; afterwards updates and removal
+need no elevation. The UAC prompt comes from Microsoft-signed `msiexec.exe`, so
+it is the ordinary Windows Installer dialog rather than the "Unknown Publisher"
+one the `.msi` itself raises.
+
+The exit code is not trusted on its own — a silent uninstall that did nothing
+and one that worked are indistinguishable from it, so the script re-queries the
+registry and aborts if the MSI is still registered.
+
+User data lives in the **parent** folder, `%APPDATA%\PhValheim`, and is untouched
+by both the MSI uninstall and this script.
+
+`-SkipMsiRemoval` leaves the MSI in place. That produces the broken coexistence
+state on purpose and exists to test it; it is not a supported way to install.
 
 ## Usage
 
@@ -154,9 +184,21 @@ Needs a real Windows box with Steam and Valheim. Work top to bottom.
    something.
 9. **Upgrade.** Install, then install again over the top. Should succeed and
    leave one ARP row, not two.
-10. **Conflict.** With the MSI installed, run the script. It must refuse and say
-    why, not silently overwrite.
-11. **Locked file.** Launch the client, leave it running, re-run install. It
+10. **Migration — the big one.** Install the 2.0.13 `.msi` normally, confirm it
+    works and that `phvalheim://` opens it. Then run the script. It should:
+    - report the detected MSI version before doing anything,
+    - raise exactly one UAC prompt, from Windows Installer,
+    - remove the MSI (gone from Settings → Apps),
+    - install the scripted copy and say it migrated,
+    - leave `phvalheim://` working afterwards — **test the link again**, this is
+      where a botched handover shows up,
+    - leave any existing `%APPDATA%\PhValheim` config intact.
+11. **Migration, rehearsed.** Run with `-WhatIf` against an MSI install first and
+    confirm it reports what it would remove without removing it.
+12. **Migration, declined.** Run the migration and click **No** on the UAC
+    prompt. The MSI must still be installed and working, and the script must say
+    clearly that nothing changed.
+13. **Locked file.** Launch the client, leave it running, re-run install. It
     should name the running process, not emit an opaque sharing violation.
 
 Record results here when done, including anything that failed.

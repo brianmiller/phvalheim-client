@@ -26,6 +26,13 @@
     Installing per-user under %APPDATA% and HKCU also means NO elevation, which
     removes the UAC "Unknown Publisher" prompt as well.
 
+    MIGRATION: an existing .msi install is REMOVED and replaced, not installed
+    alongside. Both use the same folder and Windows Installer keeps ownership of
+    those files, so coexistence is not a stable state. The removal is the one
+    step that needs administrator rights, it happens once, and the UAC prompt
+    comes from Microsoft-signed msiexec.exe rather than from our unsigned
+    package. After that, updates and removal need no elevation at all.
+
     This does NOT help with antivirus heuristics (see issue #7) and does NOT
     help on machines with Smart App Control enabled -- SAC checks every
     executable regardless of MOTW. Signing is still the answer to both; this
@@ -44,8 +51,10 @@
     after the extract is the code the real installer runs, so a test exercises
     the shipped path rather than a test-only reimplementation that can drift.
 
-.PARAMETER Force
-    Proceed even when an MSI-managed install is detected.
+.PARAMETER SkipMsiRemoval
+    Do not remove a detected MSI install before installing. Leaves two installs
+    claiming the same folder, which is not a state to ship anyone -- this exists
+    for testing the conflict, not for use.
 
 .EXAMPLE
     # From a file
@@ -67,7 +76,7 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
     Justification = 'Interactive installer; its console output is the product, not pipeline data.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'Msi and Force are read by Invoke-Install via script scope, which PSSA does not track.')]
+    Justification = 'Msi and SkipMsiRemoval are read by Invoke-Install via script scope, which PSSA does not track.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification = 'Invoke-Diags mirrors the diags subcommand name, which matches macinstall.sh.')]
 [CmdletBinding()]
@@ -77,7 +86,7 @@ param(
 
     [string] $Version,
     [string] $Msi,
-    [switch] $Force
+    [switch] $SkipMsiRemoval
 )
 
 Set-StrictMode -Version Latest
@@ -129,12 +138,13 @@ function Write-Ok   { param([string] $m) Write-Host "  [OK]  $m" }
 function Write-Warn { param([string] $m) Write-Host "  [!!]  $m" -ForegroundColor Yellow }
 function Write-Fail { param([string] $m) Write-Host "  [XX]  $m" -ForegroundColor Red }
 
-# -- MSI-install detection ----------------------------------------------------
-# The .msi installs to the SAME %APPDATA% directory this script writes to. If
-# both are present, the MSI still owns those files as far as Windows Installer
-# is concerned: repairing it overwrites ours, and uninstalling it deletes ours,
-# leaving registry entries pointing at a binary that no longer exists. Refuse
-# rather than produce that state.
+# -- MSI-install detection and migration --------------------------------------
+# The .msi installs to the SAME %APPDATA% directory this script writes to, and
+# Windows Installer still considers those files its own. Leaving both in place
+# is not a stable state: repairing the MSI overwrites the script's payload, and
+# uninstalling it deletes the payload while leaving the script's registry
+# entries pointing at a binary that is gone. So an MSI install is migrated --
+# removed first, then replaced -- rather than installed alongside.
 function Get-MsiInstall {
     $roots = @(
         'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -150,15 +160,103 @@ function Get-MsiInstall {
             if ($null -eq $props) { continue }
             if (($props.PSObject.Properties.Name -contains 'DisplayName') -and
                 ($props.DisplayName -eq $ProductName)) {
+
+                $names = $props.PSObject.Properties.Name
+                $uninstallString = if ($names -contains 'UninstallString') { $props.UninstallString } else { '' }
+
+                # For a Windows Installer package the ARP subkey name IS the
+                # ProductCode. Fall back to digging the GUID out of the
+                # UninstallString for anything that does not follow that rule.
+                $productCode = $null
+                if ($sub.PSChildName -match '^\{[0-9A-Fa-f-]{36}\}$') {
+                    $productCode = $sub.PSChildName
+                } elseif ($uninstallString -match '(\{[0-9A-Fa-f-]{36}\})') {
+                    $productCode = $Matches[1]
+                }
+
                 return [pscustomobject]@{
-                    Key     = $sub.PSChildName
-                    Version = if ($props.PSObject.Properties.Name -contains 'DisplayVersion') {
-                                  $props.DisplayVersion } else { 'unknown' }
+                    Key             = $sub.PSChildName
+                    ProductCode     = $productCode
+                    UninstallString = $uninstallString
+                    Version         = if ($names -contains 'DisplayVersion') { $props.DisplayVersion } else { 'unknown' }
                 }
             }
         }
     }
     return $null
+}
+
+# Remove an MSI-managed install so the scripted one can take its place.
+#
+# This is the one step that needs elevation: the package is InstallScope
+# perMachine, so msiexec has to run as administrator and Windows shows a UAC
+# prompt. That prompt comes from msiexec.exe, a Microsoft-signed binary, so it
+# is the ordinary blue "Windows Installer" dialog and not the yellow "Unknown
+# Publisher" one the .msi itself produces. It happens once, on migration only.
+function Remove-MsiInstall {
+    # SupportsShouldProcess because this uninstalls software off the user's
+    # machine. It also makes -WhatIf work, which is the safe way to rehearse a
+    # migration on a box you care about.
+    [CmdletBinding(SupportsShouldProcess)]
+    param([psobject] $Existing)
+
+    Write-Host ''
+    Write-Host "  Found an MSI install (version $($Existing.Version))."
+    Write-Host '  It has to come out before the scripted install goes in: both use the'
+    Write-Host '  same folder, and Windows Installer would delete these files later.'
+    Write-Host ''
+    Write-Host '  Windows will ask for administrator permission to remove it.'
+    Write-Host ''
+
+    if (-not $Existing.ProductCode) {
+        throw ("Could not determine the ProductCode for the existing install " +
+               "(ARP key '$($Existing.Key)'). Remove it via Settings > Apps > Installed apps, then re-run.")
+    }
+
+    if (-not $PSCmdlet.ShouldProcess("$ProductName $($Existing.Version) ($($Existing.ProductCode))",
+                                     'Uninstall the MSI-managed install')) {
+        Write-Warn 'Skipped the MSI removal (-WhatIf). The install below would collide with it.'
+        return
+    }
+
+    $log = Join-Path ([IO.Path]::GetTempPath()) 'phvalheim-msi-removal.log'
+    try {
+        $p = Start-Process -FilePath 'msiexec.exe' `
+                           -ArgumentList @('/x', $Existing.ProductCode, '/qn', '/norestart', '/l*v', "`"$log`"") `
+                           -Verb RunAs -Wait -PassThru
+    } catch {
+        # The usual cause is the user clicking No on the UAC prompt.
+        throw ("Could not elevate to remove the MSI install: $($_.Exception.Message). " +
+               "Nothing has been changed.")
+    }
+
+    # 3010 is success-but-a-reboot-is-pending. Not our problem here: nothing we
+    # are about to write depends on the reboot happening.
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
+        $hint = switch ($p.ExitCode) {
+            1602 { 'the removal was cancelled' }
+            1603 { 'a fatal error during removal -- see the log' }
+            default { "msiexec exit code $($p.ExitCode)" }
+        }
+        throw "Removing the MSI install failed ($hint). Log: $log"
+    }
+
+    # Do NOT trust the exit code alone. A silent uninstall that quietly did
+    # nothing and one that worked look identical from here, and installing on
+    # top of a surviving MSI is exactly the broken state this avoids.
+    $still = Get-MsiInstall
+    if ($still) {
+        throw ("msiexec reported success but the MSI install is still registered " +
+               "(version $($still.Version)). Remove it via Settings > Apps > Installed apps, then re-run. Log: $log")
+    }
+
+    Write-Ok "Removed the MSI install (was $($Existing.Version))."
+
+    # The MSI owns HKCR\phvalheim, whose writable half is HKLM\Software\Classes.
+    # Its removal takes the machine-wide scheme registration with it; the
+    # per-user one this script writes next is what replaces it. User data lives
+    # in the PARENT folder (%APPDATA%\PhValheim) and is deliberately untouched
+    # by both the MSI's uninstall and this script.
 }
 
 # -- payload acquisition ------------------------------------------------------
@@ -212,7 +310,7 @@ function Expand-MsiPayload {
 # Place an already-extracted tree. Shared by the release path and the -Msi path
 # so both install identically.
 function Install-FromTree {
-    param([string] $SourceDir, [string] $InstalledVersion)
+    param([string] $SourceDir, [string] $InstalledVersion, [string] $MigratedFrom = '')
 
     $srcExe = Join-Path $SourceDir $ExeName
     if (-not (Test-Path $srcExe)) { throw "No $ExeName in $SourceDir" }
@@ -240,7 +338,14 @@ function Install-FromTree {
     Register-ArpEntry -InstalledVersion $InstalledVersion
 
     Write-Host ''
-    Write-Ok "$ProductName $InstalledVersion installed."
+    if ($MigratedFrom) {
+        Write-Ok "$ProductName $InstalledVersion installed (migrated from the $MigratedFrom MSI install)."
+        Write-Host ''
+        Write-Host '  The MSI install was removed. This one needs no administrator rights'
+        Write-Host '  to update or remove, and updates will not trigger SmartScreen.'
+    } else {
+        Write-Ok "$ProductName $InstalledVersion installed."
+    }
     Write-Host ''
     Write-Host "  Location : $InstallDir"
     Write-Host "  SHA256   : $((Get-FileHash -Path $InstallExe -Algorithm SHA256).Hash)"
@@ -341,22 +446,12 @@ function Invoke-Install {
     Write-Host "=== $ProductName - Windows Installer ==="
     Write-Host ''
 
+    # Detected now, acted on later. Removing the MSI is the only destructive
+    # step here, so it happens as late as possible -- after the payload is
+    # downloaded and extracted. Doing it up front means a failed download
+    # leaves the user with nothing, which is worse than the working MSI install
+    # they started with.
     $existing = Get-MsiInstall
-    if ($existing -and -not $Force) {
-        Write-Fail "An MSI-managed install is already present (version $($existing.Version))."
-        Write-Host ''
-        Write-Host '  It installs to the same directory this script writes to, so the two'
-        Write-Host '  would fight: repairing the MSI overwrites these files, and uninstalling'
-        Write-Host '  it deletes them while leaving this registration behind.'
-        Write-Host ''
-        Write-Host '  Remove it first via Settings > Apps > Installed apps, then re-run.'
-        Write-Host '  Or pass -Force to install anyway.'
-        Write-Host ''
-        throw 'Refusing to install over an MSI-managed install.'
-    }
-    if ($existing) {
-        Write-Warn "Installing over an MSI-managed install ($($existing.Version)) because -Force was given."
-    }
 
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("phvalheim-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
@@ -383,7 +478,22 @@ function Invoke-Install {
         }
 
         $payloadDir = Expand-MsiPayload -MsiPath $msiPath -Destination $tmp
-        Install-FromTree -SourceDir $payloadDir -InstalledVersion $resolved
+
+        # The payload is on disk and verified to contain the exe. Only now is
+        # it safe to take the old install out. Both write the same directory,
+        # so the MSI must go first or its uninstall deletes what we place next.
+        $migrated = ''
+        if ($existing) {
+            if ($SkipMsiRemoval) {
+                Write-Warn "Leaving the MSI install ($($existing.Version)) in place because -SkipMsiRemoval was given."
+                Write-Warn 'Both will claim the same folder. A debugging option, not a supported state.'
+            } else {
+                Remove-MsiInstall -Existing $existing
+                $migrated = $existing.Version
+            }
+        }
+
+        Install-FromTree -SourceDir $payloadDir -InstalledVersion $resolved -MigratedFrom $migrated
     } finally {
         Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -526,8 +636,12 @@ function Invoke-Diags {
     }
 
     $msi = Get-MsiInstall
-    if ($msi) { Write-Warn "MSI-managed install ALSO present: version $($msi.Version) ($($msi.Key))" }
-    else { Write-Ok 'No conflicting MSI install.' }
+    if ($msi) {
+        Write-Warn "MSI-managed install ALSO present: version $($msi.Version) ($($msi.Key))"
+        Write-Warn 'Two installs claim the same folder. Re-run install to migrate off the MSI.'
+    } else {
+        Write-Ok 'No conflicting MSI install.'
+    }
     Write-Host ''
 
     Write-Host '-- Steam / Valheim --'
