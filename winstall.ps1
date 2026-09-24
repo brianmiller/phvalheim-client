@@ -280,17 +280,32 @@ function Expand-MsiPayload {
     param([string] $MsiPath, [string] $Destination)
 
     Write-Host 'Extracting...'
-    $log = Join-Path $Destination 'admin-install.log'
-    # NOT $args. That is a PowerShell automatic variable holding the function's
-    # own unbound arguments; assigning to it is legal and silently changes what
-    # the rest of the function sees.
-    $msiArgs = @('/a', "`"$MsiPath`"", '/qn', "TARGETDIR=`"$Destination`"", '/l*v', "`"$log`"")
+
+    # The log lives OUTSIDE $Destination on purpose. $Destination is the temp
+    # directory the caller deletes in its finally block, so a log written there
+    # is destroyed by the very failure it documents.
+    $log = Join-Path ([IO.Path]::GetTempPath()) 'phvalheim-msi-extract.log'
+    Remove-Item $log -ErrorAction SilentlyContinue
+
+    # One argument STRING, not an array. Start-Process re-quotes array elements
+    # that already contain quotes, which is how the same call elsewhere in this
+    # file ended up mangled.
+    $msiArgs = "/a `"$MsiPath`" /qn TARGETDIR=`"$Destination`" /l*v `"$log`""
     $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
 
     if ($p.ExitCode -ne 0) {
+        # A 20-line tail is almost always Windows Installer's shutdown chatter,
+        # not the fault. Pull the lines that actually name a failure.
         if (Test-Path $log) {
-            Write-Host '--- msiexec log (tail) ---'
-            Get-Content $log -Tail 20 | ForEach-Object { Write-Host $_ }
+            $signal = Get-Content $log |
+                      Select-String -Pattern 'return value 3', 'Error \d+', 'cannot|failed|denied|Invalid' |
+                      Select-Object -Last 15
+            if ($signal) {
+                Write-Host '--- msiexec log, lines naming a failure ---'
+                $signal | ForEach-Object { Write-Host "  $_" }
+            }
+            Write-Host ''
+            Write-Host "  Full log kept at: $log"
         }
         throw "msiexec /a failed with exit code $($p.ExitCode)."
     }
