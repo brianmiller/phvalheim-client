@@ -40,9 +40,14 @@ like a PhValheim one.
   BepInEx, so it has no Companion, so there is nothing to hand the payload to. Those worlds are
   joined with their join code, as before. This is by design, not a gap.
 
+## What has been verified
+
+Against a 2.53 server, on a real client: **Connect joins the world**, the Connect dialog is
+correct, **joining by IP:PORT works**, and disconnecting returns to the menu cleanly.
+
 ## What has not been verified
 
-- The Connect button has been confirmed working on a real client, but **joining a world by
-  IP:PORT through the Companion has not been** — it is built and shipped, not signed off.
-- This release is tested as a Flatpak. The other packages are the same code and the same
-  builders, but were not individually exercised for this change.
+- **Only the Linux Flatpak has been exercised.** The `.msi`, `.deb`, `.rpm`, the universal
+  tarball and the macOS package are the same code through the same builders, but none of them
+  has been run against this release. Of those, only the `.msi` and the Flatpak have any
+  automated verification at all; the other four have none.
