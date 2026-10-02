@@ -288,14 +288,25 @@ def screenshot(name, env):
     return "<screenshot unavailable>"
 
 
-def launch_url(world, port, vanilla):
-    """Build the phvalheim:// URL exactly as the server's web UI does:
-    launch?world?password?host?port?phvalheimHost?scheme?vanilla"""
+def launch_payload_b64(world, port, vanilla):
+    """The base64 body of the launch URL, exactly as the server's web UI builds it:
+    launch?world?password?host?port?phvalheimHost?scheme?vanilla
+
+    Split out from launch_url() so a test can assert that THIS EXACT STRING reaches
+    Valheim's argv. From client 2.0.14 the client forwards it unchanged as
+    --phvalheim-launch <base64>, and the Companion mod reads the world address and
+    crossplay join code back out of it. Re-encoding it from parsed fields would be a
+    second place to get the positional order wrong, so the test compares the original.
+    """
     payload = "?".join([
         "launch", world, "swordfish", SRV_HOST, "2456",
         f"{SRV_HOST}:{port}", "http", "1" if vanilla else "0",
     ])
-    return "phvalheim://?" + base64.b64encode(payload.encode()).decode()
+    return base64.b64encode(payload.encode()).decode()
+
+
+def launch_url(world, port, vanilla):
+    return "phvalheim://?" + launch_payload_b64(world, port, vanilla)
 
 
 def wait_for_text(path, needle, timeout=180):
@@ -591,7 +602,43 @@ def scenario_modded_launch(port, valheim_dir):
     # The launch itself.
     argv = rec["argv"]
     contains("Valheim was started with -console", "-console", " ".join(argv))
-    absent("no literal '--' reached Valheim's argv", "--", " ".join(argv[1:]))
+
+    # The original guard, narrowed to the thing it was written to catch.
+    #
+    # flatpak-spawn needs a bare `--` before the command or GOption eats Valheim's
+    # -console as one of its own flags. That separator must be CONSUMED by
+    # flatpak-spawn and must never arrive in Valheim's argv.
+    #
+    # This was a substring check for "--", which was equivalent while nothing
+    # legitimately passed a long option. Client 2.0.14 passes --phvalheim-launch, so the
+    # substring form started failing on a correct build -- it was over-broad, not
+    # prescient. Checking for a bare `--` TOKEN keeps the original invariant exactly and
+    # stops it objecting to named arguments. Deleting it would have thrown away a real
+    # guard: a leaked separator is invisible until Valheim ignores -console.
+    if "--" in argv[1:]:
+        bad("no bare '--' separator reached Valheim's argv",
+            "no standalone '--' token", " ".join(argv[1:])[:300])
+    else:
+        ok("no bare '--' separator reached Valheim's argv")
+
+    # New in 2.0.14: the Companion launch payload must arrive, unchanged.
+    #
+    # Without it the Companion concludes the game was not started by PhValheim and
+    # shows no connect dialog at all -- which is indistinguishable from the feature
+    # being broken. Asserting the exact base64 also catches it arriving re-encoded,
+    # re-split on whitespace, or quoted.
+    expected_payload = launch_payload_b64(WORLD, port, vanilla=False)
+    if "--phvalheim-launch" in argv:
+        idx = argv.index("--phvalheim-launch")
+        if idx + 1 < len(argv):
+            eq("the Companion launch payload reached Valheim's argv intact",
+               expected_payload, argv[idx + 1])
+        else:
+            bad("the Companion launch payload reached Valheim's argv intact",
+                expected_payload, "--phvalheim-launch was passed with no value after it")
+    else:
+        bad("the Companion launch payload reached Valheim's argv intact",
+            f"--phvalheim-launch {expected_payload}", " ".join(argv[1:])[:300])
     eq("Valheim was started in its own directory (flatpak-spawn --directory)",
        str(valheim_dir), rec["cwd"])
 

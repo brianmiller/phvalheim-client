@@ -5,6 +5,27 @@ namespace PhValheim.Arguments
 {
     public class PhValheim
     {
+        /// <summary>
+        /// The argument the Companion mod reads the launch payload back out of, and the raw
+        /// base64 to pass with it.
+        ///
+        /// The Companion needs the same world details this client was given: the address, and
+        /// for a crossplay world the join code, which is reissued every time the world
+        /// restarts. Handing over the ORIGINAL base64 rather than re-encoding the parsed
+        /// fields is deliberate -- re-encoding would be a second place to get the positional
+        /// order wrong, and the two would drift the first time a field was added.
+        ///
+        /// This lives here rather than on Platform.State because State is constructed after
+        /// argument parsing. A static on the parser has no initialisation order to get wrong.
+        /// </summary>
+        public const string CompanionArgName = "--phvalheim-launch";
+
+        // Nullable: there is no payload at all for a "textures" run, or before parsing. Absent
+        // is a real state here, not a missing value to be defaulted away.
+        public static string? RawLaunchPayload { get; private set; }
+
+        public static bool HaveLaunchPayload => !string.IsNullOrEmpty(RawLaunchPayload);
+
         //get our local Steam installation directory and execuatable
         public static void Usage()
         {
@@ -52,6 +73,10 @@ namespace PhValheim.Arguments
                 argumentsPassed = args[0].Split('?');
 
                 string decodedLaunchString;
+
+                // Kept before argumentsPassed is reassigned below, which is the only point the
+                // original encoded payload still exists.
+                string rawLaunchPayload = argumentsPassed.Length > 1 ? argumentsPassed[1] : null;
 
                 try
                 {
@@ -106,6 +131,10 @@ namespace PhValheim.Arguments
                             {
                                 isVanilla = false;
                             }
+
+                            // Only set for a launch. A "textures" run starts no game, so there
+                            // is nothing to hand a payload to.
+                            RawLaunchPayload = rawLaunchPayload;
 
                             return true;
                         }                     

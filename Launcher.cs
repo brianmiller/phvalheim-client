@@ -18,6 +18,44 @@ namespace PhValheim.Launcher
         /// the player is dropped at the password prompt and types it themselves. That is
         /// why we print it here and why the public UI shows it on the world card.
         /// </summary>
+        /// <summary>
+        /// The Companion launch argument, as separate argv entries.
+        ///
+        /// Returns nothing at all when there is no payload. That is load-bearing on the
+        /// Companion side: it treats the ARGUMENT'S PRESENCE as proof the game was started by
+        /// PhValheim, and shows no dialog without it. Passing the flag with an empty value
+        /// would make a plain Steam launch look like a PhValheim one.
+        ///
+        /// Separate entries rather than one string so a payload is never re-split on
+        /// whitespace. Base64 contains no spaces today, but '+' and '/' and '=' have all
+        /// surprised someone before.
+        /// </summary>
+        private static IEnumerable<string> CompanionArgList()
+        {
+            if (!Arguments.PhValheim.HaveLaunchPayload)
+                return Array.Empty<string>();
+
+            // Not null: HaveLaunchPayload is exactly the check that it is set and non-empty.
+            return new[] { Arguments.PhValheim.CompanionArgName, Arguments.PhValheim.RawLaunchPayload! };
+        }
+
+        /// <summary>
+        /// The same thing for the one launch path that takes a single command string rather
+        /// than an argument list: Windows, via Steam's -applaunch. Leads with a space so it
+        /// can be concatenated onto an existing argument string, and is empty when there is
+        /// no payload so nothing is appended.
+        /// </summary>
+        private static string CompanionArg()
+        {
+            if (!Arguments.PhValheim.HaveLaunchPayload) return "";
+
+            // No quoting: base64's alphabet is A-Z a-z 0-9 + / = and none of those need it.
+            // Quoting would be the safer habit, but Steam passes -applaunch arguments through
+            // its own parsing and adding quotes here has a real chance of delivering them
+            // literally to the game.
+            return " " + Arguments.PhValheim.CompanionArgName + " " + Arguments.PhValheim.RawLaunchPayload;
+        }
+
         private static void LaunchVanilla(string steamExe, string worldPassword, string worldHost, string worldPort)
         {
             string connect = worldHost + ":" + worldPort;
@@ -83,7 +121,12 @@ namespace PhValheim.Launcher
             // if running in windows
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                Process.Start(@steamExe, "-applaunch 892970 --doorstop-enabled true --doorstop-target-assembly \"" + BepInEx_Preloader + "\" -console");
+                // The Companion payload rides on argv rather than an environment variable
+                // because of this line specifically: -applaunch hands off to Steam, which
+                // starts the game itself, and our environment does not survive that. argv
+                // does. The other three platforms could use env, but one mechanism that works
+                // everywhere beats three that each work somewhere.
+                Process.Start(@steamExe, "-applaunch 892970 --doorstop-enabled true --doorstop-target-assembly \"" + BepInEx_Preloader + "\" -console" + CompanionArg());
             } 
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
@@ -203,13 +246,24 @@ namespace PhValheim.Launcher
                       fpArgs.Add(Platform.State.SteamFlatpakId);
                       fpArgs.Add("-console");
 
+                      // Everything after the Flatpak app id is passed through to the game, so
+                      // this reaches Valheim's own argv. Added as separate list entries, not
+                      // one joined string, so a payload is never re-split on whitespace.
+                      foreach (var arg in CompanionArgList())
+                          fpArgs.Add(arg);
+
                       startInfo = Sandbox.Flatpak.HostCommand(setsid, fpArgs);
                   }
                   else
                   {
+                      // Native Linux: exec'd directly, so the payload goes straight onto the
+                      // game's argv.
+                      var nativeArgs = new List<string> { exec, "-console" };
+                      nativeArgs.AddRange(CompanionArgList());
+
                       startInfo = Sandbox.Flatpak.HostCommand(
                           setsid,
-                          new[] { exec, "-console" },
+                          nativeArgs.ToArray(),
                           doorstopEnv,
                           valheimDir);
                   }
@@ -339,6 +393,11 @@ namespace PhValheim.Launcher
                 startInfo.UseShellExecute = false;
                 startInfo.CreateNoWindow = false;
                 startInfo.ArgumentList.Add("-console");
+
+                // macOS execs the binary directly, like native Linux.
+                foreach (var arg in CompanionArgList())
+                    startInfo.ArgumentList.Add(arg);
+
                 startInfo.WorkingDirectory = valheimDir;
                 startInfo.EnvironmentVariables["DOORSTOP_ENABLED"] = "1";
                 startInfo.EnvironmentVariables["DOORSTOP_TARGET_ASSEMBLY"] = BepInEx_Preloader;

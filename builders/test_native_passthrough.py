@@ -116,8 +116,17 @@ def main():
             env.get("LD_LIBRARY_PATH"))
         chk("the game ran in its own directory", rec["cwd"] == str(valheim_dir),
             rec["cwd"])
-        chk("argv is exactly the game plus -console", rec["argv"][1:] == ["-console"],
-            rec["argv"])
+        # argv is the game, -console, and from client 2.0.14 the Companion launch
+        # payload. Pinned as an exact list rather than a set of "contains" checks,
+        # because ORDER and COUNT both matter here: a duplicated argument or a payload
+        # that arrived re-split on whitespace is exactly the kind of thing a loose
+        # check waves through. This assertion was `== ["-console"]` and correctly
+        # failed when the payload was added -- it is updated to the new reality, not
+        # loosened.
+        expected_argv = ["-console", "--phvalheim-launch",
+                         T.launch_payload_b64(T.WORLD, port, vanilla=False)]
+        chk("argv is the game, -console and the Companion launch payload",
+            rec["argv"][1:] == expected_argv, rec["argv"])
 
         # Nothing flatpak-shaped may appear on a native run.
         chk("no flatpak-spawn wrapper leaked into the native launch",
