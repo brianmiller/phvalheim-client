@@ -252,6 +252,144 @@ MINIMAL_WXS = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
+# A stand-in for "some other package of the same version is already installed".
+# It carries OUR UpgradeCode, so FindRelatedProducts in the real package sees
+# it, and Id="*" gives it its own ProductCode -- which is the whole point:
+# wixl generates a FRESH ProductCode on every build, so two builds of one
+# version are two different products to Windows. That is how a locally built
+# 2.0.13 and the published 2.0.13 ended up installed side by side.
+TWIN_WXS = """<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="PhValheim Client" Language="1033" Version="__VERSION__"
+           Manufacturer="Phospher" UpgradeCode="9799CDE9-1240-47AC-9891-AAB1F6FDB5E7">
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+    <Media Id="1" Cabinet="t.cab" EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="AppDataFolder">
+        <Directory Id="TwinDir" Name="PhValheimTwin">
+          <Component Id="Twin" Guid="1B2C3D4E-5F60-4718-8293-A4B5C6D7E8F9">
+            <File Id="twinFile" Name="twin.txt" Source="twin.txt" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main" Level="1" Title="Twin"><ComponentRef Id="Twin" /></Feature>
+  </Product>
+</Wix>
+"""
+
+# Always-false LaunchCondition. Used only to ask wine whether it enforces
+# LaunchConditions at all.
+LC_CONTROL_WXS = """<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="LcControl" Language="1033" Version="1.0.0"
+           Manufacturer="Control" UpgradeCode="7E2C9A4B-1D3E-4F50-8A6B-9C0D1E2F3A4B">
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+    <Media Id="1" Cabinet="l.cab" EmbedCab="yes" />
+    <Condition Message="This control package must never install.">LC_NEVER_SET</Condition>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="AppDataFolder">
+        <Directory Id="LcDir" Name="LcControl">
+          <Component Id="Lc" Guid="2C3D4E5F-6071-4829-93A4-B5C6D7E8F901">
+            <File Id="lcFile" Name="lc.txt" Source="lc.txt" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main" Level="1" Title="Lc"><ComponentRef Id="Lc" /></Feature>
+  </Product>
+</Wix>
+"""
+
+
+def wine_enforces_launch_conditions():
+    """Control: does wine refuse an install whose LaunchCondition is false?
+
+    Same discipline as wine_can_repair(). Without this control, a same-version
+    install that goes ahead reads as "the package's guard does not work" when
+    the truth may be "wine does not evaluate LaunchConditions". One of those is
+    our bug and the other is not, and they are indistinguishable from the exit
+    code alone.
+    """
+    d = "/tmp/lc-control"
+    run(f"rm -rf {d} && mkdir -p {d}")
+    with open(f"{d}/lc.wxs", "w") as fh:
+        fh.write(LC_CONTROL_WXS)
+    with open(f"{d}/lc.txt", "w") as fh:
+        fh.write("control\n")
+    rc, _ = run(f"cd {d} && wixl -a x64 -o lc.msi lc.wxs")
+    if rc != 0 or not os.path.exists(f"{d}/lc.msi"):
+        return None, "LaunchCondition control package would not build"
+    p = new_prefix("lcctl")
+    rc, _ = msiexec(p, f'/i "{winepath(d + "/lc.msi")}" /qn')
+    landed = [n for _r, _dd, ns in os.walk(os.path.join(p, "drive_c", "users"))
+              for n in ns if n == "lc.txt"]
+    # Enforced means: non-zero exit AND nothing installed.
+    return (rc != 0 and not landed), f"control install rc={msi_error(rc)} landed={bool(landed)}"
+
+
+def scenario_same_version(msi, version, sizes):
+    """Installing over an ALREADY-INSTALLED copy of the same version.
+
+    Before the same-version Upgrade row existed, this installed a second,
+    parallel product: the older row's range stops below the current version and
+    the newer row's starts above it, so an equal version matched neither and
+    FindRelatedProducts reported nothing to replace.
+    """
+    print("\n-- same version already installed --", flush=True)
+    d = "/tmp/same-version-twin"
+    run(f"rm -rf {d} && mkdir -p {d}")
+    with open(f"{d}/twin.wxs", "w") as fh:
+        fh.write(TWIN_WXS.replace("__VERSION__", version))
+    with open(f"{d}/twin.txt", "w") as fh:
+        fh.write("twin\n")
+    rc, _ = run(f"cd {d} && wixl -a x64 -o twin.msi twin.wxs")
+    if rc != 0 or not os.path.exists(f"{d}/twin.msi"):
+        bad("same version: twin fixture built", "a package", "wixl would not build the twin")
+        return
+
+    # The twin must differ in ProductCode or the scenario is maintenance mode,
+    # which is a different code path entirely. Assert the fixture, don't assume.
+    if product_code(f"{d}/twin.msi") == product_code(msi):
+        bad("same version: twin is a DIFFERENT product", "different ProductCodes",
+            "identical ProductCode, so this is maintenance mode and not the scenario")
+        return
+    ok("same version: twin is a different product with the same version")
+
+    p = new_prefix("samever")
+    msiexec(p, f'/i "{winepath(d + "/twin.msi")}" /qn')
+    if not arp_entries(read_registry(p)):
+        bad("same version: twin registered first", "one ARP entry",
+            "twin did not install, scenario void")
+        return
+    ok("same version: twin registered first")
+
+    rc, _ = msiexec(p, f'/i "{winepath(msi)}" /qn')
+    landed = "phvalheim-client.exe" in installed_files(p)
+    refused = rc != 0 and not landed
+
+    if refused:
+        ok(f"same version: refused rather than installed alongside (rc={msi_error(rc)})")
+        expect("same version: still exactly one ARP entry", 1,
+               len(arp_entries(read_registry(p))))
+        return
+
+    enforces, why = wine_enforces_launch_conditions()
+    if enforces:
+        # wine DOES enforce LaunchConditions, so this is our package.
+        bad("same version: refused rather than installed alongside",
+            "non-zero exit and nothing installed",
+            f"rc={msi_error(rc)} installed={landed} (control proves wine enforces "
+            f"LaunchConditions, so this is the package)")
+    else:
+        print(f"  SKIP  same version: wine does not enforce LaunchConditions here "
+              f"({why}); our package returned rc={msi_error(rc)} installed={landed}",
+              flush=True)
+        print("        The Upgrade row and LaunchCondition are asserted statically in "
+              "verify_msi.sh. Behaviour here is UNVERIFIED; test by hand on Windows.",
+              flush=True)
+
+
 def wine_can_repair():
     """Control: can wine repair ANY package here?
 
@@ -546,6 +684,8 @@ def main():
             scenario_upgrade(msi, prev, version, sizes)
         else:
             print("\n-- upgrade --\n  SKIP  no --prev package given", flush=True)
+    if want("samever"):
+        scenario_same_version(msi, version, sizes)
     if want("wizard"):
         scenario_wizard(msi, shots)
 

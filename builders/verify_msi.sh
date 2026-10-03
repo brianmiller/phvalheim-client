@@ -116,8 +116,24 @@ echo
 echo "-- upgrade behaviour --"
 upgrade=$(msiexport Upgrade)
 expectContains "Upgrade table references our UpgradeCode" "$expectUpgradeCode" "$upgrade"
-expectContains "major-upgrade detection present"   "WIX_UPGRADE_DETECTED"   "$upgrade"
-expectContains "downgrade protection present"      "WIX_DOWNGRADE_DETECTED" "$upgrade"
+# The three rows are authored by hand now, not by MajorUpgrade, so the property
+# names are ours. MajorUpgrade could only ever emit the older/newer pair; the
+# same-version row is the one that stops a different package carrying an
+# identical version from installing alongside itself.
+expectContains "major-upgrade detection present"   "PHV_OLDER_FOUND"        "$upgrade"
+expectContains "downgrade protection present"      "PHV_NEWER_FOUND"        "$upgrade"
+expectContains "same-version detection present"    "PHV_SAME_VERSION_FOUND" "$upgrade"
+
+# Hand-authoring the Upgrade table means hand-scheduling the removal. Detection
+# without this row is the silent failure: properties get set, nothing is removed.
+expectContains "RemoveExistingProducts is scheduled" "RemoveExistingProducts" "$(msiexport InstallExecuteSequence)"
+
+# Both detect-only rows must actually block, not just set a property. A row with
+# no matching LaunchCondition detects the conflict and installs anyway.
+launchConditions=$(msiexport LaunchCondition)
+expectContains "newer version is refused"      "NOT PHV_NEWER_FOUND"        "$launchConditions"
+expectContains "same version is refused"       "NOT PHV_SAME_VERSION_FOUND" "$launchConditions"
+expectContains "the same-version message names the product" "already installed" "$launchConditions"
 
 echo
 echo "-- payload --"

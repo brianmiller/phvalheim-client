@@ -44,10 +44,61 @@
 
     <!--
       .vdproj had RemovePreviousVersions=TRUE + DetectNewerInstalledVersion=TRUE.
-      MajorUpgrade is the exact equivalent: uninstall-then-reinstall on upgrade,
-      and refuse to install over a newer version.
+      This is the equivalent: uninstall-then-reinstall on upgrade, refuse to
+      install over a newer version, and SAY SO when the same version is
+      already present.
+
+      Authored as a raw Upgrade element rather than MajorUpgrade because
+      MajorUpgrade emits exactly two rows (older and newer) and there is no
+      way to add a third. The same-version row is the one that matters here:
+      with only the older/newer pair, a package whose version EQUALS the
+      installed one matches neither range, so FindRelatedProducts finds
+      nothing and Windows installs it as a second, parallel product. That is
+      how two 2.0.13-era installs ended up side by side.
+
+      Verified that wixl honours the raw form: a probe package built with this
+      shape emits both the Upgrade table and the explicit
+      RemoveExistingProducts row. Do not assume it; msiinfo export and look.
     -->
-    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <Upgrade Id="9799CDE9-1240-47AC-9891-AAB1F6FDB5E7">
+      <!-- Anything older: migrate features and let RemoveExistingProducts take it. -->
+      <UpgradeVersion Minimum="0.0.0" IncludeMinimum="yes"
+                      Maximum="$(var.Version)" IncludeMaximum="no"
+                      Property="PHV_OLDER_FOUND" MigrateFeatures="yes" />
+
+      <!--
+        Exactly this version, from a DIFFERENT package. OnlyDetect: never
+        silently replace or duplicate it, just report it. This cannot fire for
+        a rerun of the same .msi file, because FindRelatedProducts skips the
+        running package's own ProductCode; that case is maintenance mode and
+        MaintenanceForm handles it.
+      -->
+      <UpgradeVersion Minimum="$(var.Version)" IncludeMinimum="yes"
+                      Maximum="$(var.Version)" IncludeMaximum="yes"
+                      Property="PHV_SAME_VERSION_FOUND" OnlyDetect="yes" />
+
+      <!-- Anything newer: detect only, refused by the LaunchCondition below. -->
+      <UpgradeVersion Minimum="$(var.Version)" IncludeMinimum="no"
+                      Property="PHV_NEWER_FOUND" OnlyDetect="yes" />
+    </Upgrade>
+
+    <!--
+      MajorUpgrade scheduled this for us. Authoring the Upgrade table by hand
+      means scheduling it by hand too, and forgetting it is silent: detection
+      still sets the properties, nothing ever removes the old product.
+      After InstallValidate is the early position, so the old files are gone
+      before the new ones are laid down.
+    -->
+    <InstallExecuteSequence>
+      <RemoveExistingProducts After="InstallValidate" />
+    </InstallExecuteSequence>
+
+    <!--
+      LaunchConditions runs at sequence 100, FindRelatedProducts at 25, so
+      both properties are set by the time these are evaluated.
+    -->
+    <Condition Message="A newer version of [ProductName] is already installed. Remove it first if you want to go back to this version.">NOT PHV_NEWER_FOUND</Condition>
+    <Condition Message="[ProductName] [ProductVersion] is already installed on this computer. There is nothing to do. To repair or remove it, use Apps &amp; features, or run the installer you originally installed it with.">NOT PHV_SAME_VERSION_FOUND</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
 
