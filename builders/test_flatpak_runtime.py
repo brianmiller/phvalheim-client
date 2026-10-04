@@ -214,6 +214,10 @@ def build_fake_host():
     return lib / "steamapps" / "common" / "Valheim"
 
 
+def md5_bytes(b):
+    return hashlib.md5(b).hexdigest()
+
+
 def build_world_zip(path):
     """What Syncer expects to unpack: doorstop payload plus a BepInEx tree."""
     with zipfile.ZipFile(path, "w") as z:
@@ -223,8 +227,20 @@ def build_world_zip(path):
         z.writestr("BepInEx/plugins/PhValheimCompanion.dll", "stub\n")
 
 
+def build_config_zip(path):
+    """The 2.55 config-only payload: BepInEx/config, and nothing else.
+
+    Server side this is built by packageClientConfig() from the client staging
+    tree, and its md5 is published as `config=` by api.php mode=getSyncState.
+    """
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("BepInEx/config/AzuClock.cfg",
+                   "[General]\n## Clock Font Size\nClock Font Size = 18\n")
+
+
 class FakeServer(http.server.BaseHTTPRequestHandler):
     zip_bytes = b""
+    config_bytes = None
     page = b""
 
     def log_message(self, *a):
@@ -238,11 +254,37 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        # Syncer calls exactly three things.
-        if self.path.startswith("/api.php?mode=getMD5"):
-            self._send(b"0123456789abcdef0123456789abcdef\n")
+        # Every checksum here is computed from the bytes this server actually
+        # serves. It used to answer getMD5 with a hardcoded
+        # 0123456789abcdef... that no real zip could ever hash to.
+        #
+        # That was invisible for as long as the client took the server's word
+        # for it. Client 2.0.15 verifies the payload it downloaded against the
+        # advertised checksum before recording it, so a stub that lies about
+        # its own bytes now reads as a corrupt download -- the client correctly
+        # refuses to launch, and the browser scenario failed with "no execution
+        # within 240s". The product was right and the fixture was wrong.
+        #
+        # A fixture that cannot represent a CORRECT server cannot test one.
+        if self.path.startswith("/api.php?mode=getSyncState"):
+            # 2.55+: both checksums in one request. config_bytes None means this
+            # server publishes no config payload, which is what the client sees
+            # from a pre-2.55 server -- an EMPTY config= value, not a checksum of
+            # nothing. (md5 of b"" is a real hash, d41d8cd9..., and sending it
+            # would claim a payload exists.)
+            cfg = "" if self.config_bytes is None else md5_bytes(self.config_bytes)
+            self._send(("world=%s\nconfig=%s\n" % (
+                md5_bytes(self.zip_bytes), cfg)).encode())
+        elif self.path.startswith("/api.php?mode=getMD5"):
+            self._send((md5_bytes(self.zip_bytes) + "\n").encode())
         elif self.path.startswith("/api.php"):
             self._send(b"ok\n")
+        elif self.path.endswith("-config.zip"):
+            # Must precede the .zip arm below -- it also ends with .zip.
+            if self.config_bytes is None:
+                self.send_error(404)
+            else:
+                self._send(self.config_bytes, "application/zip")
         elif self.path.endswith(".zip"):
             self._send(self.zip_bytes, "application/zip")
         elif self.path.startswith("/link"):
@@ -251,8 +293,15 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
 
-def start_fake_server(zip_path, link_url):
+def start_fake_server(zip_path, link_url, config_zip_path=None):
+    # config_zip_path is LAST and optional on purpose: test_native_passthrough.py
+    # imports this helper and calls it positionally. Inserting a parameter ahead
+    # of link_url broke that caller outright -- the .deb/.rpm/.tgz gate died with
+    # a TypeError before running a single check. Omitting it is not a gap either:
+    # it is exactly a pre-2.55 server, publishing a world payload and no config.
     FakeServer.zip_bytes = Path(zip_path).read_bytes()
+    FakeServer.config_bytes = (
+        None if config_zip_path is None else Path(config_zip_path).read_bytes())
     FakeServer.page = ("""<!doctype html><meta charset=utf-8>
 <title>PhValheim launch link</title>
 <style>html,body{margin:0;height:100%%;background:#1b1b1b}
@@ -695,7 +744,11 @@ def main():
     valheim_dir = build_fake_host()
     zip_path = FAKE / f"{WORLD}.zip"
     build_world_zip(zip_path)
-    srv, port = start_fake_server(zip_path, launch_url(WORLD, 0, vanilla=False))
+    config_zip_path = FAKE / f"{WORLD}-config.zip"
+    build_config_zip(config_zip_path)
+    srv, port = start_fake_server(zip_path,
+                                  launch_url(WORLD, 0, vanilla=False),
+                                  config_zip_path=config_zip_path)
 
     # The link on the page has to carry the real port, which is only known
     # after the socket is bound.

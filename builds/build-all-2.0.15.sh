@@ -35,7 +35,10 @@
 # wrong with 2.0.13 (shipped a renamed 2.0.12 with the wrong CFBundleVersion and
 # an arm64-thin launcher). macinstall.sh ships beside it, from the repo root.
 
-cd /mnt/wopr/development/brian/phvalheim-client || exit 1
+# Derived, not hardcoded: this script lives in builds/, so the repo root is one
+# level up. 2.0.14's copy hardcoded one developer's absolute path, which both
+# pins the checkout location and puts an internal machine name in a PUBLIC repo.
+cd "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 
 EXPECT=2.0.15
 VERSION=$(grep -m1 -oP '(?<=<Version>)[^<]+' phvalheim-client.csproj)
