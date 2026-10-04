@@ -18,11 +18,22 @@
 #    that has nothing to do with the build. The EXPECT guard below is what keeps
 #    "derived" from quietly meaning "whatever happened to be in the file".
 #
+# FLATPAK IS IN THE LIST, and it was not in 2.0.14's copy of this script. That
+# omission was invisible until someone asked for the flatpak link: the 2.0.14
+# RELEASE carries a .flatpak, so the format is part of a complete client release
+# and only the build-all script had forgotten it. Inheriting a script's FORMATS
+# line is inheriting its gaps -- compare against the previous release's ASSETS,
+# not against the previous release's script.
+#
+# It is last because it is the slow one: it pulls a Flathub runtime and then runs
+# install, URL-handler and launch tests in the container. Do not reach for
+# FLATPAK_SKIP_RUNTIME_TESTS=1 for a build that is going to be handed to anyone.
+#
 # macOS is deliberately absent: `build_macos-outie` needs MAC_HOST/MAC_USER and
 # prompts/macos-build.md records how that tarball is produced. Do NOT copy a
 # previous version's macOS asset under a 2.0.15 name -- that is exactly what went
 # wrong with 2.0.13 (shipped a renamed 2.0.12 with the wrong CFBundleVersion and
-# an arm64-thin launcher).
+# an arm64-thin launcher). macinstall.sh ships beside it, from the repo root.
 
 cd /mnt/wopr/development/brian/phvalheim-client || exit 1
 
@@ -47,7 +58,7 @@ STAMP="$LOGDIR/.start"
 touch "$STAMP"
 
 # format : glob that must exist and be newer than $STAMP for the build to count
-FORMATS="tgz deb rpm msi"
+FORMATS="tgz deb rpm msi flatpak"
 
 artifact_glob() {
     case "$1" in
@@ -55,6 +66,7 @@ artifact_glob() {
         deb) echo "builds/phvalheim-client-$VERSION-x86_64.deb" ;;
         rpm) echo "builds/phvalheim-client-$VERSION-x86_64.rpm" ;;
         msi) echo "builds/phvalheim-client-$VERSION-x86_64.msi" ;;
+        flatpak) echo "builds/phvalheim-client-$VERSION-x86_64.flatpak" ;;
     esac
 }
 
