@@ -12,9 +12,19 @@ namespace PhValheim.Syncer
         // compared as though it were a real value. A client that read an unknown as "matches
         // what I have" would skip a config change forever; a client that reads it as "differs"
         // costs itself one 80 KB download. Only one of those is recoverable.
+        //
+        // ModsMd5 is the identity of the payload's MOD CONTENT -- everything in it except
+        // BepInEx/config. It is NOT the md5 of the zip, and it has to be separate from it:
+        // re-zipping the same tree produces different bytes, so a repackage (which rebuilds the
+        // payload so a NEW player still gets the current settings inside it) moves WorldMd5
+        // every time. Deciding "do I need the 573 MB" on WorldMd5 therefore answers "yes" after
+        // every config edit, and the config-only path below could never be reached.
+        //
+        // WorldMd5 keeps its original job: verifying a payload we just downloaded.
         private sealed class RemoteState
         {
             public string WorldMd5 = "";
+            public string ModsMd5 = "";
             public string ConfigMd5 = "";
         }
 
@@ -51,6 +61,7 @@ namespace PhValheim.Syncer
                         string val = line.Substring(eq + 1).Trim();
 
                         if (key == "world") { state.WorldMd5 = val; }
+                        else if (key == "mods") { state.ModsMd5 = val; }
                         else if (key == "config") { state.ConfigMd5 = val; }
                     }
                 }
@@ -88,9 +99,16 @@ namespace PhValheim.Syncer
         // This exists to avoid re-hashing the payload on every single launch. The payload is
         // 573 MB on a real modpack, and hashing it means reading all of it -- seconds of disk
         // on a cold start, every start, to answer a question we already knew the answer to.
-        private static void ReadSyncRecord(string path, out string worldMd5, out string configMd5)
+        //
+        // worldMd5 here is always the md5 of the payload THIS MACHINE HOLDS, never what the
+        // server happens to report. After a config-only sync the server's payload has been
+        // rebuilt and ours has not, so copying the server's value in would be a false claim
+        // about our own file -- and that value is what the integrity check compares against.
+        private static void ReadSyncRecord(string path, out string worldMd5, out string modsMd5,
+                                           out string configMd5)
         {
             worldMd5 = "";
+            modsMd5 = "";
             configMd5 = "";
 
             try
@@ -104,23 +122,27 @@ namespace PhValheim.Syncer
                     string val = line.Substring(eq + 1).Trim();
 
                     if (key == "worldMd5") { worldMd5 = val; }
+                    else if (key == "modsMd5") { modsMd5 = val; }
                     else if (key == "configMd5") { configMd5 = val; }
                 }
             }
             catch
             {
-                // Missing or unreadable. Both stay "", which the caller treats as "I know
+                // Missing or unreadable. All stay "", which the caller treats as "I know
                 // nothing" -- it hashes the payload instead. Never as "I am up to date".
                 worldMd5 = "";
+                modsMd5 = "";
                 configMd5 = "";
             }
         }
 
-        private static void WriteSyncRecord(string path, string worldMd5, string configMd5)
+        private static void WriteSyncRecord(string path, string worldMd5, string modsMd5,
+                                            string configMd5)
         {
             try
             {
-                File.WriteAllText(path, "worldMd5=" + worldMd5 + "\nconfigMd5=" + configMd5 + "\n");
+                File.WriteAllText(path, "worldMd5=" + worldMd5 + "\nmodsMd5=" + modsMd5
+                                      + "\nconfigMd5=" + configMd5 + "\n");
             }
             catch (Exception e)
             {
@@ -179,8 +201,14 @@ namespace PhValheim.Syncer
             }
 
             string localWorldMD5;
+            string localModsMD5;
             string localConfigMD5;
-            ReadSyncRecord(syncRecordFile, out localWorldMD5, out localConfigMD5);
+            ReadSyncRecord(syncRecordFile, out localWorldMD5, out localModsMD5, out localConfigMD5);
+
+            // Captured BEFORE the hash below overwrites localWorldMD5, so "I had no record" is
+            // still answerable afterwards. Without it, an install that is already current never
+            // gets a record written and re-hashes 573 MB on every single launch.
+            bool hadRecord = (localWorldMD5.Length > 0);
 
             if (localWorldMD5.Length == 0)
             {
@@ -214,8 +242,35 @@ namespace PhValheim.Syncer
             // The order matters. A differing payload subsumes a differing config, because the
             // full payload CONTAINS the config generation the server reported alongside it --
             // both checksums came from one request describing one state of the server's tree.
-            bool needFullSync = (localWorldMD5 != remote.WorldMd5);
+            //
+            // The question "do I need the 573 MB" is asked of the MOD IDENTITY, not of the
+            // zip's md5. A repackage rebuilds the payload so a new player gets current settings
+            // inside it, and a rebuilt zip is different bytes even when nothing in it changed --
+            // so the zip's md5 moves on every config edit while its mod content does not.
+            //
+            // Both sides must be known to use it. An empty remote value is a pre-2.55 server;
+            // an empty local value is a record written before this field existed, or no record
+            // at all. Either way we fall back to the zip comparison, which costs one full
+            // download if a repackage happened in the meantime -- the honest answer to "I do
+            // not know what my payload contains", and self-correcting, because the record
+            // written afterwards carries the mod identity.
+            bool canCompareMods = (remote.ModsMd5.Length > 0 && localModsMD5.Length > 0);
+            bool needFullSync = canCompareMods ? (localModsMD5 != remote.ModsMd5)
+                                               : (localWorldMD5 != remote.WorldMd5);
             bool needConfigSync = false;
+
+            if (canCompareMods)
+            {
+                Console.WriteLine("  Mods:       " + localModsMD5 + " -> " + remote.ModsMd5);
+            }
+
+            // What we will hold when the payload step below is done. Tracked separately from
+            // what the server reports, because the two are no longer the same thing: with the
+            // mod identity matching we may keep a payload whose bytes -- and whose config
+            // generation -- differ from the server's. Recording the server's values for a file
+            // we did not download is how a stale config becomes invisible.
+            string heldWorldMD5 = localWorldMD5;
+            string heldConfigMD5 = localConfigMD5;
 
             if (needFullSync)
             {
@@ -256,6 +311,10 @@ namespace PhValheim.Syncer
                     return false;
                 }
 
+                // Verified. Only now is the server's generation a true statement about our
+                // disk -- payload bytes and the config inside them both.
+                heldWorldMD5 = gotWorldMD5;
+                heldConfigMD5 = remote.ConfigMd5;
                 readyToExtract = true;
             }
             else
@@ -264,16 +323,13 @@ namespace PhValheim.Syncer
                 Console.WriteLine("  Local and remote world verisons match for '" + worldName + "'.\n");
 
                 // Corner case: the payload matches but the extracted directory was deleted.
+                // heldConfigMD5 deliberately stays at the LOCAL value here -- re-extracting our
+                // own payload reinstates the config generation that payload contains, which is
+                // not necessarily the server's current one. The config check after the extract
+                // is what closes that gap.
                 if (!Directory.Exists(localWorldDir))
                 {
                     readyToExtract = true;
-                }
-                // Only ask about the config when the big payload is already current AND we are
-                // not about to re-extract it anyway. remote.ConfigMd5 empty means the server
-                // does not publish one, so there is nothing to compare and nothing to fetch.
-                else if (remote.ConfigMd5.Length > 0 && localConfigMD5 != remote.ConfigMd5)
-                {
-                    needConfigSync = true;
                 }
             }
 
@@ -325,22 +381,32 @@ namespace PhValheim.Syncer
                     // partial directory in place would be worse than either -- Directory.Exists
                     // would be true and Valheim would be launched from an incomplete tree.
                     try { Directory.Delete(localWorldDir, true); } catch { }
-                    WriteSyncRecord(syncRecordFile, remote.WorldMd5, remote.ConfigMd5);
+                    WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5);
                     return false;
                 }
 
-                // The payload we just extracted carries the config generation the server
-                // reported in the SAME response as the payload checksum, so recording it here
-                // is not an assumption -- it is what we were told, about what we now hold.
-                WriteSyncRecord(syncRecordFile, remote.WorldMd5, remote.ConfigMd5);
+                // Recorded as what we HOLD, not what the server has. After a download those are
+                // the same thing; after re-extracting our own payload they are not, and the
+                // config check below is what then fetches the difference.
+                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5);
             }
+
+            // Does the config we now hold match the server's? Asked AFTER the payload step,
+            // because both routes into it can leave us holding an older config generation: a
+            // repackage leaves our payload current in mods but stale in config, and
+            // re-extracting our own payload reinstates whatever config it was built with.
+            //
+            // An empty remote value means the server publishes none, so there is nothing to
+            // compare. An empty held value means we do not know what we have -- which counts as
+            // different, costing one 80 KB download rather than missing a change forever.
+            needConfigSync = (remote.ConfigMd5.Length > 0 && heldConfigMD5 != remote.ConfigMd5);
 
             // ---- Config-only sync ------------------------------------------------------
             //
             // The whole point of this branch. A mod config change is ~80 KB of a 573 MB
             // payload; everything else in there is plugin DLLs and assets a config edit cannot
             // touch. Measured on a real world, the config archive is ~7,200x smaller.
-            else if (needConfigSync)
+            if (needConfigSync)
             {
                 Console.WriteLine("  The mod configuration changed. Fetching just the config archive...\n");
 
@@ -395,14 +461,21 @@ namespace PhValheim.Syncer
                 }
 
                 Console.WriteLine("  Mod configuration updated.\n");
-                WriteSyncRecord(syncRecordFile, remote.WorldMd5, remote.ConfigMd5);
+                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, remote.ConfigMd5);
             }
-            else if (localConfigMD5 != remote.ConfigMd5)
+            else if (!hadRecord
+                     || localModsMD5 != remote.ModsMd5
+                     || localConfigMD5 != heldConfigMD5)
             {
                 // Nothing to download and nothing to extract, but the record is out of step
-                // with what the server reports -- the case where the server stopped publishing
-                // a config checksum. Write it so we do not re-evaluate this every launch.
-                WriteSyncRecord(syncRecordFile, remote.WorldMd5, remote.ConfigMd5);
+                // with what we now know -- the server stopped publishing a config checksum, or
+                // this is the first launch of a client that records the mod identity.
+                //
+                // That second case is the one that matters: it is how an existing install picks
+                // up a mod identity WITHOUT a download. Our payload matched the server's byte
+                // for byte to get here, so the server's mod identity is a true statement about
+                // our copy -- and from here on a config edit costs 80 KB instead of 573 MB.
+                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5);
             }
 
             // ---- doorstop into the Valheim directory -----------------------------------

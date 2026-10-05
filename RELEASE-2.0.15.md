@@ -45,6 +45,24 @@ own checksum. This client compares both, and when only the configuration has cha
 only that — **about 7,200× less data**. When the modpack itself changes, it downloads the full
 payload exactly as before.
 
+**What "only the configuration changed" is measured against.** Not the payload's checksum. The
+server rebuilds the payload when an operator applies a config change — it has to, so a *new*
+player downloading it finds the current settings inside — and re-zipping an unchanged tree
+produces different bytes. So the payload's checksum moves every time, and a client that asked
+"does my payload match?" first would answer "no" and fetch all 573 MB, every time. That is what
+the first build of this did, confirmed against a real server: three applies, three different
+payload checksums, three full downloads.
+
+A 2.55 server therefore publishes a third value: the identity of the payload's **mod content**,
+with the configuration excluded — the per-file checksums the archive already stores, hashed in a
+fixed order. It is unchanged by a re-zip of the same mods and moves when a plugin does. This
+client asks that one whether it needs the payload, and the configuration checksum whether it
+needs the 80 KB. The payload checksum keeps its own job: verifying a finished download.
+
+An install that predates this value asks the old question once — one full download if an apply
+happened in the meantime — then records the new one and never pays again. An install already
+current records it without downloading anything.
+
 Three details worth recording, because each is a place this could have gone wrong quietly:
 
 - **The configuration directory is replaced wholesale, not merged.** When an operator *resets* a
