@@ -125,7 +125,11 @@ namespace PhValheim.Launcher
             Ui.Field("World", worldName);
             Ui.Field("Address", worldHost + ":" + worldPort + "  (udp)");
             Ui.Detail("steam root", steamDir);
-            Ui.Detail("password", Ui.Mask(worldPassword) + "  (" + worldPassword.Length + " chars)");
+            // (worldPassword ?? "") for the same reason as the DOORSTOP block below: this
+            // argument is evaluated whether or not verbose is on, so a null here would be an
+            // NRE on every launch rather than a missing debug line.
+            Ui.Detail("password", Ui.Mask(worldPassword) + "  ("
+                                  + (worldPassword ?? "").Length + " chars)");
 
             if (isVanilla)
             {
@@ -289,14 +293,35 @@ namespace PhValheim.Launcher
                   // print when a Linux launch goes wrong -- which is exactly why it had been
                   // commented out rather than deleted: it was too noisy to leave on and too
                   // useful to lose. A verbose gate is the thing it was missing.
-                  Ui.Detail("exec", exec);
-                  Ui.Detail("args", startInfo.Arguments);
-                  Ui.Detail("cwd", startInfo.WorkingDirectory);
-                  foreach (string ev in new[] { "DOORSTOP_ENABLE", "DOORSTOP_INVOKE_DLL_PATH",
-                                                "DOORSTOP_CORLIB_OVERRIDE_PATH",
-                                                "LD_LIBRARY_PATH", "LD_PRELOAD" })
+                  //
+                  // GUARDED BY if (Ui.Verbose), NOT by Ui.Detail's own check, and that is the
+                  // whole point. Ui.Detail returns early when verbose is off -- but its
+                  // ARGUMENTS are evaluated at the call site first, so a throwing argument
+                  // crashes a non-verbose run too. The first cut of this block did exactly
+                  // that and killed every modded launch:
+                  //
+                  //   startInfo.EnvironmentVariables[ev] ?? "(unset)"
+                  //
+                  // On .NET Core that indexer is backed by a Dictionary and THROWS
+                  // KeyNotFoundException for a key that is not set; it does not return null, so
+                  // the ?? could never fire. Inside a Flatpak the launch goes through
+                  // HostCommand, which sets no DOORSTOP_* at all, so the very first key was
+                  // missing -- an unhandled exception two statements before Process.Start.
+                  // The game never started and the window vanished with the stack trace in it.
+                  //
+                  // ContainsKey first, and the loop only runs when someone asked for it.
+                  if (Ui.Verbose)
                   {
-                      Ui.Detail(ev, startInfo.EnvironmentVariables[ev] ?? "(unset)");
+                      Ui.Detail("exec", exec);
+                      Ui.Detail("args", startInfo.Arguments);
+                      Ui.Detail("cwd", startInfo.WorkingDirectory);
+                      foreach (string ev in new[] { "DOORSTOP_ENABLE", "DOORSTOP_INVOKE_DLL_PATH",
+                                                    "DOORSTOP_CORLIB_OVERRIDE_PATH",
+                                                    "LD_LIBRARY_PATH", "LD_PRELOAD" })
+                      {
+                          Ui.Detail(ev, startInfo.EnvironmentVariables.ContainsKey(ev)
+                                            ? startInfo.EnvironmentVariables[ev] : "(unset)");
+                      }
                   }
 
                   Process.Start(startInfo);

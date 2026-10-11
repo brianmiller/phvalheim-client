@@ -21,6 +21,7 @@ usage: test_native_passthrough.py <path-to-linux-x64-binary>
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -75,10 +76,21 @@ def main():
         rc, out, err = run(exe, T.launch_url(T.WORLD, port, vanilla=True))
 
         # Positive evidence the client got past Steam discovery and prep.
+        #
+        # Re-anchored when the console output moved behind Ui.cs. Both of these used to pin
+        # lines that are now DEVELOPER DETAIL, printed only under PHVALHEIM_VERBOSE -- the
+        # absolute paths ("PhValheim root: /home/...", "Valheim root directory was found: ...").
+        # A player does not need a path to learn that a directory is ready; they need the
+        # verdict, and the verdict is what these assert on now.
+        #
+        # Label AND status on ONE line, via a regex rather than two substring checks. "found"
+        # appears elsewhere in the output, so an independent `"found" in out` would pass even
+        # if the Valheim step had failed -- the pairing is the whole point.
         chk("the client ran far enough to prepare its directories",
-            "PhValheim root" in out, f"rc={rc} stdout={out[-300:]!r} stderr={err[:300]!r}")
+            re.search(r"PhValheim folders \.+ ready", out) is not None,
+            f"rc={rc} stdout={out[-300:]!r} stderr={err[:300]!r}")
         chk("the Valheim install was located",
-            "Valheim root directory was found" in out,
+            re.search(r"Valheim install \.+ found", out) is not None,
             f"rc={rc} stdout={out[-300:]!r} stderr={err[:300]!r}")
         chk("no unhandled .NET exception", "Unhandled exception" not in out + err,
             (out + err)[-300:])

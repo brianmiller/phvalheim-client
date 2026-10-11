@@ -7,6 +7,37 @@ namespace PhValheim
 
         static void Main(string[] args)
         {
+            // A crash must not take its own explanation with it.
+            //
+            // This client is normally started by a phvalheim:// URL handler, which gives it a
+            // terminal with NO stdin -- so Console.ReadLine() returns instantly and the window
+            // closes the moment the process ends. An unhandled exception therefore printed its
+            // stack trace and vanished in the same instant, which is exactly how a modded
+            // launch broke with nothing to show for it. The trace was there; nobody could read
+            // it fast enough.
+            //
+            // Rethrow is deliberately NOT done: there is no outer handler to benefit, and the
+            // non-zero exit would be just as invisible.
+            try
+            {
+                Run(args);
+            }
+            catch (Exception e)
+            {
+                Ui.Error("PhValheim hit an unexpected problem and could not finish.",
+                         e.GetType().Name + ": " + e.Message);
+                Ui.Blank();
+                Ui.Line("The technical detail below is what to send if you report this:");
+                Ui.Blank();
+                Console.WriteLine(e.ToString());
+                Ui.PressEnterToExit();
+                // Hold the window even when there is no stdin for Enter to arrive on.
+                Thread.Sleep(30000);
+            }
+        }
+
+        static void Run(string[] args)
+        {
 
             System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var phvalheimLauncherVersion = Assembly.GetEntryAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute> ().InformationalVersion;

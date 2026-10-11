@@ -111,7 +111,7 @@ if [ -f "$INSTALL_BIN" ]; then
 	urlout=$("$INSTALL_BIN" 'phvalheim:///?' 2>&1)
 	set -e
 	case "$urlout" in
-		*"malformed phvalheim URL"*) ok "Client rejects a malformed phvalheim:// URL" ;;
+		*"launch link could not be understood"*) ok "Client rejects a malformed phvalheim:// URL" ;;
 		*) fail "Client rejects a malformed phvalheim:// URL" "malformed URL error" "$(echo "$urlout" | head -1)" ;;
 	esac
 else

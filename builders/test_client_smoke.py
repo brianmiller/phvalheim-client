@@ -111,15 +111,24 @@ def main():
     print("=" * 64)
 
     print("\n-- no arguments --")
+    # The console output was rewritten behind Ui.cs, so these follow the text rather than
+    # pinning wording that no longer exists. Same intents: it runs, it says what it is, it
+    # says how it is meant to be started, and it names the problem.
+    #   "PhValheim Client Version X" -> the banner is "PhValheim Client X" (one product name;
+    #                                   the banner used to say "Launcher" and the update check
+    #                                   "Client")
+    #   "Usage:"                     -> it now explains that Launch on the server's WEB PAGE is
+    #                                   what starts this, which is the actionable part
+    #   "ERROR: No arguments passed." -> "No arguments were passed."
     out = case(exe, "no args", [],
-               ["PhValheim Client Version", "Usage:", "ERROR: No arguments passed."])
+               ["PhValheim Client", "web page", "No arguments were passed."])
 
     # Ties the BUILT BINARY to the csproj. The retired .vdproj drifted to
     # 2.0.12 while the csproj said 2.0.13; this is the check that would have
     # caught the same drift in the app itself.
-    m = re.search(r"PhValheim Client Version ([0-9][^\s]*)", out)
+    m = re.search(r"PhValheim Client ([0-9][^\s]*)", out)
     if not m:
-        bad("reported version is readable", f"'PhValheim Client Version {expect_version}'",
+        bad("reported version is readable", f"'PhValheim Client {expect_version}'",
             out.strip()[:200])
     else:
         got = m.group(1)
@@ -129,13 +138,16 @@ def main():
             bad("reported version matches the csproj", expect_version, got)
 
     print("\n-- malformed phvalheim:// URLs --")
-    # Each of these is a distinct early-return in Arguments.argHandler.
-    case(exe, "empty query", ["phvalheim:///?"], ["malformed phvalheim URL"])
-    case(exe, "not base64", ["phvalheim://?not-valid-base64!!"], ["malformed phvalheim URL"])
-    case(exe, "no query at all", ["phvalheim://"], ["malformed phvalheim URL"])
-    case(exe, "base64 but one field", [b64url("launch")], ["malformed phvalheim URL"])
-    case(exe, "launch missing fields", [b64url("launch?World?pw")], ["malformed phvalheim URL"])
-    case(exe, "textures missing fields", [b64url("textures?World")], ["malformed phvalheim URL"])
+    # Each of these is a distinct early-return in Arguments.argHandler. The message moved from
+    # "malformed phvalheim URL" to plain English; the assertion follows it. Note it must stay a
+    # phrase the ERROR line actually contains -- not the hint under it -- so that a run which
+    # prints the hint and nothing else cannot satisfy it.
+    case(exe, "empty query", ["phvalheim:///?"], ["launch link could not be understood"])
+    case(exe, "not base64", ["phvalheim://?not-valid-base64!!"], ["launch link could not be understood"])
+    case(exe, "no query at all", ["phvalheim://"], ["launch link could not be understood"])
+    case(exe, "base64 but one field", [b64url("launch")], ["launch link could not be understood"])
+    case(exe, "launch missing fields", [b64url("launch?World?pw")], ["launch link could not be understood"])
+    case(exe, "textures missing fields", [b64url("textures?World")], ["launch link could not be understood"])
 
     print("\n" + "-" * 64)
     print("COVERAGE NOTE: this exercises argument handling only. Everything past")
