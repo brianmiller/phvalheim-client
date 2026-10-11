@@ -624,7 +624,8 @@ function Invoke-Diags {
         # "the file exists" check passes on a binary Windows refuses to launch.
         try {
             $out = & $InstallExe 2>&1 | Out-String
-            if ($out -match 'No arguments passed') {
+            # "No arguments WERE passed." since the console text moved behind Ui.cs.
+            if ($out -match 'No arguments were passed') {
                 Write-Ok 'Client executes and printed its usage text.'
             } else {
                 Write-Fail "Client ran but printed something unexpected: $($out.Trim() -split "`n" | Select-Object -First 1)"

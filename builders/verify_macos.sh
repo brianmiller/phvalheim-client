@@ -96,10 +96,23 @@ if [ -f "$INSTALL_BIN" ]; then
 	runout=$("$INSTALL_BIN" 2>&1); rc=$?
 	set -e
 	case "$runout" in
-		*"No arguments passed"*) ok "Client executes on $(uname -m)" "rc=$rc, printed usage" ;;
+		# "No arguments WERE passed." since the console text moved behind Ui.cs. The old
+		# pin ("No arguments passed") silently stopped matching, so a binary that ran
+		# perfectly -- rc=0, banner printed -- was reported as a failure to execute. The
+		# sibling URL check below was re-anchored at the time and this one was missed.
+		*"No arguments were passed"*) ok "Client executes on $(uname -m)" "rc=$rc, printed usage" ;;
 		*)
 			if [ "$rc" -ge 128 ]; then
 				fail "Client executes on $(uname -m)" "usage text" "killed by signal $((rc-128)) -- AMFI rejected the signature"
+			elif [ "$rc" -eq 0 ] && [ -n "$runout" ]; then
+				# The process ran to a clean exit and printed something -- so it DID execute,
+				# and the only thing that failed is this script's expected string. Said
+				# explicitly, because the old wording for this case was "expected: usage text"
+				# which reads as a broken binary; the real cause was a pin left behind by a
+				# console rewrite, and it cost a round of debugging a healthy build.
+				fail "Client executes on $(uname -m)" \
+					"the no-arguments usage text" \
+					"rc=0 and it printed output, so the binary RAN -- this pin is probably STALE. Got: $(echo "$runout" | head -1)"
 			else
 				fail "Client executes on $(uname -m)" "usage text" "rc=$rc: $(echo "$runout" | head -1)"
 			fi

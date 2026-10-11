@@ -210,7 +210,7 @@ jobs:
           o=$(./out/phvalheim-client 2>&1); rc=$?
           set -e
           case "$o" in
-            *"No arguments passed"*) row PASS "Linux-built binary EXECUTES on $(uname -m)" "rc=$rc, printed usage" ;;
+            *"No arguments were passed"*) row PASS "Linux-built binary EXECUTES on $(uname -m)" "rc=$rc, printed usage" ;;
             *) if [ "$rc" -ge 128 ]; then
                  row FAIL "Linux-built binary EXECUTES on $(uname -m)" "killed by signal $((rc-128)) — AMFI rejected it"
                else
