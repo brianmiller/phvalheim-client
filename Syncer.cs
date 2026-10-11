@@ -199,7 +199,10 @@ namespace PhValheim.Syncer
             // vanilla and has no payload at all.
             if (remote.WorldMd5.Length == 0)
             {
-                Ui.Fail("connected");
+                // Says what went WRONG, not what went right. This read "connected", which was
+                // true and useless -- and in red, on a step whose label is "PhValheim server",
+                // it looked like the connection had failed when the connection was fine.
+                Ui.Fail("world not found on the server");
                 Ui.Error("The world '" + worldName + "' does not exist on that server any more.",
                          "It may have been renamed or removed. Launch it again from the server's web page.");
                 return false;
@@ -437,7 +440,7 @@ namespace PhValheim.Syncer
                 }
                 catch
                 {
-                    Ui.Fail("kept yours");
+                    Ui.Warn("kept yours");
                     Ui.Warning("The updated mod settings did not download, so the ones you already have are being kept.",
                                "The game will still start. Launch again later to pick them up.");
                     return true;
@@ -445,7 +448,7 @@ namespace PhValheim.Syncer
 
                 if (gotConfigMD5 != remote.ConfigMd5)
                 {
-                    Ui.Fail("kept yours");
+                    Ui.Warn("kept yours");
                     Ui.Warning("The updated mod settings arrived damaged, so the ones you already have are being kept.",
                                "The game will still start. Launch again later to pick them up.");
                     try { File.Delete(localConfigFile); } catch { }
@@ -477,7 +480,7 @@ namespace PhValheim.Syncer
                     // a failed download, which leaves the old config intact. Clear the record
                     // so the next launch re-syncs from scratch rather than trusting a tree we
                     // half-rewrote.
-                    Ui.Fail("kept yours");
+                    Ui.Warn("kept yours");
                 Ui.Warning("The updated mod settings could not be applied, so the ones you already have are being kept.",
                            e.Message);
                     try { File.Delete(syncRecordFile); } catch { }

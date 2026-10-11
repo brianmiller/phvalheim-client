@@ -96,6 +96,7 @@ class Preview
         Scene("only the mod settings changed");
         Ui.Step("PhValheim server");  Ui.Done("up to date");
         Ui.Step("Mod settings");      Ui.Done("updated");
+        Ui.Step("Mod settings");      Ui.Warn("kept yours");
         Ui.Step("Mod loader");        Ui.Done("ready");
 
         // ---- a client update is available --------------------------------------------
@@ -161,6 +162,8 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$WORK":/w -w /w/preview \
   -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_NOLOGO=1 \
   -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e XDG_DATA_HOME=/tmp \
   -e PHVALHEIM_VERBOSE="${PHVALHEIM_VERBOSE:-}" \
+  -e PHVALHEIM_FORCE_COLOR="${PHVALHEIM_FORCE_COLOR:-1}" \
+  -e TERM="${TERM:-xterm-256color}" -t \
   "$SDK" sh -c 'dotnet run -v q --nologo 2>&1' || {
     echo "preview build failed"
     exit 1
