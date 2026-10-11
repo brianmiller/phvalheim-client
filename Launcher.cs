@@ -60,14 +60,19 @@ namespace PhValheim.Launcher
         {
             string connect = worldHost + ":" + worldPort;
 
-            // The one place the password belongs on screen: a vanilla world has no Companion
-            // mod, so Valheim's own prompt appears and the player has to type this.
+            // THE PASSWORD IS NEVER PRINTED, on any path. Brian's call: "no need to display
+            // the password."
+            //
+            // A vanilla world has no Companion mod, so Valheim's own prompt does appear and the
+            // player does have to type something -- but the password is already on the world
+            // card and in the world's Settings modal on the server's web page, which is the
+            // page they just pressed Launch on. Printing it into a window that gets
+            // screenshotted into Discord added an exposure without adding an answer.
             if (!string.IsNullOrEmpty(worldPassword))
             {
                 Ui.Blank();
-                Ui.Line("Valheim will ask for the server password. It is:");
-                Ui.Blank();
-                Ui.Note(worldPassword);
+                Ui.Line("Valheim will ask for the server password. It is shown on this "
+                        + "world's card on the PhValheim web page you launched from.");
                 Ui.Blank();
             }
 

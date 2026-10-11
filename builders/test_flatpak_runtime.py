@@ -458,17 +458,46 @@ def scenario_runs_at_all(version):
     print("\n-- the app starts inside the runtime --")
     # A self-contained .NET binary on org.freedesktop.Platform is not a given:
     # it needs a compatible glibc and ICU. If this fails, nothing else can work.
+    # These four pin the console output's WORDING, and it was deliberately rewritten when all
+    # of the client's printing moved behind Ui.cs. Each assertion keeps its original intent and
+    # follows the text to where it went:
+    #
+    #   "Usage:"                      -> the no-argument run now explains that this client is
+    #                                    started by pressing Launch on the server's WEB PAGE,
+    #                                    which is the thing a player needed to be told. The
+    #                                    argument form itself is developer detail behind
+    #                                    PHVALHEIM_VERBOSE.
+    #   "PhValheim Client Version X"  -> the banner is "PhValheim Client X". The product had two
+    #                                    names in its own output ("Launcher" in the banner,
+    #                                    "Client" in the update check); it has one now.
+    #   "malformed phvalheim URL"     -> "That launch link could not be understood."
+    #
+    # The version regex still anchors on the banner, so "reports a version at all" and "reports
+    # the RIGHT version" remain two separate checks -- the second is what catches a build whose
+    # assembly version and csproj have drifted apart.
     rc, out = sh(f"flatpak run {APP_ID}", timeout=120)
-    contains("runs with no arguments and prints usage", "Usage:", out)
-    contains("reports its version", "PhValheim Client Version", out)
+    contains("runs with no arguments and says how it is meant to be started",
+             "web page", out)
+    contains("reports its version", "PhValheim Client", out)
 
-    m = re.search(r"PhValheim Client Version ([0-9][^\s]*)", out)
+    m = re.search(r"PhValheim Client ([0-9][^\s]*)", out)
     eq("reported version matches the csproj", version, m.group(1) if m else "<not found>")
     absent("no unhandled .NET exception on startup", "Unhandled exception", out)
 
     rc, out = sh(f"flatpak run {APP_ID} 'phvalheim://?not-base64!!'", timeout=120)
-    contains("rejects a malformed URL cleanly", "malformed phvalheim URL", out)
+    contains("rejects a malformed URL cleanly", "launch link could not be understood", out)
     absent("malformed URL does not throw", "Unhandled exception", out)
+
+    # The launch payload is no longer echoed back. This fixture carries no password -- it is an
+    # undecodable base64 -- so this proves the ECHO is gone, not that a secret was redacted;
+    # Redact() is what covers the secret, and Arguments.Redact is unit-territory rather than
+    # something a flatpak run can show. Worth having anyway: the five malformed-URL paths used
+    # to print the decoded payload, which IS '?'-delimited with the password at field 2, and
+    # this is the assertion that notices if one of them starts printing it again.
+    #
+    # Not blind: the contains() above proves the error message itself was printed, so this
+    # cannot pass merely because the program died before saying anything.
+    absent("a malformed link is not echoed back to the console", "not-base64", out)
 
 
 def scenario_host_escape():
