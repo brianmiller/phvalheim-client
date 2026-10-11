@@ -5,13 +5,48 @@ namespace PhValheim.Ver
     public class PhValheim
     {
 
-        public static async void VersionCheck(string phvalheimLauncherVersion)
+        // SYNCHRONOUS, BOUNDED and exception-safe, and all three were bugs.
+        //
+        // This was `async void` called without await, so the continuation ran on a thread pool
+        // thread whenever GitHub happened to answer -- which meant its line could print in the
+        // MIDDLE of the download progress or the launch summary. Ordering that depends on a
+        // network round-trip is not ordering, and it is a good part of why this window looked
+        // chaotic.
+        //
+        // Worse, there was no try/catch anywhere on the path. An exception from an `async void`
+        // in a console app has no synchronization context to be posted back to, so it reaches
+        // the thread pool unobserved and TAKES THE PROCESS WITH IT. Octokit is unauthenticated
+        // here, which is 60 requests per hour per IP -- so a player behind a shared address, or
+        // simply offline, could have the launcher die on them during an update check it did not
+        // need to be doing. Now it is a step that can say "could not check" and move on.
+        //
+        // The timeout is what lets it be synchronous safely: the check is worth ~5 seconds of a
+        // launch and not a second more.
+        public static void VersionCheck(string phvalheimLauncherVersion)
         {
+            Ui.Step("Client version");
 
-            //Get all releases from GitHub
-            //Source: https://octokitnet.readthedocs.io/en/latest/getting-started/
-            GitHubClient client = new GitHubClient(new ProductHeaderValue("phvalheim-client"));
-            IReadOnlyList<Release> releases = await client.Repository.Release.GetAll("brianmiller", "phvalheim-client");
+            IReadOnlyList<Release> releases;
+            try
+            {
+                //Source: https://octokitnet.readthedocs.io/en/latest/getting-started/
+                GitHubClient client = new GitHubClient(new ProductHeaderValue("phvalheim-client"));
+                var task = client.Repository.Release.GetAll("brianmiller", "phvalheim-client");
+                if (!task.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    Ui.Done(phvalheimLauncherVersion + "  (could not reach GitHub to check)");
+                    return;
+                }
+                releases = task.Result;
+            }
+            catch (Exception e)
+            {
+                // Offline, rate-limited, DNS, TLS -- all the same answer to the player, and none
+                // of them a reason to stop a launch that needs no network but their own server.
+                Ui.Done(phvalheimLauncherVersion + "  (could not check for updates)");
+                Ui.Detail("version check failed", e.GetBaseException().Message);
+                return;
+            }
 
             // This used to be releases[0], which was wrong twice over.
             //
@@ -36,6 +71,10 @@ namespace PhValheim.Ver
             // against. Saying nothing is correct; guessing is not.
             if (latestGitHubVersion == null)
             {
+                // Still completes the step. The old code printed nothing at all here, which on
+                // a page of labelled checks reads as a check that did not happen -- and the
+                // player cannot tell that from one that passed.
+                Ui.Done(phvalheimLauncherVersion + "  (no stable release to compare against)");
                 return;
             }
 
@@ -47,8 +86,10 @@ namespace PhValheim.Ver
             if (versionComparison < 0)
             {
                 //The version on GitHub is more up to date than this local release.
-                Console.WriteLine("\n## A newer version of PhValheim Client is available. ##\n" +
-                                    "## It is strongly suggested you upgrade your client version. ##\n");
+                Ui.Done(phvalheimLauncherVersion + "  ->  " + latestGitHubVersion + " available");
+                Ui.Warning("A newer PhValheim Client (" + latestGitHubVersion + ") is available.",
+                           "Your launch will carry on with " + phvalheimLauncherVersion + ".",
+                           "Updating is strongly recommended -- get it from your server's web page.");
             }
             else if (versionComparison > 0)
             {
@@ -57,13 +98,13 @@ namespace PhValheim.Ver
                 // we compare against stables only, this branch is what every
                 // pre-release tester sees on every launch, so it should not read
                 // like a warning.
-                Console.WriteLine("\nPhValheim Client " + phvalheimLauncherVersion +
-                                    " is ahead of the latest stable release (" + latestGitHubVersion + ").\n");
+                Ui.Done(phvalheimLauncherVersion + "  (pre-release, ahead of stable "
+                        + latestGitHubVersion + ")");
             }
             else
             {
                 //This local Version and the Version on GitHub are equal.
-                Console.WriteLine("\nPhValheim Client is up-to-date.\n");
+                Ui.Done(phvalheimLauncherVersion + "  (up to date)");
             }
 
 

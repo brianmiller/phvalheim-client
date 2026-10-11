@@ -30,9 +30,7 @@ namespace PhValheim
             //take in and process all arguments from our URL handler
             if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost, ref httpScheme, ref isVanilla))
             {
-                Console.WriteLine("\n");
-                Console.WriteLine("Press Enter key to exit.");
-                Console.ReadLine();
+                Ui.PressEnterToExit();
                 return;
             }
             else
@@ -41,13 +39,17 @@ namespace PhValheim
                 string[] phvalheimHostNoPortArr = phvalheimHost.Split(':', StringSplitOptions.TrimEntries);
                 phvalheimHostNoPort = phvalheimHostNoPortArr[0];
 
-                Console.WriteLine("\n## PhValheim Launcher " + phvalheimLauncherVersion + " ##\n");
-                Console.WriteLine("PhValheim Remote Server: " + phvalheimURL);
+                // The header answers the three questions a player has before anything happens:
+                // which client is this, which server is it talking to, and which world. The old
+                // banner said "PhValheim Launcher" while the update check said "PhValheim
+                // Client"; it is one product and now has one name.
+                Ui.Banner(phvalheimLauncherVersion);
+                Ui.Field("Server", phvalheimURL);
+                Ui.Field("World", worldName + (isVanilla ? "  (vanilla - no mods)" : "  (modded)"));
+                Ui.Blank();
 
                 if (!Platform.State.init(worldName, phvalheimHostNoPort)) {
-                    Console.WriteLine("\n");
-                    Console.WriteLine("Press Enter key to exit.");
-                    Console.ReadLine();
+                    Ui.PressEnterToExit();
                     return;
                 }
             }
@@ -61,12 +63,10 @@ namespace PhValheim
                 Ver.PhValheim.VersionCheck(phvalheimLauncherVersion);
 
 
-                //run through the PhValheim prep logic, exit if fails         
+                //run through the PhValheim prep logic, exit if fails
                 if (!Prep.PhValheim.PhValheimPrep())
-                {              
-                    Console.WriteLine("\n");
-                    Console.WriteLine("Press the Enter key to exit.");
-                    Console.ReadLine();
+                {
+                    Ui.PressEnterToExit();
                     return;
                 }
 
@@ -74,9 +74,7 @@ namespace PhValheim
                 //get our Valheim installation directory, exit if fails
                 if (!Steam.PhValheim.ValheimGetter())
                 {
-                    Console.WriteLine("\n");
-                    Console.WriteLine("Press the Enter key to exit.");
-                    Console.ReadLine();
+                    Ui.PressEnterToExit();
                     return;
                 }
 
@@ -89,9 +87,7 @@ namespace PhValheim
                     //sync world to local disk
                     if (!Syncer.PhValheim.Sync(phvalheimURL))
                     {
-                        Console.WriteLine("\n");
-                        Console.WriteLine("Press the Enter key to exit.");
-                        Console.ReadLine();
+                        Ui.PressEnterToExit();
                         return;
                     }
 
@@ -101,7 +97,10 @@ namespace PhValheim
                 }
                 else
                 {
-                    Console.WriteLine("Vanilla world - no mods to sync.");
+                    // Said once, in the header, rather than repeated here: the World field
+                    // already reads "(vanilla - no mods)".
+                    Ui.Step("Mod files");
+                    Ui.Done("not needed on a vanilla world");
                 }
 
 
@@ -110,8 +109,8 @@ namespace PhValheim
 
 
                 //keep everything on the screen allowing you to read what just happend
-                Console.WriteLine("\n");
-                Console.WriteLine("This window will automatically close in 10 seconds...");
+                Ui.Blank();
+                Ui.Line("This window closes on its own in 10 seconds.");
                 Thread.Sleep(10000);
                 Environment.Exit(0);
 

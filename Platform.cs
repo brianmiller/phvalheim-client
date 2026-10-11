@@ -50,11 +50,12 @@ namespace PhValheim.Platform
         {
           Instance.steamDir = (steamKey.GetValue("SteamPath") as string).Replace('/', '\\');
           Instance.steamExe = (steamKey.GetValue("SteamExe") as string).Replace('/', '\\');
-          Console.WriteLine("Steam root directory was found: " + Instance.steamDir);
+          Ui.Detail("steam root", Instance.steamDir);
         }
         else
         {
-          Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+          Ui.Error("Steam does not appear to be installed.",
+                         "Install Steam, run it once, then launch from PhValheim again.");
           return false;
         }
 
@@ -73,11 +74,11 @@ namespace PhValheim.Platform
 
           if (exitCode < 0)
           {
-            Console.WriteLine("ERROR: Unable to query for steam executable, exiting...");
+            Ui.Error("PhValheim could not work out where Steam is installed.");
             if (Sandbox.Flatpak.InSandbox)
             {
-              Console.WriteLine("       Running as a Flatpak but could not reach the host.");
-              Console.WriteLine("       This build needs --talk-name=org.freedesktop.Flatpak.");
+              Ui.Note("This build is running as a Flatpak but cannot reach the host.");
+              Ui.Note("It needs --talk-name=org.freedesktop.Flatpak.");
             }
             return false;
           }
@@ -93,7 +94,8 @@ namespace PhValheim.Platform
           {
               if (Sandbox.Flatpak.HostShell($"flatpak info {SteamFlatpakId} >/dev/null 2>&1").exitCode != 0)
               {
-                Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+                Ui.Error("Steam does not appear to be installed.",
+                         "Install Steam, run it once, then launch from PhValheim again.");
                 return false;
               }
 
@@ -110,24 +112,32 @@ namespace PhValheim.Platform
               Instance.steamExe = "flatpak";
               Instance.steamDir = $"{home}/.var/app/{SteamFlatpakId}/.local/share/Steam";
 
-              Console.WriteLine("Steam is installed as a Flatpak (" + SteamFlatpakId + ").");
-              Console.WriteLine("Steam root directory was found: " + Instance.steamDir);
+              Ui.Detail("steam", "flatpak " + SteamFlatpakId);
+              Ui.Detail("steam root", Instance.steamDir);
 
               if (!Directory.Exists(Instance.steamDir))
               {
-                Console.WriteLine("");
-                Console.WriteLine("WARNING: that directory is not readable from here.");
+                // The remedy is a single command the player can copy. It used to be split
+                // across four lines with trailing backslashes, which is correct shell and
+                // miserable to retype out of a console window -- and the continuation lines
+                // were indented to a column that made the copy wrong if they did.
                 if (Sandbox.Flatpak.InSandbox)
                 {
-                  Console.WriteLine("         Grant this client access to it with:");
-                  Console.WriteLine("           flatpak override --user \\");
-                  Console.WriteLine("             --filesystem=~/.var/app/" + SteamFlatpakId + " \\");
-                  Console.WriteLine("             com.phvalheim.Client");
+                  // The command goes through Ui.Command, not through Error's hints: hints are
+                  // wrapped to the window and this line is 95 characters, so it came out in
+                  // three unusable pieces. A remedy has to survive being copied.
+                  Ui.Error("Steam's folder exists but is not readable from inside this Flatpak.",
+                           "Grant access by running this, then launch again:");
+                  Ui.Command("flatpak override --user --filesystem=~/.var/app/"
+                             + SteamFlatpakId + " com.phvalheim.Client");
+                  Ui.Blank();
                 }
                 else
                 {
-                  Console.WriteLine("         Has Steam been run at least once?");
+                  Ui.Error("Steam is installed as a Flatpak but its folder does not exist yet.",
+                           "Run Steam at least once, then launch from PhValheim again.");
                 }
+                Ui.Detail("steam root", Instance.steamDir);
                 return false;
               }
           }
@@ -137,7 +147,8 @@ namespace PhValheim.Platform
           }
         } catch (Exception)
         {
-          Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+          Ui.Error("Steam does not appear to be installed.",
+                         "Install Steam, run it once, then launch from PhValheim again.");
           return false;
         }
 
@@ -148,7 +159,8 @@ namespace PhValheim.Platform
         Instance.steamExe = "/Applications/Steam.app/Contents/MacOS/steam_osx";
         if (!File.Exists(Instance.steamExe))
         {
-          Console.WriteLine("ERROR: Steam isn't installed, exiting...");
+          Ui.Error("Steam does not appear to be installed.",
+                         "Install Steam, run it once, then launch from PhValheim again.");
           return false;
         }
         Instance.steamDir = Path.Combine(
@@ -160,7 +172,7 @@ namespace PhValheim.Platform
       }
       else
       {
-        Console.WriteLine("ERROR: Unsupported operating system, exiting...");
+        Ui.Error("This operating system is not supported.");
         return false;
       }
 

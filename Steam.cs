@@ -8,6 +8,8 @@ namespace PhValheim.Steam
         //get our local Valheim installation directory and execuatable
         public static bool ValheimGetter()
         {
+            Ui.Step("Valheim install");
+
             string libraryFolders = Path.Combine(Platform.State.SteamDir, "steamapps", "libraryfolders.vdf");
 
             // ReadAllLines throws if the file is absent, so without this check a machine
@@ -15,8 +17,11 @@ namespace PhValheim.Steam
             // DirectoryNotFoundException stack trace instead of the message below.
             if (!File.Exists(libraryFolders))
             {
-                Console.WriteLine("Steam library list not found at: " + libraryFolders);
-                Console.WriteLine("Is Steam installed? If it lives somewhere unusual, PhValheim could not find it.");
+                Ui.Fail("not found");
+                Ui.Error("PhValheim could not find Steam's library list, so it cannot tell where Valheim is installed.",
+                         "Is Steam installed, and has it been run at least once?",
+                         "If Steam lives somewhere unusual, PhValheim cannot find it there.");
+                Ui.Detail("libraryfolders.vdf", libraryFolders);
                 return false;
             }
 
@@ -27,8 +32,9 @@ namespace PhValheim.Steam
             }
             catch (Exception e)
             {
-                Console.WriteLine("Could not read Steam's library list at: " + libraryFolders);
-                Console.WriteLine("  " + e.Message);
+                Ui.Fail("unreadable");
+                Ui.Error("PhValheim found Steam's library list but could not read it.", e.Message);
+                Ui.Detail("libraryfolders.vdf", libraryFolders);
                 return false;
             }
 
@@ -51,13 +57,18 @@ namespace PhValheim.Steam
                         if (valheimExists)
                         {
                             Platform.State.ValheimDir = Path.Combine(libraryPath ,"steamapps","common","Valheim");
-                            Console.WriteLine("Valheim root directory was found: " + Platform.State.ValheimDir);
+                            // The absolute path is developer detail. A player needs to know
+                            // it was FOUND; the old line made them read a path to learn that.
+                            Ui.Done("found");
+                            Ui.Detail("Valheim", Platform.State.ValheimDir);
                             return true;
                         }
                     }
                 }
             }
-            Console.WriteLine("Valheim not found, exiting...");
+            Ui.Fail("not found");
+            Ui.Error("Valheim is not installed in any of your Steam libraries.",
+                     "Install Valheim in Steam, run it once, then launch from PhValheim again.");
             return false;
         }
     }

@@ -149,8 +149,10 @@ namespace PhValheim.Syncer
                 // Explicitly not fatal. Losing this file costs one hash of the payload on the
                 // next launch -- the very cost it exists to avoid -- and nothing on disk is
                 // wrong. Failing a successful sync over it would be worse than being slow once.
-                Console.WriteLine("  WARNING: Could not write the sync record (" + e.Message + ").");
-                Console.WriteLine("  This is not fatal; the next launch re-checks the payload the slow way.");
+                // Verbose, not a warning. Nothing is wrong for the player -- the only cost is
+                // that the next launch re-hashes the payload instead of trusting a record. A
+                // WARNING for an invisible performance detail trains people to ignore warnings.
+                Ui.Detail("could not write the sync record", e.Message);
             }
         }
 
@@ -169,9 +171,7 @@ namespace PhValheim.Syncer
 
             bool readyToExtract = false;
 
-            Console.WriteLine("");
-            Console.WriteLine("Checking to see if local and remote world contexts match for '" + worldName + "'...");
-            Console.WriteLine("");
+            Ui.Step("PhValheim server");
 
             // Is PhValheim up and ready to use? Asked of the API root, whose body we do not
             // care about -- only that it answered at all.
@@ -186,7 +186,10 @@ namespace PhValheim.Syncer
             }
             catch
             {
-                Console.WriteLine("ERROR: Could not connect to the remote PhValheim server '" + phvalheimURL + "'.");
+                Ui.Fail("unreachable");
+                Ui.Error("Could not reach your PhValheim server at " + phvalheimURL + ".",
+                         "Check your internet connection, then try launching again.",
+                         "If it keeps happening, the server may be down -- ask whoever runs it.");
                 return false;
             }
 
@@ -196,7 +199,9 @@ namespace PhValheim.Syncer
             // vanilla and has no payload at all.
             if (remote.WorldMd5.Length == 0)
             {
-                Console.WriteLine("  ERROR: Remote world '" + worldName + "' does not exist, exiting...");
+                Ui.Fail("connected");
+                Ui.Error("The world '" + worldName + "' does not exist on that server any more.",
+                         "It may have been renamed or removed. Launch it again from the server's web page.");
                 return false;
             }
 
@@ -222,20 +227,23 @@ namespace PhValheim.Syncer
                 try
                 {
                     localWorldMD5 = Tooling.PhValheim.getMD5(localWorldFile);
-                    Console.WriteLine("  Local MD5: " + localWorldMD5 + " (no sync record; hashed the payload once)");
+                    Ui.Detail("local payload", localWorldMD5 + "  (no sync record; hashed once)");
                 }
                 catch
                 {
                     localWorldMD5 = "";
-                    Console.WriteLine("  Local MD5: local world not found, marked for download.");
+                    Ui.Detail("local payload", "not present -- will download");
                 }
             }
             else
             {
-                Console.WriteLine("  Local MD5: " + localWorldMD5 + " (from sync record)");
+                Ui.Detail("local payload", localWorldMD5 + "  (from sync record)");
             }
 
-            Console.WriteLine("  Remote MD5: " + remote.WorldMd5);
+            // A checksum is not information a player can act on, and four lines of them were
+            // the single biggest block of text in this window. They are the reasoning BEHIND
+            // the verdict, so they belong where reasoning goes: PHVALHEIM_VERBOSE.
+            Ui.Detail("server payload", remote.WorldMd5);
 
             // ---- Decide which of the three paths this is -------------------------------
             //
@@ -261,7 +269,8 @@ namespace PhValheim.Syncer
 
             if (canCompareMods)
             {
-                Console.WriteLine("  Mods:       " + localModsMD5 + " -> " + remote.ModsMd5);
+                Ui.Detail("local mods", localModsMD5);
+                Ui.Detail("server mods", remote.ModsMd5);
             }
 
             // What we will hold when the payload step below is done. Tracked separately from
@@ -274,8 +283,11 @@ namespace PhValheim.Syncer
 
             if (needFullSync)
             {
-                Console.WriteLine("");
-                Console.WriteLine("  Local world version doesn't match remote world verison, synchronizing... \n");
+                // Says WHICH of the two questions came back different, because they mean
+                // different things to a player: a changed mod list is a real update, while no
+                // comparable record is a first run or a client that just upgraded.
+                Ui.Done(canCompareMods ? "the mod list changed" : "needs the full download");
+                Ui.Blank();
 
                 Downloader.PhValheim.Go(remoteWorldFile, localWorldFile, worldName);
 
@@ -293,15 +305,18 @@ namespace PhValheim.Syncer
                 }
                 catch
                 {
-                    Console.WriteLine("  ERROR: The world payload did not download.\n");
+                    Ui.Error("The world files did not download.",
+                             "Check your connection and try launching again.");
                     return false;
                 }
 
                 if (gotWorldMD5 != remote.WorldMd5)
                 {
-                    Console.WriteLine("  ERROR: The downloaded world payload is corrupt (expected " +
-                                      remote.WorldMd5 + ", got " + gotWorldMD5 + ").");
-                    Console.WriteLine("  Discarding it and leaving your current install alone. Try launching again.\n");
+                    Ui.Error("The download arrived damaged, so it has been discarded.",
+                             "Your current install has been left alone and still works.",
+                             "Launch again -- this is usually a one-off.");
+                    Ui.Detail("expected md5", remote.WorldMd5);
+                    Ui.Detail("received md5", gotWorldMD5);
 
                     // Remove both, so the next launch cannot pair a stale record with a bad
                     // payload. The extracted world directory is deliberately untouched: the
@@ -319,8 +334,7 @@ namespace PhValheim.Syncer
             }
             else
             {
-                Console.WriteLine("");
-                Console.WriteLine("  Local and remote world verisons match for '" + worldName + "'.\n");
+                Ui.Done("up to date");
 
                 // Corner case: the payload matches but the extracted directory was deleted.
                 // heldConfigMD5 deliberately stays at the LOCAL value here -- re-extracting our
@@ -344,13 +358,14 @@ namespace PhValheim.Syncer
             }
             catch
             {
-                Console.WriteLine("  WARNING: An old directory structure from PhValheim 1.0 was detected and could not be deleted. This isn't fatal, but you shouldn't see this message.");
+                Ui.Warning("A leftover folder from PhValheim 1.0 could not be removed.",
+                           "Nothing is broken and your launch will carry on normally.");
             }
 
             // ---- Full extract ----------------------------------------------------------
             if (readyToExtract)
             {
-                Console.WriteLine("  Extracting world files...\n");
+                Ui.Step("Installing world files");
 
                 //delete world directory, just in case
                 if (Directory.Exists(localWorldDir))
@@ -364,7 +379,10 @@ namespace PhValheim.Syncer
                 }
                 catch
                 {
-                    Console.WriteLine("  ERROR: Extracting world files failed!\n");
+                    Ui.Fail("failed");
+                    Ui.Error("The world files downloaded but could not be unpacked.",
+                             "This is usually a full disk or antivirus holding a file open.",
+                             "Launch again once there is room; the download will not be repeated.");
 
                     // Remove the half-written tree, then record the payload anyway.
                     //
@@ -408,7 +426,7 @@ namespace PhValheim.Syncer
             // touch. Measured on a real world, the config archive is ~7,200x smaller.
             if (needConfigSync)
             {
-                Console.WriteLine("  The mod configuration changed. Fetching just the config archive...\n");
+                Ui.Step("Mod settings");
 
                 Downloader.PhValheim.Go(remoteConfigFile, localConfigFile, worldName);
 
@@ -419,13 +437,17 @@ namespace PhValheim.Syncer
                 }
                 catch
                 {
-                    Console.WriteLine("  WARNING: The config archive did not download. Keeping the configuration you have.\n");
+                    Ui.Fail("kept yours");
+                    Ui.Warning("The updated mod settings did not download, so the ones you already have are being kept.",
+                               "The game will still start. Launch again later to pick them up.");
                     return true;
                 }
 
                 if (gotConfigMD5 != remote.ConfigMd5)
                 {
-                    Console.WriteLine("  WARNING: The config archive is corrupt. Keeping the configuration you have.\n");
+                    Ui.Fail("kept yours");
+                    Ui.Warning("The updated mod settings arrived damaged, so the ones you already have are being kept.",
+                               "The game will still start. Launch again later to pick them up.");
                     try { File.Delete(localConfigFile); } catch { }
                     return true;
                 }
@@ -455,12 +477,14 @@ namespace PhValheim.Syncer
                     // a failed download, which leaves the old config intact. Clear the record
                     // so the next launch re-syncs from scratch rather than trusting a tree we
                     // half-rewrote.
-                    Console.WriteLine("  ERROR: Applying the config archive failed (" + e.Message + ").\n");
+                    Ui.Fail("kept yours");
+                Ui.Warning("The updated mod settings could not be applied, so the ones you already have are being kept.",
+                           e.Message);
                     try { File.Delete(syncRecordFile); } catch { }
                     return false;
                 }
 
-                Console.WriteLine("  Mod configuration updated.\n");
+                Ui.Done("updated");
                 WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, remote.ConfigMd5);
             }
             else if (!hadRecord
@@ -483,6 +507,7 @@ namespace PhValheim.Syncer
             // Unconditional, as before: the guard that used to wrap this was commented out and
             // the variable it tested was never read. Copying four small files is cheap and
             // being certain they match the payload is worth more than skipping them.
+            Ui.Step("Mod loader");
             try
             {
                 Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir, "doorstop_libs"), Path.Combine(valheimDir, "doorstop_libs"));
@@ -494,16 +519,26 @@ namespace PhValheim.Syncer
             }
             catch
             {
-                Console.WriteLine("  ERROR: Installation of doorstop files to Valheim root directory failed!\n");
+                // Named distinctly from the check below. Both printed the SAME sentence, so
+                // "the copy threw" and "the copy claimed to work and the file is not there"
+                // were indistinguishable in a bug report -- and they have different causes.
+                Ui.Fail("failed");
+                Ui.Error("PhValheim could not install the mod loader into your Valheim folder.",
+                         "This is usually antivirus, or Valheim being open already.",
+                         "Close Valheim and Steam, then launch again.");
                 return false;
             }
 
             if (!File.Exists(Path.Combine(valheimDir, "doorstop_config.ini")))
             {
-                Console.WriteLine("  ERROR: Installation of doorstop files to Valheim root directory failed!\n");
+                Ui.Fail("failed");
+                Ui.Error("The mod loader was copied into your Valheim folder but is not there now.",
+                         "Something is removing it -- antivirus quarantine is the usual cause.",
+                         "Allow your Valheim folder in your antivirus, then launch again.");
                 return false;
             }
 
+            Ui.Done("ready");
             return true;
         }
     }

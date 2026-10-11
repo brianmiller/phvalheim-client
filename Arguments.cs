@@ -26,28 +26,48 @@ namespace PhValheim.Arguments
 
         public static bool HaveLaunchPayload => !string.IsNullOrEmpty(RawLaunchPayload);
 
+        /// <summary>
+        /// A launch string with its password field blanked, for printing.
+        ///
+        /// The payload is '?'-delimited and POSITIONAL, with the password at field 2 -- so the
+        /// five "malformed phvalheim URL" paths were each echoing a server password onto the
+        /// screen, on exactly the occasions a player is most likely to screenshot the window
+        /// and paste it somewhere for help. The whole string is still useful for diagnosing a
+        /// bad link; the second field is not.
+        ///
+        /// Blanks field 2 wherever it exists and leaves everything else alone, including a
+        /// string with too few fields -- a malformed payload is the input here, so this cannot
+        /// assume the shape it is trying to describe.
+        /// </summary>
+        public static string Redact(string launchString)
+        {
+            if (string.IsNullOrEmpty(launchString)) { return launchString; }
+
+            string[] parts = launchString.Split('?');
+            if (parts.Length > 2 && parts[2].Length > 0) { parts[2] = "<password>"; }
+            return string.Join("?", parts);
+        }
+
         //get our local Steam installation directory and execuatable
         public static void Usage()
         {
             var phvalheimLauncherVersion = Assembly.GetEntryAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute> ().InformationalVersion;
             phvalheimLauncherVersion = phvalheimLauncherVersion?.Split('+')[0]; // take only before '+'
 
-            Console.WriteLine(
-                    "\n" +
-                    "PhValheim Client Version " + phvalheimLauncherVersion +
-                    "\n\n" +
-                    "Usage: phvalheim-client.exe [OPTION...] [OPTION]...\n" +
-                    "'phvalheim-client' syncs and launches Valheim client contexts with remote server contexts.\n" +
-                    "\n" +
-                    "Examples:\n" +
-                    "\n" +
-                    "  phvalheim-client.exe 'mode' 'worldname' 'hostname' 'password' 'port'\n" +
-                    "  phvalheim-client.exe 'textures' 'worldname' 'texture_pack'\n" +
-                    "  phvalheim-client.exe 'launch' 'Valhalla' 'valheim.mydomain.com' 'myValhallaPassword' 'port'\n" +
-                    "  phvalheim-client.exe 'textures' 'Valhalla' 'coco'\n" +
-                    "  phvalheim-client.exe 'textures' 'Valhalla' 'willybach'\n" +
-                    "\n" +
-                    "");
+            // Short, and in the same format as everything else. The old block listed five
+            // example invocations including a 'textures' mode -- a player never types any of
+            // them (this is started by a phvalheim:// link from the web page), and it was
+            // fourteen lines of the wrong answer directly above the error that mattered.
+            // The real argument form is still here for anyone debugging, behind the verbose
+            // gate along with the rest of the developer detail.
+            Ui.Banner(phvalheimLauncherVersion ?? "");
+            Ui.Line("PhValheim keeps your copy of a modded Valheim world in step with the "
+                    + "server's, then launches the game into it.");
+            Ui.Blank();
+            Ui.Line("It is normally started for you: press Launch on your PhValheim server's "
+                    + "web page, which opens a phvalheim:// link that this client handles.");
+            Ui.Detail("usage", "phvalheim-client phvalheim:///?<base64 launch payload>");
+            Ui.Detail("usage", "set PHVALHEIM_VERBOSE=1 for paths, checksums and launch details");
         }
 
         public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost, ref string httpScheme, ref bool isVanilla)
@@ -57,7 +77,8 @@ namespace PhValheim.Arguments
             if (args.Length == 0)
             {
                 Arguments.PhValheim.Usage();
-                Console.Write("ERROR: No arguments passed.");
+                Ui.Error("No arguments were passed.",
+                         "This client is started by clicking Launch on your PhValheim server's web page.");
                 return false;
             }
             else
@@ -65,8 +86,9 @@ namespace PhValheim.Arguments
 
                 if (args[0] == "phvalheim:///?")
                 {
-                    Console.WriteLine("Launch URL provided: " + args[0]);
-                    Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
+                    Ui.Error("That launch link could not be understood.",
+                             "Launch the world again from your server's web page.");
+                    Ui.Detail("launch url", Redact(args[0]));
                     return false;
                 }
 
@@ -85,8 +107,9 @@ namespace PhValheim.Arguments
                 }
                 catch
                 {
-                    Console.WriteLine("Launch URL provided: " + args[0]);
-                    Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
+                    Ui.Error("That launch link could not be understood.",
+                             "Launch the world again from your server's web page.");
+                    Ui.Detail("launch url", Redact(args[0]));
                     return false;
                 }
                 
@@ -94,8 +117,9 @@ namespace PhValheim.Arguments
 
                     if (argumentsPassed.Length < 2)
                     {
-                        Console.WriteLine("Launch URL provided: " + decodedLaunchString);
-                        Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
+                        Ui.Error("That launch link could not be understood.",
+                                 "Launch the world again from your server's web page.");
+                        Ui.Detail("launch payload", Redact(decodedLaunchString));
                         return false;
                     }
                     else
@@ -106,8 +130,9 @@ namespace PhValheim.Arguments
                     {
                         if (argumentsPassed.Length < 7)
                         {
-                            Console.WriteLine("Launch URL provided: " + decodedLaunchString);
-                            Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
+                            Ui.Error("That launch link could not be understood.",
+                                     "Launch the world again from your server's web page.");
+                            Ui.Detail("launch payload", Redact(decodedLaunchString));
                             return false;
                         }                     
                         else
@@ -143,8 +168,9 @@ namespace PhValheim.Arguments
                     {
                         if (argumentsPassed.Length < 3)
                         {
-                            Console.WriteLine("Launch URL provided: " + decodedLaunchString);
-                            Console.WriteLine("ERROR: malformed phvalheim URL, exiting...");
+                            Ui.Error("That launch link could not be understood.",
+                                     "Launch the world again from your server's web page.");
+                            Ui.Detail("launch payload", Redact(decodedLaunchString));
                             return false;
                         }
                         else

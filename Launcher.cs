@@ -60,15 +60,16 @@ namespace PhValheim.Launcher
         {
             string connect = worldHost + ":" + worldPort;
 
-            Console.WriteLine("  Vanilla world - launching without mods.");
-            Console.WriteLine("  Connecting to: " + connect);
+            // The one place the password belongs on screen: a vanilla world has no Companion
+            // mod, so Valheim's own prompt appears and the player has to type this.
             if (!string.IsNullOrEmpty(worldPassword))
             {
-                Console.WriteLine("");
-                Console.WriteLine("  Valheim will ask for the server password. It is:");
-                Console.WriteLine("      " + worldPassword);
+                Ui.Blank();
+                Ui.Line("Valheim will ask for the server password. It is:");
+                Ui.Blank();
+                Ui.Note(worldPassword);
+                Ui.Blank();
             }
-            Console.WriteLine("");
 
             // Valheim needs Steam up before it starts; on Windows -applaunch handles that
             // itself, but on Linux/macOS we start it the same way the modded path does.
@@ -81,7 +82,7 @@ namespace PhValheim.Launcher
                 // Steam is up always answers "no".
                 if (!Sandbox.Flatpak.HostProcessRunning(steamProcess))
                 {
-                    Console.WriteLine("  Starting Steam...");
+                    Ui.Line("Starting Steam...");
                     Process.Start(Sandbox.Flatpak.HostCommand(steamExe,
                         Platform.State.SteamArgs("-nofriendsui", "-console")));
                     Thread.Sleep(10000);
@@ -103,14 +104,23 @@ namespace PhValheim.Launcher
             string valheimDir = Platform.State.ValheimDir;
             string worldName = Platform.State.WorldName;
 
-            Console.WriteLine("  Launching Valheim with '" + worldName + "' context...");
-            Console.WriteLine("");
-            Console.WriteLine("  Steam root: " + steamDir);
-            Console.WriteLine("  Name: " + worldName);
-            Console.WriteLine("  Password: " + worldPassword);
-            Console.WriteLine("  Host: " + worldHost);
-            Console.WriteLine("  Port: " + worldPort + "/udp");
-            Console.WriteLine("");
+            // THE PASSWORD IS NOT PRINTED HERE, and that is the point of this block.
+            //
+            // It used to be, on every launch -- and on a vanilla one it was printed again a few
+            // lines later by LaunchVanilla, so the same credential appeared twice. On a modded
+            // world the Companion mod fills the prompt in, so the player never reads it and has
+            // no use for it; it was on screen purely because it happened to be in a variable.
+            // These windows get screenshotted into Discord when somebody asks for help, so it
+            // is shown ONLY where the player has to type it, which is the vanilla path below.
+            //
+            // The remaining lines are the ones that answer "did it understand what I clicked":
+            // the world, and where it is connecting. The Steam root is a path, which is
+            // developer detail.
+            Ui.Section("Starting Valheim");
+            Ui.Field("World", worldName);
+            Ui.Field("Address", worldHost + ":" + worldPort + "  (udp)");
+            Ui.Detail("steam root", steamDir);
+            Ui.Detail("password", Ui.Mask(worldPassword) + "  (" + worldPassword.Length + " chars)");
 
             if (isVanilla)
             {
@@ -131,11 +141,11 @@ namespace PhValheim.Launcher
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
 
-                Console.WriteLine("  Linux launch detected...");
+                Ui.Detail("platform", "linux");
 
                 if (Sandbox.Flatpak.InSandbox)
                 {
-                    Console.WriteLine("  Running as a Flatpak - Steam and Valheim will be started on the host.");
+                    Ui.Detail("sandbox", "flatpak -- Steam and Valheim start on the host");
                 }
 
                 // Check if steam is already running
@@ -147,12 +157,12 @@ namespace PhValheim.Launcher
                 // Steam and then sleep ten seconds on every single launch.
                 if (Platform.State.SteamIsFlatpak)
                 {
-                    Console.WriteLine("  Steam is a Flatpak - Valheim will be started inside Steam's sandbox.");
+                    Ui.Detail("sandbox", "Steam is a Flatpak -- Valheim starts inside its sandbox");
                 }
 
                 if (!Sandbox.Flatpak.HostProcessRunning("steam"))
                 {
-                    Console.WriteLine("  Starting Steam...");
+                    Ui.Line("Starting Steam...");
                     Process.Start(Sandbox.Flatpak.HostCommand(@steamExe,
                         Platform.State.SteamArgs("-nofriendsui", "-console")));
 
@@ -270,27 +280,32 @@ namespace PhValheim.Launcher
 
                   startInfo.CreateNoWindow = false;
 
-                  //Console.WriteLine("  Executable: " + exec);
-                  //Console.WriteLine("  Arguments: " + startInfo.Arguments);
-                  //Console.WriteLine("  Working Directory: " + startInfo.WorkingDirectory);
-                  //Console.WriteLine("  DOORSTOP_ENABLE: " + startInfo.EnvironmentVariables["DOORSTOP_ENABLE"]);
-                  //Console.WriteLine("  DOORSTOP_INVOKE_DLL_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_INVOKE_DLL_PATH"]);
-                  //Console.WriteLine("  DOORSTOP_CORLIB_OVERRIDE_PATH: " + startInfo.EnvironmentVariables["DOORSTOP_CORLIB_OVERRIDE_PATH"]);
-                  //Console.WriteLine("  LD_LIBRARY_PATH: " + startInfo.EnvironmentVariables["LD_LIBRARY_PATH"]);
-                  //Console.WriteLine("  LD_PRELOAD: " + startInfo.EnvironmentVariables["LD_PRELOAD"]);
+                  // Live again, behind PHVALHEIM_VERBOSE. This was the right set of things to
+                  // print when a Linux launch goes wrong -- which is exactly why it had been
+                  // commented out rather than deleted: it was too noisy to leave on and too
+                  // useful to lose. A verbose gate is the thing it was missing.
+                  Ui.Detail("exec", exec);
+                  Ui.Detail("args", startInfo.Arguments);
+                  Ui.Detail("cwd", startInfo.WorkingDirectory);
+                  foreach (string ev in new[] { "DOORSTOP_ENABLE", "DOORSTOP_INVOKE_DLL_PATH",
+                                                "DOORSTOP_CORLIB_OVERRIDE_PATH",
+                                                "LD_LIBRARY_PATH", "LD_PRELOAD" })
+                  {
+                      Ui.Detail(ev, startInfo.EnvironmentVariables[ev] ?? "(unset)");
+                  }
 
                   Process.Start(startInfo);
                 }
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                Console.WriteLine("  macOS launch detected...");
+                Ui.Detail("platform", "macos");
 
                 // Check if steam is already running; Valheim needs Steam online at launch
                 string[] pids = Process.GetProcessesByName("steam_osx").Select(p => p.Id.ToString()).ToArray();
                 if (pids.Length == 0)
                 {
-                    Console.WriteLine("  Starting Steam...");
+                    Ui.Line("Starting Steam...");
                     ProcessStartInfo steamStartInfo = new ProcessStartInfo(steamExe);
                     steamStartInfo.UseShellExecute = false;
                     steamStartInfo.Arguments = "-nofriendsui -console";
@@ -310,7 +325,8 @@ namespace PhValheim.Launcher
                     if (File.Exists(bundled))
                         doorstopDylib = bundled;
                     else
-                        Console.WriteLine("  WARNING: libdoorstop.dylib not found in world dir or app bundle");
+                        Ui.Warning("The mod loader for macOS (libdoorstop.dylib) could not be found.",
+                           "Valheim will start WITHOUT mods, so you may not be able to join.");
                 }
 
                 // On Apple Silicon, force Valheim to run under Rosetta 2 (x86_64).
@@ -326,7 +342,7 @@ namespace PhValheim.Launcher
 
                 if (useRosetta)
                 {
-                    Console.WriteLine("  Apple Silicon detected — extracting x86_64 binary for Rosetta 2...");
+                    Ui.Line("Apple Silicon: preparing the x86_64 build for Rosetta 2...");
                     string x86Exec = exec + ".x86_64";
                     try
                     {
@@ -345,7 +361,8 @@ namespace PhValheim.Launcher
                             lipoProc?.WaitForExit(10000);
                             if (lipoProc?.ExitCode != 0)
                             {
-                                Console.WriteLine("  WARNING: lipo -thin failed, falling back to native arm64");
+                                Ui.Warning("Could not extract the x86_64 build, so Valheim will run as native arm64.",
+                               "Mods may not load. See the PhValheim docs for Apple Silicon.");
                                 useRosetta = false;
                             }
                             else
@@ -365,25 +382,26 @@ namespace PhValheim.Launcher
                                 signProc?.WaitForExit(10000);
                                 if (signProc?.ExitCode != 0)
                                 {
-                                    Console.WriteLine("  WARNING: codesign failed, falling back to native arm64");
+                                    Ui.Warning("Could not re-sign the x86_64 build, so Valheim will run as native arm64.",
+                               "Mods may not load. See the PhValheim docs for Apple Silicon.");
                                     useRosetta = false;
                                 }
                                 else
                                 {
-                                    Console.WriteLine("  Re-signed x86_64 binary with entitlements.");
+                                    Ui.Detail("codesign", "re-signed x86_64 with entitlements");
                                 }
                             }
                         }
                         if (useRosetta)
                         {
                             launchExec = x86Exec;
-                            Console.WriteLine("  Launching x86_64 binary under Rosetta 2...");
+                            Ui.Line("Launching under Rosetta 2...");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("  WARNING: Failed to extract x86_64 binary: " + ex.Message);
-                        Console.WriteLine("  Falling back to native arm64 (mods may not work)...");
+                        Ui.Warning("Could not prepare the x86_64 build: " + ex.Message,
+                                   "Valheim will run as native arm64 instead, and mods may not load.");
                     }
                 }
 

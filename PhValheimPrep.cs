@@ -10,33 +10,45 @@ namespace PhValheim.Prep
         {
             inputDir = Environment.ExpandEnvironmentVariables(inputDir);
             bool inputDirExists = System.IO.Directory.Exists(inputDir);
+            // Silent on success, both ways. "PhValheim root directory was found: C:\Users\..."
+            // told a player nothing they could act on and cost two of the first four lines on
+            // screen; whether our own folder exists is our problem, not theirs. The path is
+            // still one PHVALHEIM_VERBOSE away.
             if (!inputDirExists)
             {
-                Console.WriteLine(desc + " directory is missing, creating: " + inputDir);
+                Ui.Detail(desc + " (creating)", inputDir);
 
                 try
                 {
                     Directory.CreateDirectory(inputDir);
                     return true;
                 }
-                catch
+                catch (Exception e)
                 {
-                    Console.WriteLine(desc + " directory could not be created, exiting...");
+                    // Named the directory and the reason. The old message said neither, so a
+                    // permissions problem and a full disk produced the same unactionable line.
+                    Ui.Fail("failed");
+                    Ui.Error("PhValheim could not create its " + desc + " folder.", e.Message,
+                             inputDir);
                     return false;
                 }
 
             }
             else
             {
-                Console.WriteLine(desc + " directory was found: " + inputDir);
+                Ui.Detail(desc, inputDir);
                 return true;
             }
         }
-           
-        
+
+
         //ensure PhValheim's root dir exists, else create it.
         public static bool PhValheimPrep()
         {
+            // One step for both folders. They are one concern to the player and they fail for
+            // the same handful of reasons.
+            Ui.Step("PhValheim folders");
+
             if (!MakeDir(Platform.State.PhValheimDir, "PhValheim root"))
             {
                 return false;
@@ -47,6 +59,7 @@ namespace PhValheim.Prep
                 return false;
             }
 
+            Ui.Done("ready");
             return true;
         }
 
@@ -71,7 +84,7 @@ namespace PhValheim.Prep
 
             else
             {
-                Console.WriteLine("Unsupported Operating System");
+                Ui.Error("This operating system is not supported.");
                 return false;
             }
 
