@@ -243,6 +243,60 @@ namespace PhValheim
         }
 
         /// <summary>
+        /// A verbose checksum comparison that states its own verdict.
+        ///
+        /// Two checksums printed side by side is an invitation to eyeball them, so the display
+        /// has to draw the same conclusion the code does. It did not: "local payload" and
+        /// "server payload" were shown as a pair, nothing compares them, and once a repackage
+        /// has happened they never match again -- so a correct, fully synced install read as
+        /// permanently out of sync. Anything shown as a pair now says SAME or DIFFER itself,
+        /// and names the decision it drives, so the reader never has to guess which pair is
+        /// load-bearing.
+        /// </summary>
+        public static void Compare(string what, string decides, string local, string server)
+        {
+            if (!Verbose) { return; }
+
+            bool same = (local == server);
+            string head = Indent + "  [compare] " + what + " ";
+            string dots = "";
+            if (head.Length < StatusColumn) { dots = new string('.', StatusColumn - head.Length); }
+
+            CloseStep();
+            Paint(head, ConsoleColor.DarkGray);
+            Paint(dots + " ", ConsoleColor.DarkGray);
+            Paint(same ? "SAME" : "DIFFER", same ? ConsoleColor.Green : ConsoleColor.Yellow);
+            Console.WriteLine();
+            lastWasBlank = false;
+
+            Emit(Indent + "            decides  " + decides, ConsoleColor.DarkGray);
+            Emit(Indent + "            yours    " + Shown(local), ConsoleColor.DarkGray);
+            Emit(Indent + "            server   " + Shown(server), ConsoleColor.DarkGray);
+        }
+
+        /// <summary>
+        /// A verbose checksum that is NOT part of any comparison, labelled as such.
+        ///
+        /// Exists so a value can be reported without implying a verdict. An unexplained
+        /// checksum next to a compared one gets read as another comparison.
+        /// </summary>
+        public static void Reference(string what, string value, string why)
+        {
+            if (!Verbose) { return; }
+            Emit(Indent + "  [value]   " + what + " " + Shown(value), ConsoleColor.DarkGray);
+            foreach (string l in WrapLines("not compared -- " + why, Indent + "            "))
+            {
+                Emit(l, ConsoleColor.DarkGray);
+            }
+        }
+
+        /// <summary>An empty checksum is a real state ("I have no record"), not a blank line.</summary>
+        private static string Shown(string value)
+        {
+            return (value == null || value.Length == 0) ? "(none recorded)" : value;
+        }
+
+        /// <summary>
         /// A problem the player may be able to do something about. `hints` are printed under it,
         /// indented, so a remedy is attached to the thing it remedies rather than floating as
         /// another top-level line.

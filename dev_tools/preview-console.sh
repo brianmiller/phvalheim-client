@@ -146,8 +146,28 @@ class Preview
         Console.WriteLine("verbose mode: " + (Ui.Verbose ? "ON" : "off (set PHVALHEIM_VERBOSE=1)"));
         if (Ui.Verbose)
         {
-            Ui.Detail("local payload", "9f2c7a1e4b8d6f30a5c9e7b2d4f6a8c0  (from sync record)");
-            Ui.Detail("server payload", "9f2c7a1e4b8d6f30a5c9e7b2d4f6a8c0");
+            // The case Brian hit: mods match, payload bytes differ because the server
+            // repackaged. The old display showed the payload pair and read as "out of sync".
+            Scene("verbose: synced world whose payload was repackaged");
+            Ui.Compare("mod content", "whether the full payload downloads",
+                       "1f1854db4888186af7a611f721b5d235", "1f1854db4888186af7a611f721b5d235");
+            Ui.Reference("payload bytes", "5511377080e586144daff4639bc7ea7f",
+                         "the server rebuilds the zip whenever settings change, so this moves "
+                         + "on its own and differing is normal. It is used to verify a "
+                         + "download, not to decide on one.");
+            Ui.Compare("mod settings", "whether the small settings update downloads",
+                       "a1b2c3d4e5f60718293a4b5c6d7e8f90", "a1b2c3d4e5f60718293a4b5c6d7e8f90");
+
+            Scene("verbose: a real mod-list change, plus no settings record");
+            Ui.Compare("mod content", "whether the full payload downloads",
+                       "1f1854db4888186af7a611f721b5d235", "7c3e9a0b1d2f4856a7b8c9d0e1f20314");
+            Ui.Compare("mod settings", "whether the small settings update downloads",
+                       "", "a1b2c3d4e5f60718293a4b5c6d7e8f90");
+
+            Scene("verbose: pre-2.55 server, and the password mask");
+            Ui.Compare("payload", "whether the full payload downloads (no mod record to compare)",
+                       "9f2c7a1e4b8d6f30a5c9e7b2d4f6a8c0", "9f2c7a1e4b8d6f30a5c9e7b2d4f6a8c0");
+            Ui.Detail("mod settings", "this server publishes no settings checksum (pre-2.55) -- nothing to compare");
             Ui.Detail("password", Ui.Mask("Rh9kmTqw4vXzPLm2") + "  (16 chars)");
         }
     }

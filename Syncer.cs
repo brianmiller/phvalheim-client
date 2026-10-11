@@ -230,23 +230,14 @@ namespace PhValheim.Syncer
                 try
                 {
                     localWorldMD5 = Tooling.PhValheim.getMD5(localWorldFile);
-                    Ui.Detail("local payload", localWorldMD5 + "  (no sync record; hashed once)");
+                    Ui.Detail("no sync record -- hashed the payload once");
                 }
                 catch
                 {
                     localWorldMD5 = "";
-                    Ui.Detail("local payload", "not present -- will download");
+                    Ui.Detail("no payload on disk -- will download");
                 }
             }
-            else
-            {
-                Ui.Detail("local payload", localWorldMD5 + "  (from sync record)");
-            }
-
-            // A checksum is not information a player can act on, and four lines of them were
-            // the single biggest block of text in this window. They are the reasoning BEHIND
-            // the verdict, so they belong where reasoning goes: PHVALHEIM_VERBOSE.
-            Ui.Detail("server payload", remote.WorldMd5);
 
             // ---- Decide which of the three paths this is -------------------------------
             //
@@ -270,10 +261,36 @@ namespace PhValheim.Syncer
                                                : (localWorldMD5 != remote.WorldMd5);
             bool needConfigSync = false;
 
+            // Show the comparison that actually DECIDES, with its verdict, and nothing shaped
+            // like a comparison that is not one. The previous block printed local and server
+            // PAYLOAD checksums as a pair: nothing compares those two, and a repackage rebuilds
+            // the zip, so on a correctly synced install they differ forever. Read as a sync
+            // status -- which is exactly how it reads -- it was permanently, wrongly, "no".
             if (canCompareMods)
             {
-                Ui.Detail("local mods", localModsMD5);
-                Ui.Detail("server mods", remote.ModsMd5);
+                Ui.Compare("mod content", "whether the full payload downloads",
+                           localModsMD5, remote.ModsMd5);
+            }
+            else
+            {
+                // The fallback really is the zip comparison here, so this pair IS the decision
+                // and is shown as one.
+                Ui.Compare("payload", "whether the full payload downloads (no mod record to compare)",
+                           localWorldMD5, remote.WorldMd5);
+            }
+
+            // The mod-settings comparison is NOT shown here. Its decision is taken after the
+            // payload step, against what we then HOLD -- a full download brings the server's
+            // settings with it, so comparing the pre-download value here would print DIFFER
+            // immediately before the difference is resolved. It is shown at the decision.
+
+            // Reported, not compared -- so it cannot be mistaken for a third verdict.
+            if (canCompareMods)
+            {
+                Ui.Reference("payload bytes", localWorldMD5,
+                             "the server rebuilds the zip whenever settings change, so this moves "
+                             + "on its own and differing is normal. It is used to verify a "
+                             + "download, not to decide on one.");
             }
 
             // What we will hold when the payload step below is done. Tracked separately from
@@ -421,6 +438,19 @@ namespace PhValheim.Syncer
             // compare. An empty held value means we do not know what we have -- which counts as
             // different, costing one 80 KB download rather than missing a change forever.
             needConfigSync = (remote.ConfigMd5.Length > 0 && heldConfigMD5 != remote.ConfigMd5);
+
+            // Shown HERE, at the decision, against what we actually hold now -- which after a
+            // full download is the server's own value, so this correctly reads SAME rather than
+            // reporting a difference the download just resolved.
+            if (remote.ConfigMd5.Length > 0)
+            {
+                Ui.Compare("mod settings", "whether the small settings update downloads",
+                           heldConfigMD5, remote.ConfigMd5);
+            }
+            else
+            {
+                Ui.Detail("mod settings", "this server publishes no settings checksum (pre-2.55) -- nothing to compare");
+            }
 
             // ---- Config-only sync ------------------------------------------------------
             //
