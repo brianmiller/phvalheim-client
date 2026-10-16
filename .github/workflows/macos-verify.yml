@@ -56,6 +56,127 @@ jobs:
           # tee, not plain redirect: a probe whose answer only exists in the
           # rendered summary cannot be read from `gh run view --log`.
 
+  # ── Why macOS called Valheim "damaged", measured rather than asserted ────────
+  #
+  # A user reported: `"valheim" is damaged and can't be opened`. The diagnosis is that
+  # PhValheim 2.0.15 and earlier wrote Valheim.x86_64 into Valheim.app/Contents/MacOS/ and
+  # codesigned it there, invalidating the bundle's sealed resource envelope.
+  #
+  # That is a claim about how codesign behaves, and it is cheap to actually test. This job
+  # builds a synthetic signed bundle and measures four things in order:
+  #
+  #   1. a freshly signed bundle verifies            (control -- the harness can tell valid)
+  #   2. adding a file under Contents/MacOS breaks it (the CAUSE)
+  #   3. DELETING that file makes it verify again     (the REPAIR is complete)
+  #   4. a shadow bundle with symlinked Resources runs and resolves its own bundle path
+  #      (the replacement approach works)
+  #
+  # (3) is the one worth the runner time: RepairValheimBundle() only deletes, and never
+  # re-signs, on the reasoning that the seal was computed over a tree without that file. If
+  # that reasoning is wrong, affected users stay broken and we would not otherwise find out.
+  bundle-seal:
+    name: Bundle seal -- cause and repair
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Measure what an extra file does to a signed bundle
+        timeout-minutes: 5
+        run: |
+          set -u
+          PASS=0; FAIL=0
+          ok(){   echo "  PASS: $1"; PASS=$((PASS+1)); }
+          bad(){  echo "  FAIL: $1"; [ -n "${2:-}" ] && echo "        $2"; FAIL=$((FAIL+1)); }
+
+          APP="$RUNNER_TEMP/Sealed.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>Sealed</string>
+            <key>CFBundleIdentifier</key><string>com.phvalheim.sealtest</string>
+            <key>CFBundleName</key><string>Sealed</string>
+            <key>CFBundleVersion</key><string>1.0</string>
+          </dict></plist>
+          PLIST
+
+          # A real Mach-O, because codesign will not seal a shell script as a main executable.
+          cat > "$RUNNER_TEMP/seal.c" <<'C'
+          #include <stdio.h>
+          int main(void){ printf("sealed-ok\n"); return 0; }
+          C
+          cc -o "$APP/Contents/MacOS/Sealed" "$RUNNER_TEMP/seal.c"
+          echo "data" > "$APP/Contents/Resources/payload.txt"
+
+          codesign --force --sign - --deep "$APP"
+
+          # 1. CONTROL. If a freshly signed bundle does not verify, nothing below means anything.
+          if codesign --verify --strict --deep "$APP" 2>/dev/null; then
+            ok "control: a freshly signed bundle verifies"
+          else
+            bad "a freshly signed bundle does NOT verify" \
+                "the harness cannot distinguish valid from invalid; every result below is void"
+          fi
+
+          # 2. THE CAUSE. Exactly what PhValheim 2.0.15 did.
+          cp "$APP/Contents/MacOS/Sealed" "$APP/Contents/MacOS/Sealed.x86_64"
+          if codesign --verify --strict --deep "$APP" 2>/dev/null; then
+            bad "an unlisted file under Contents/MacOS did NOT break the seal" \
+                "the whole diagnosis for the 'damaged' report is wrong -- investigate before shipping"
+          else
+            ok "an unlisted file under Contents/MacOS INVALIDATES the seal (the reported cause)"
+            echo "        verdict: $(codesign --verify --strict --deep "$APP" 2>&1 | head -1)"
+          fi
+
+          # And that is the state Gatekeeper reports as "damaged". Recorded, not gated:
+          # spctl's wording and its treatment of ad-hoc signatures vary by OS version, so a
+          # hard assertion here would be brittle. The codesign verdict above is the real claim.
+          echo "        spctl:  $(spctl -a -vv "$APP" 2>&1 | head -2 | tr '\n' ' ')"
+
+          # 3. THE REPAIR. Deleting the file must restore validity with the ORIGINAL signature.
+          #    RepairValheimBundle() does exactly this and deliberately does not re-sign.
+          rm -f "$APP/Contents/MacOS/Sealed.x86_64"
+          if codesign --verify --strict --deep "$APP" 2>/dev/null; then
+            ok "deleting the stray file restores the seal WITHOUT re-signing (the repair is complete)"
+          else
+            bad "the bundle is still invalid after deleting the stray file" \
+                "RepairValheimBundle() would not be enough; affected users would need a Steam verify"
+          fi
+
+          # 4. THE REPLACEMENT. A shadow bundle whose heavy directories are symlinks back into
+          #    a real install must still launch and resolve its own bundle path -- that is what
+          #    lets Unity find Contents/Resources/Data.
+          SHADOW="$RUNNER_TEMP/shadow/Sealed.app"
+          rm -rf "$RUNNER_TEMP/shadow"; mkdir -p "$SHADOW/Contents/MacOS"
+          cp "$APP/Contents/Info.plist" "$SHADOW/Contents/Info.plist"
+          cc -o "$SHADOW/Contents/MacOS/Sealed" "$RUNNER_TEMP/seal.c"
+          ln -s "$APP/Contents/Resources" "$SHADOW/Contents/Resources"
+          codesign --force --sign - "$SHADOW/Contents/MacOS/Sealed"
+
+          out=$("$SHADOW/Contents/MacOS/Sealed" 2>&1); rc=$?
+          [ "$rc" -eq 0 ] && [ "$out" = "sealed-ok" ] \
+            && ok "the shadow bundle's executable runs (rc=0)" \
+            || bad "the shadow bundle's executable did not run" "rc=$rc out=$out"
+
+          [ -r "$SHADOW/Contents/Resources/payload.txt" ] \
+            && ok "Resources resolves through the symlink, so Unity would find its Data dir" \
+            || bad "the symlinked Resources directory is not readable from the shadow bundle"
+
+          # The game's own bundle must come away untouched by all of the above.
+          if codesign --verify --strict --deep "$APP" 2>/dev/null; then
+            ok "the original bundle is still valid after the shadow was built beside it"
+          else
+            bad "building the shadow bundle damaged the original"
+          fi
+
+          echo
+          echo "$PASS passed, $FAIL failed"
+          [ "$FAIL" -eq 0 ] || exit 1
+
   # ── The gate: build natively, install, prove it runs ─────────────────────────
   native:
     name: Native build + install + verify

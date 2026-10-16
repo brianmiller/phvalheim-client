@@ -359,72 +359,53 @@ namespace PhValheim.Launcher
                            "Valheim will start WITHOUT mods, so you may not be able to join.");
                 }
 
+                // FIRST, undo the damage older versions did. This is a repair, and it has to
+                // run before anything else looks at the bundle.
+                //
+                // 2.0.15 and earlier wrote the thinned x86_64 binary to
+                // Valheim.app/Contents/MacOS/Valheim.x86_64 -- INSIDE Steam's signed app
+                // bundle -- and then ran `codesign --force` on it. Both halves break the
+                // bundle. A signed bundle carries a sealed manifest of its contents in
+                // Contents/_CodeSignature/CodeResources, and files under Contents/MacOS that
+                // are not the main executable are sealed as resources. An unlisted file there
+                // makes the resource envelope invalid, and macOS reports that as:
+                //
+                //     "Valheim" is damaged and can't be opened. You should move it to the Trash.
+                //
+                // which is what a macOS user reported. It reads like a corrupt download, so
+                // nobody looks at the mod launcher for it.
+                //
+                // Deleting the stray file is a COMPLETE repair, and that is worth being precise
+                // about: CodeResources never listed the file, so its absence is the state the
+                // seal was computed over. Iron Gate's original signature becomes valid again on
+                // its own -- nothing needs re-signing, and we must not re-sign, because ad-hoc
+                // signing over their identity is a second, different kind of damage.
+                RepairValheimBundle(valheimDir);
+
                 // On Apple Silicon, force Valheim to run under Rosetta 2 (x86_64).
                 // MonoMod v22 (bundled with BepInEx 5.x) cannot write detour trampolines
                 // on arm64 due to MAP_JIT W^X hardware enforcement. Running under Rosetta
                 // uses the x86_64 MonoMod code path which works correctly.
                 //
-                // We use lipo -thin to extract the x86_64 slice from the universal binary.
-                // This forces Rosetta without using /usr/bin/arch (which strips DYLD_ vars
-                // due to SIP, breaking doorstop injection).
+                // We still use lipo -thin, because /usr/bin/arch strips DYLD_ vars under SIP
+                // and that kills doorstop injection. What changed is WHERE the output goes:
+                // into a PhValheim-owned shadow bundle, never into Valheim.app.
                 bool useRosetta = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
                 string launchExec = exec;
 
                 if (useRosetta)
                 {
                     Ui.Line("Apple Silicon: preparing the x86_64 build for Rosetta 2...");
-                    string x86Exec = exec + ".x86_64";
                     try
                     {
-                        // Only re-extract if the source binary is newer than our cached copy
-                        if (!File.Exists(x86Exec) || File.GetLastWriteTimeUtc(exec) > File.GetLastWriteTimeUtc(x86Exec))
+                        string shadowExec = PrepareRosettaBundle(valheimDir, worldDir, exec);
+                        if (shadowExec == null)
                         {
-                            var lipo = new ProcessStartInfo("/usr/bin/lipo");
-                            lipo.ArgumentList.Add("-thin");
-                            lipo.ArgumentList.Add("x86_64");
-                            lipo.ArgumentList.Add(exec);
-                            lipo.ArgumentList.Add("-output");
-                            lipo.ArgumentList.Add(x86Exec);
-                            lipo.UseShellExecute = false;
-                            lipo.RedirectStandardError = true;
-                            var lipoProc = Process.Start(lipo);
-                            lipoProc?.WaitForExit(10000);
-                            if (lipoProc?.ExitCode != 0)
-                            {
-                                Ui.Warning("Could not extract the x86_64 build, so Valheim will run as native arm64.",
-                               "Mods may not load. See the PhValheim docs for Apple Silicon.");
-                                useRosetta = false;
-                            }
-                            else
-                            {
-                                // Re-sign with ad-hoc signature preserving original entitlements.
-                                // lipo -thin invalidates the code signature; without re-signing,
-                                // macOS kills the binary with SIGKILL (Code Signature Invalid).
-                                var codesign = new ProcessStartInfo("/usr/bin/codesign");
-                                codesign.ArgumentList.Add("--force");
-                                codesign.ArgumentList.Add("--sign");
-                                codesign.ArgumentList.Add("-");
-                                codesign.ArgumentList.Add("--preserve-metadata=entitlements,flags");
-                                codesign.ArgumentList.Add(x86Exec);
-                                codesign.UseShellExecute = false;
-                                codesign.RedirectStandardError = true;
-                                var signProc = Process.Start(codesign);
-                                signProc?.WaitForExit(10000);
-                                if (signProc?.ExitCode != 0)
-                                {
-                                    Ui.Warning("Could not re-sign the x86_64 build, so Valheim will run as native arm64.",
-                               "Mods may not load. See the PhValheim docs for Apple Silicon.");
-                                    useRosetta = false;
-                                }
-                                else
-                                {
-                                    Ui.Detail("codesign", "re-signed x86_64 with entitlements");
-                                }
-                            }
+                            useRosetta = false;
                         }
-                        if (useRosetta)
+                        else
                         {
-                            launchExec = x86Exec;
+                            launchExec = shadowExec;
                             Ui.Line("Launching under Rosetta 2...");
                         }
                     }
@@ -432,6 +413,7 @@ namespace PhValheim.Launcher
                     {
                         Ui.Warning("Could not prepare the x86_64 build: " + ex.Message,
                                    "Valheim will run as native arm64 instead, and mods may not load.");
+                        useRosetta = false;
                     }
                 }
 
@@ -455,6 +437,176 @@ namespace PhValheim.Launcher
 
                 Process.Start(startInfo);
             }
+        }
+
+        /// <summary>
+        /// Remove anything an older PhValheim wrote inside Steam's signed Valheim.app.
+        /// </summary>
+        /// <remarks>
+        /// Up to and including 2.0.15 the Rosetta path put its thinned binary at
+        /// Contents/MacOS/Valheim.x86_64 and codesigned it in place. A signed bundle seals its
+        /// contents in Contents/_CodeSignature/CodeResources, and an unlisted file under
+        /// Contents/MacOS invalidates that envelope -- which macOS surfaces as
+        /// <c>"Valheim" is damaged and can't be opened</c>, a message that points the user at
+        /// their download rather than at us.
+        ///
+        /// Deleting the file is the whole repair. The seal was computed over a tree that did
+        /// not contain it, so removing it restores the original signature's validity exactly.
+        /// We deliberately do NOT re-sign: replacing Iron Gate's identity with an ad-hoc one
+        /// would be a second kind of damage, and would survive a Steam "verify integrity".
+        ///
+        /// Silent when there is nothing to do, which is the common case -- a user who never ran
+        /// an affected version should see no mention of a problem they do not have.
+        /// </remarks>
+        private static void RepairValheimBundle(string valheimDir)
+        {
+            try
+            {
+                string macOsDir = Path.Combine(valheimDir, "Valheim.app", "Contents", "MacOS");
+                if (!Directory.Exists(macOsDir)) { return; }
+
+                // Only ever our own leavings. Anything else in here belongs to the game, and a
+                // launcher that deletes files it does not recognise out of someone's Steam
+                // install is worse than the bug it is fixing.
+                foreach (string stray in Directory.GetFiles(macOsDir, "Valheim.x86_64"))
+                {
+                    File.Delete(stray);
+                    Ui.Line("Repaired the Valheim app bundle (an older PhValheim left a file inside it,");
+                    Ui.Line("which is what made macOS call Valheim \"damaged\").");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Not fatal: the launch below may still work, and on an unaffected install
+                // there was nothing to repair anyway.
+                Ui.Warning("Could not tidy up the Valheim app bundle: " + ex.Message,
+                           "If macOS says Valheim is damaged, use Steam > Valheim > Properties > "
+                           + "Installed Files > Verify integrity.");
+            }
+        }
+
+        /// <summary>
+        /// Build a PhValheim-owned app bundle whose executable is the x86_64 slice of Valheim,
+        /// so Rosetta can be forced without touching Steam's bundle. Returns the path to launch,
+        /// or null if the x86_64 build could not be prepared.
+        /// </summary>
+        /// <remarks>
+        /// Why a bundle at all, rather than just a loose binary somewhere: Unity's macOS player
+        /// locates its data through NSBundle.mainBundle, as
+        /// <c>&lt;bundle&gt;/Contents/Resources/Data</c>. Run the executable from outside a
+        /// bundle and mainBundle resolves somewhere else and the game finds no data. So the
+        /// shadow has to have the shape of a bundle.
+        ///
+        /// Only two real files are created -- Info.plist and the thinned executable. Resources,
+        /// Frameworks and PlugIns are SYMLINKS back into the real install, so this costs
+        /// kilobytes rather than copying a multi-gigabyte game, and the game's own files are
+        /// never duplicated or modified.
+        ///
+        /// No _CodeSignature is produced and none is wanted. The shadow is ad-hoc signed at the
+        /// executable level only; it is a file we just created, so it carries no quarantine
+        /// attribute and Gatekeeper is not consulted. Ad-hoc also keeps the binary
+        /// non-platform, which is what preserves DYLD_INSERT_LIBRARIES for doorstop -- the
+        /// reason /usr/bin/arch was rejected in the first place.
+        /// </remarks>
+        private static string PrepareRosettaBundle(string valheimDir, string worldDir, string exec)
+        {
+            string realContents = Path.Combine(valheimDir, "Valheim.app", "Contents");
+            string shadowApp = Path.Combine(worldDir, "rosetta", "Valheim.app");
+            string shadowContents = Path.Combine(shadowApp, "Contents");
+            string shadowMacOs = Path.Combine(shadowContents, "MacOS");
+            string shadowExec = Path.Combine(shadowMacOs, "Valheim");
+
+            Directory.CreateDirectory(shadowMacOs);
+
+            // Re-thin only when Steam's binary is newer than the slice we cached. A Valheim
+            // update rewrites the universal binary, and a stale slice would quietly launch the
+            // previous build against the current data files.
+            bool stale = !File.Exists(shadowExec)
+                         || File.GetLastWriteTimeUtc(exec) > File.GetLastWriteTimeUtc(shadowExec);
+
+            if (stale)
+            {
+                if (File.Exists(shadowExec)) { File.Delete(shadowExec); }
+
+                if (!Run("/usr/bin/lipo", new[] { "-thin", "x86_64", exec, "-output", shadowExec }))
+                {
+                    Ui.Warning("Could not extract the x86_64 build, so Valheim will run as native arm64.",
+                               "Mods may not load. See the PhValheim docs for Apple Silicon.");
+                    return null;
+                }
+
+                // lipo -thin drops the linker's per-slice ad-hoc signature. Re-sign so the
+                // binary is a normal signed executable rather than an unsigned one.
+                if (!Run("/usr/bin/codesign", new[] { "--force", "--sign", "-",
+                                                      "--preserve-metadata=entitlements,flags",
+                                                      shadowExec }))
+                {
+                    Ui.Warning("Could not re-sign the x86_64 build, so Valheim will run as native arm64.",
+                               "Mods may not load. See the PhValheim docs for Apple Silicon.");
+                    return null;
+                }
+
+                Ui.Detail("codesign", "re-signed the x86_64 slice (outside the game's bundle)");
+            }
+
+            // Info.plist is copied, not linked: it is the one file whose contents the shadow
+            // bundle genuinely owns, and CFBundleExecutable must name OUR executable.
+            string realPlist = Path.Combine(realContents, "Info.plist");
+            string shadowPlist = Path.Combine(shadowContents, "Info.plist");
+            if (File.Exists(realPlist)
+                && (!File.Exists(shadowPlist)
+                    || File.GetLastWriteTimeUtc(realPlist) > File.GetLastWriteTimeUtc(shadowPlist)))
+            {
+                File.Copy(realPlist, shadowPlist, true);
+            }
+
+            // Everything heavy is a symlink. Resources is the load-bearing one -- it is where
+            // Unity's Data directory lives. Frameworks carries libmonobdwgc, PlugIns may be
+            // absent on some builds, which is not an error.
+            foreach (string dir in new[] { "Resources", "Frameworks", "PlugIns" })
+            {
+                string target = Path.Combine(realContents, dir);
+                string link = Path.Combine(shadowContents, dir);
+                if (!Directory.Exists(target)) { continue; }
+
+                // A symlink whose target moved (Steam library relocated, world renamed) is
+                // worse than no symlink: it resolves to nothing and the game starts with no
+                // data. Recreate rather than trust an existing one.
+                if (Directory.Exists(link) || File.Exists(link))
+                {
+                    try { Directory.Delete(link); } catch (IOException) { File.Delete(link); }
+                }
+                Directory.CreateSymbolicLink(link, target);
+            }
+
+            if (!Directory.Exists(Path.Combine(shadowContents, "Resources")))
+            {
+                Ui.Warning("Could not link the Valheim data files into the Rosetta bundle.",
+                           "Valheim will run as native arm64 instead, and mods may not load.");
+                return null;
+            }
+
+            Ui.Detail("rosetta bundle", shadowApp);
+            return shadowExec;
+        }
+
+        /// <summary>Run a tool, wait, and report whether it exited 0.</summary>
+        private static bool Run(string exe, string[] args)
+        {
+            var psi = new ProcessStartInfo(exe);
+            foreach (string a in args) { psi.ArgumentList.Add(a); }
+            psi.UseShellExecute = false;
+            psi.RedirectStandardError = true;
+            using var proc = Process.Start(psi);
+            if (proc == null) { return false; }
+            // A tool that hangs must not hang the launcher. 60s is generous for lipo on a
+            // ~1 GB binary and for codesign on the slice it produces.
+            if (!proc.WaitForExit(60000))
+            {
+                try { proc.Kill(true); } catch { }
+                return false;
+            }
+            return proc.ExitCode == 0;
         }
     }
 }
