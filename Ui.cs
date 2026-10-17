@@ -34,6 +34,22 @@ namespace PhValheim
         private static bool lastWasBlank = true;   // true, so a leading Blank() prints nothing
         private static bool stepOpen = false;
 
+        // An in-place progress line, tracked SEPARATELY from stepOpen.
+        //
+        // It used to reuse stepOpen, and that is what stopped the download bar staying on one
+        // line: Progress() opens with CloseStep() and closed by setting stepOpen = true, so the
+        // SECOND update found a step open, wrote a newline, and the "\r" returned to the start
+        // of a fresh line. One line per percent for the whole download. The flag meant to stop
+        // ordinary output landing on the progress line was defeating the rewrite itself.
+        //
+        // progressLen is how much to erase: an update shorter than the one it replaces must
+        // blank the remainder, or "5%   29 MB" over "100%   573 MB of 573 MB" reads as
+        // "5%   29 MBof 573 MB". Erasing by the tracked length rather than padding to Width
+        // matters on a narrow window -- a pad that wraps puts the cursor on the next row, and
+        // then "\r" returns to the start of the WRAPPED fragment, which scrolls all over again.
+        private static bool progressOpen = false;
+        private static int progressLen = 0;
+
         /// <summary>
         /// Developer detail: absolute paths, MD5 hashes, the resolved launch payload.
         ///
@@ -158,6 +174,15 @@ namespace PhValheim
         // output closes it -- an unfinished step prints as an honest blank status.
         private static void CloseStep()
         {
+            // A progress line is unterminated too, and for the same reason: anything else that
+            // prints has to get off it first, or it overwrites the figure the player is reading.
+            if (progressOpen)
+            {
+                progressOpen = false;
+                progressLen = 0;
+                Console.WriteLine();
+                lastWasBlank = false;
+            }
             if (!stepOpen) { return; }
             stepOpen = false;
             Console.WriteLine();
@@ -372,10 +397,18 @@ namespace PhValheim
         /// </summary>
         public static void Progress(string message)
         {
-            CloseStep();
-            Console.Write("\r" + Indent + "    " + message);
+            // Close a STEP, but never the progress line itself -- it is the thing being
+            // rewritten. CloseStep() handles only an open step here because the progress flag
+            // is cleared first; calling it unguarded would newline every update, which is the
+            // bug this replaced.
+            if (stepOpen) { CloseStep(); }
+
+            string line = Indent + "    " + message;
+            int erase = progressLen - line.Length;
+            Console.Write("\r" + line + (erase > 0 ? new string(' ', erase) : string.Empty));
+            progressLen = line.Length;
+            progressOpen = true;
             lastWasBlank = false;
-            stepOpen = true;   // so the next ordinary line does not land on this one
         }
 
         /// <summary>
@@ -386,8 +419,15 @@ namespace PhValheim
         public static void ProgressDone(string message)
         {
             string line = Indent + "    " + message;
-            Console.Write("\r" + line.PadRight(Width + 4));
+            // Erase by the tracked length, not PadRight(Width + 4). That constant is 80 -- the
+            // full width of cmd.exe's default window -- so on an 80-column terminal the pad
+            // filled the row exactly and the console wrapped, leaving a stray blank line under
+            // every finished download.
+            int erase = progressLen - line.Length;
+            Console.Write("\r" + line + (erase > 0 ? new string(' ', erase) : string.Empty));
             Console.WriteLine();
+            progressOpen = false;
+            progressLen = 0;
             stepOpen = false;
             lastWasBlank = false;
         }
