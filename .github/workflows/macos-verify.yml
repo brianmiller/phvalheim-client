@@ -22,6 +22,10 @@ on:
       # The oracle tests themselves. Without this, editing a test did not run it -- the gate
       # that is supposed to catch a broken test could only ever see a broken source file.
       - 'dev_tools/**'
+      - 'builders/verify_msi_upgrade.ps1'
+      - 'builders/verify_msi_identity.sh'
+      - 'builders/msi-productcodes.tsv'
+      - 'builders/wxs/**'
   pull_request:
 
 jobs:
@@ -151,6 +155,84 @@ jobs:
           echo
           [ "$fails" -eq 0 ] || { echo "$fails mutation(s) went unnoticed"; exit 1; }
           echo "every mutation was caught"
+  # ── The .msi identity ledger ─────────────────────────────────────────────────
+  # Cheap, Linux-only, and it answers a question no install test can: has a PUBLISHED
+  # asset been rebuilt and re-uploaded under the same version? <Product Id="*"> mints a
+  # new ProductCode every build, so that silently strands everyone who downloaded the
+  # first file -- they cannot upgrade and cannot cleanly reinstall.
+  msi-identity:
+    name: .msi identity vs the ledger
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install msitools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq msitools
+      - name: Compare every published .msi against builders/msi-productcodes.tsv
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash builders/verify_msi_identity.sh
+
+  # ── Does Windows agree to UPGRADE what we shipped? ───────────────────────────
+  # The question that burned us: a user upgrading 2.0.14 -> 2.0.15 got "The installer
+  # encountered an unexpected error installing this package." Everything we had was
+  # static -- verify_msi.sh reads the Upgrade table with msiinfo. That cannot catch a
+  # failure that only happens when msiexec runs the sequences, and the upgrade path
+  # traverses a DIFFERENT dialog set than a fresh install, which is where the 2814 bug
+  # lived.
+  #
+  # One matrix leg per supported starting point, because "upgrades work" is a claim about
+  # each old version separately. fail-fast off: if 2.0.12 is broken, we still want to
+  # know whether 2.0.14 is.
+  msi-upgrade:
+    name: Upgrade ${{ matrix.from }} → current
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        from: ['2.0.12', '2.0.13', '2.0.14']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the current published version
+        id: cur
+        shell: bash
+        run: echo "v=$(grep -oP '(?<=<Version>)[^<]+' phvalheim-client.csproj)" >> "$GITHUB_OUTPUT"
+
+      - name: Download both .msi files from their releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p msi
+          gh release download "${{ matrix.from }}"      -p '*x86_64.msi' -D msi/old
+          gh release download "${{ steps.cur.outputs.v }}" -p '*x86_64.msi' -D msi/new
+          # A missing download must not read as a passing test: the ps1 would be handed an
+          # empty path and msiexec would fail for the wrong reason.
+          test -f msi/old/*.msi && test -f msi/new/*.msi
+          ls -l msi/old msi/new
+
+      - name: Install, upgrade, repair, uninstall — for real
+        shell: pwsh
+        run: |
+          $old = (Get-ChildItem msi/old -Filter *.msi | Select-Object -First 1).FullName
+          $new = (Get-ChildItem msi/new -Filter *.msi | Select-Object -First 1).FullName
+          ./builders/verify_msi_upgrade.ps1 `
+            -OldMsi $old -OldVersion '${{ matrix.from }}' `
+            -NewMsi $new -NewVersion '${{ steps.cur.outputs.v }}'
+
+      # The verbose msiexec logs are the only thing that can name a 27xx/28xx failure.
+      # Kept on success too: a passing run is the baseline you diff the next failure against.
+      - name: Keep the msiexec logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-logs-from-${{ matrix.from }}
+          path: msi-logs/
+          if-no-files-found: warn
+
   # ── What can this runner actually observe? ───────────────────────────────────
   # Reports whether there is a GUI (Aqua) session. Never fails: it exists to
   # replace a guess with a measurement, not to gate anything. Whether the

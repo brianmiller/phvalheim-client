@@ -1,0 +1,21 @@
+# version<TAB>ProductCode<TAB>UpgradeCode  -- the IDENTITY of each PUBLISHED .msi.
+#
+# WHY THIS LEDGER EXISTS. The .wxs uses <Product Id="*">, so wixl mints a BRAND NEW ProductCode
+# on every single build. Two .msi files with the same ProductVersion are therefore DIFFERENT
+# products to Windows, and the same-version row in the Upgrade table refuses to install one over
+# the other ("... is already installed. There is nothing to do.").
+#
+# That means: build the .msi ONCE per version and publish THAT FILE. Rebuilding and re-uploading
+# under the same version strands anyone who downloaded the first one -- they cannot upgrade and
+# cannot cleanly reinstall. It happened on 2026-10-17: the 2.0.15 msi was built at 01:24, attached
+# to the release, then rebuilt at 04:40 and clobbered the asset.
+#
+# verify_msi_upgrade.ps1 checks the published asset against this file, so a silent re-upload
+# fails CI instead of reaching a player.
+#
+# UpgradeCode must be IDENTICAL on every row. It is the only thing tying an old install to the
+# new one; a change there leaves every existing install on disk as a second, parallel product.
+2.0.12	{CB09B868-CC56-4E9F-8404-AAECFD8F5AF3}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
+2.0.13	{2FCDF192-0CC7-4B5E-BFCF-8D6F69900D6B}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
+2.0.14	{CB55A3AE-F0D8-4C13-8706-1910F54BDE10}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
+2.0.15	{BE3AA238-8D3E-4B4E-8885-3D85F2AA64CC}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
