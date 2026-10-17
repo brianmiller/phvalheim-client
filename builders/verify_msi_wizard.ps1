@@ -180,7 +180,7 @@ function Get-Installs {
 
 Write-Host ""
 Write-Host "== 1. starting state =="
-if ((Get-Installs).Count -eq 0) { Ok "nothing installed to begin with" }
+if (@(Get-Installs).Count -eq 0) { Ok "nothing installed to begin with" }
 else { Bad "the runner already has PhValheim Client installed" }
 
 # ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ operated, so WelcomeForm/ConfirmInstallForm are not gating anything we are testi
 "@
   }
 
-  $ctrl = Get-Installs
+  $ctrl = @(Get-Installs)
   if ($ctrl.Count -eq 0) { Ok "and nothing was installed" }
   else { Bad "$($ctrl.Count) install(s) appeared without a single click" }
 
@@ -377,7 +377,22 @@ if (Test-Path $log) {
   }
 }
 
-$inst = Get-Installs
+# @() at the CALL SITE, not just inside the function. A function that returns a
+# single-element array has it UNROLLED to a scalar on output, so the @() inside Get-Installs
+# does not survive the return -- which is why the count kept interpolating blank even after
+# the function was fixed. Wrapping here is what actually binds an array.
+$inst = @(Get-Installs)
+
+# Dumped before it is judged. The previous run asserted "$($inst.Count) ARP entries" and
+# printed nothing where the number should be, while the very next line read the version out
+# of $inst[0] successfully -- two statements that cannot both be true, and no way to tell
+# which was lying. A failure that cannot be read costs another whole CI round trip.
+Write-Host "    ARP enumeration found $($inst.Count) entry/entries:"
+foreach ($e in $inst) {
+  Write-Host "      $($e.DisplayName) $($e.DisplayVersion)  [$($e.PSChildName)]"
+  Write-Host "        in $($e.PSPath)"
+}
+
 if ($inst.Count -eq 1) { Ok "exactly one ARP entry after the wizard install" }
 else { Bad "$($inst.Count) ARP entries after the wizard install" }
 if ($inst.Count -ge 1 -and $inst[0].DisplayVersion -eq $Version) { Ok "ARP reports $Version" }
@@ -410,7 +425,7 @@ $u = Start-Process -FilePath "msiexec.exe" `
        -Wait -PassThru
 if ($u.ExitCode -eq 0 -or $u.ExitCode -eq 3010) { Ok "uninstall succeeded" }
 else { Bad "uninstall failed (exit $($u.ExitCode))" }
-if ((Get-Installs).Count -eq 0) { Ok "no ARP entries remain" }
+if (@(Get-Installs).Count -eq 0) { Ok "no ARP entries remain" }
 else { Bad "entries remain after uninstall" }
 
 Write-Host ""
