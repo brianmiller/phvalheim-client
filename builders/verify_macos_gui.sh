@@ -200,6 +200,20 @@ fi
 step "check 4: waiting for Terminal.app"
 if waitfor 15 pgrep -x Terminal; then
 	ok "Handler opened Terminal.app"
+
+	# Photograph it HERE, the instant this check succeeds. This is the only moment the
+	# window is known to exist: a timed burst at 2s, 5s and 9s after open(1) came back
+	# Terminal_no every time while this very check was passing, because the window's
+	# lifetime simply does not overlap a guessed sample. Event-driven beats guessing.
+	#
+	# This is the window the SIGHUP-detach fix is about -- closing it used to kill the
+	# player's game -- so it is the frame worth having on this platform.
+	if [ -n "${SHOT_DIR:-}" ] && [ -f "$(dirname "$0")/shot.sh" ]; then
+		osascript -e 'tell application "Terminal" to activate' >/dev/null 2>&1 || true
+		sleep 1
+		SHOT_DIR="$SHOT_DIR" bash "$(dirname "$0")/shot.sh" \
+			"macos-terminal-AT-check4-window-is-up" || true
+	fi
 else
 	fail "Handler opened Terminal.app" "no Terminal process within 15s"
 fi
