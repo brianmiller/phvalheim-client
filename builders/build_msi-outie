@@ -13,6 +13,13 @@ scriptRoot=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 gitRoot=$(echo $scriptRoot/|rev|cut -d "/" -f3-|rev)
 
 
+# Refuse to rebuild a version that is already published. <Product Id="*"> mints a new
+# ProductCode every build, so a re-upload under the same version strands everyone who
+# downloaded the first file. This runs BEFORE the docker work so the refusal is instant.
+# See builders/msi_rebuild_guard.sh for the full reasoning and the override.
+bash "$scriptRoot/msi_rebuild_guard.sh" || exit 1
+
+
 # find docker
 docker=$(which docker 2> /dev/null)
 if [ $? = 0 ]; then

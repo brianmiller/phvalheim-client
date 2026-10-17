@@ -27,6 +27,76 @@ command -v msiinfo >/dev/null 2>&1 || { echo "FATAL: msitools (msiinfo) not inst
 
 prop(){ msiinfo export "$1" Property 2>/dev/null | tr -d '\r' | awk -F'\t' -v k="$2" '$1==k{print $2}'; }
 
+# --record <version> [--replace]
+#
+# Read the identity of the PUBLISHED asset and write it into the ledger. This is the step that
+# arms the guard: until a version has a row, builders/msi_rebuild_guard.sh has nothing to refuse
+# a rebuild against, and the next accidental rebuild strands people silently.
+#
+# It records what is PUBLISHED, never what is sitting in builds/ -- a local file may well be a
+# later rebuild than the asset players are downloading, which is the exact confusion that caused
+# the 2.0.15 incident.
+if [ "${1:-}" = "--record" ]; then
+	v="${2:-}"
+	replace=0
+	[ "${3:-}" = "--replace" ] && replace=1
+	if [ -z "$v" ]; then echo "usage: $0 --record <version> [--replace]"; exit 1; fi
+
+	TMPR=$(mktemp -d); trap 'rm -rf "$TMPR"' EXIT
+	if ! gh release download "$v" -p '*x86_64.msi' -D "$TMPR" >/dev/null 2>&1; then
+		echo "FAIL: could not download the published .msi for $v."
+		echo "      Publish the asset to its release first -- this records what players GET,"
+		echo "      not what is in builds/."
+		exit 1
+	fi
+	f=$(find "$TMPR" -name '*.msi' | head -1)
+	[ -n "$f" ] || { echo "FAIL: the $v release has no .msi asset"; exit 1; }
+
+	pc=$(prop "$f" ProductCode)
+	uc=$(prop "$f" UpgradeCode)
+	pv=$(prop "$f" ProductVersion)
+	if [ -z "$pc" ] || [ -z "$uc" ]; then
+		echo "FAIL: could not read ProductCode/UpgradeCode out of the published $v asset"
+		exit 1
+	fi
+	if [ "$pv" != "$v" ]; then
+		echo "FAIL: the asset on the $v release reports ProductVersion '$pv'."
+		echo "      Recording it would put a lie in the ledger. Fix the asset."
+		exit 1
+	fi
+
+	existing=$(grep -E "^${v}	" "$LEDGER" | head -1)
+	if [ -n "$existing" ]; then
+		had=$(printf '%s' "$existing" | cut -f2)
+		if [ "$had" = "$pc" ]; then
+			echo "OK: $v is already recorded as $pc -- ledger already matches what is published."
+			exit 0
+		fi
+		if [ "$replace" != "1" ]; then
+			echo "REFUSING: the ledger says $v is $had but the published asset is $pc."
+			echo
+			echo "  The published asset was REPLACED by a rebuild. Anyone who downloaded the"
+			echo "  earlier file cannot upgrade to this one or cleanly reinstall."
+			echo "  Overwriting the ledger hides that rather than fixing it."
+			echo
+			echo "  Either restore the original asset, or ship a new version number."
+			echo "  If you have decided to accept the breakage, re-run with --replace."
+			exit 1
+		fi
+		# sed cannot be trusted with the braces; rewrite the line with awk instead.
+		awk -F'\t' -v OFS='\t' -v v="$v" -v pc="$pc" -v uc="$uc" \
+			'$1==v{$2=pc; $3=uc} {print}' "$LEDGER" > "$LEDGER.new" \
+			&& mv "$LEDGER.new" "$LEDGER"
+		echo "REPLACED: $v is now recorded as $pc (was $had)."
+		exit 0
+	fi
+
+	printf '%s\t%s\t%s\n' "$v" "$pc" "$uc" >> "$LEDGER"
+	echo "RECORDED: $v  $pc  $uc"
+	echo "  Commit builders/msi-productcodes.tsv -- the guard and the CI check both read it."
+	exit 0
+fi
+
 versions=("$@")
 if [ "${#versions[@]}" -eq 0 ]; then
 	mapfile -t versions < <(grep -vE '^\s*#|^\s*$' "$LEDGER" | cut -f1)

@@ -23,7 +23,10 @@ on:
       # that is supposed to catch a broken test could only ever see a broken source file.
       - 'dev_tools/**'
       - 'builders/verify_msi_upgrade.ps1'
+      - 'builders/verify_msi_wizard.ps1'
       - 'builders/verify_msi_identity.sh'
+      - 'builders/msi_rebuild_guard.sh'
+      - 'builders/build_msi-outie'
       - 'builders/msi-productcodes.tsv'
       - 'builders/wxs/**'
   pull_request:
@@ -230,6 +233,61 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: msi-logs-from-${{ matrix.from }}
+          path: msi-logs/
+          if-no-files-found: warn
+
+  # ── The FULL wizard, clicked for real ────────────────────────────────────────
+  # msi-upgrade above runs /qr, which executes the UI sequence but SUPPRESSES the modal
+  # dialogs -- so WelcomeForm and ConfirmInstallForm never render and their control events
+  # never fire. That is precisely the path where an operator's live 2814 occurs, so every
+  # green run of this file so far has been silent about it.
+  #
+  # This job renders those dialogs and clicks them with UI Automation. It runs the control
+  # leg FIRST: a /qf install with nobody clicking must stall with nothing installed. If that
+  # leg ever passes by installing, the clicking leg below proves nothing and the job says so.
+  msi-wizard:
+    name: Full wizard (/qf), clicked
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the current published version
+        id: cur
+        shell: bash
+        run: echo "v=$(grep -oP '(?<=<Version>)[^<]+' phvalheim-client.csproj)" >> "$GITHUB_OUTPUT"
+
+      - name: Download the published .msi
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p msi
+          gh release download "${{ steps.cur.outputs.v }}" -p '*x86_64.msi' -D msi
+          # An empty directory would hand the ps1 a blank path and fail for an unrelated reason.
+          test -f msi/*.msi
+          ls -l msi
+
+      # Windows PowerShell 5.1, not pwsh: UIAutomationClient/UIAutomationTypes are part of the
+      # desktop framework and are not guaranteed to load in pwsh 7 on a server image.
+      - name: CONTROL -- /qf with no clicks must not install
+        shell: powershell
+        run: |
+          $m = (Get-ChildItem msi -Filter *.msi | Select-Object -First 1).FullName
+          ./builders/verify_msi_wizard.ps1 -Msi $m -Version '${{ steps.cur.outputs.v }}' -NoClickControl
+
+      - name: Click the wizard through, start to finish
+        shell: powershell
+        run: |
+          $m = (Get-ChildItem msi -Filter *.msi | Select-Object -First 1).FullName
+          ./builders/verify_msi_wizard.ps1 -Msi $m -Version '${{ steps.cur.outputs.v }}'
+
+      - name: Keep the msiexec logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-logs-wizard
           path: msi-logs/
           if-no-files-found: warn
 
