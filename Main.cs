@@ -139,10 +139,39 @@ namespace PhValheim
                 Launcher.PhValheim.Launch(ref worldPassword, ref worldHost, ref worldPort, isVanilla);
 
 
-                //keep everything on the screen allowing you to read what just happend
+                // Stay up for as long as the game does.
+                //
+                // This used to print "This window closes on its own in 10 seconds" and sleep,
+                // which put the window's lifetime on a timer unrelated to anything the player
+                // was doing -- it vanished ten seconds into a session, taking the launch log
+                // with it, so a crash two minutes later had nothing left on screen to explain
+                // it. Now it closes when Valheim does, and says so.
+                //
+                // The notice matters as much as the wait: a window that sits there with no
+                // explanation reads as "still working, do not touch". It is not -- the game is
+                // already independent of this process on all three platforms (Steam starts it
+                // on Windows, setsid on Linux, and an exec with SIGHUP ignored on macOS).
                 Ui.Blank();
-                Ui.Line("This window closes on its own in 10 seconds.");
-                Thread.Sleep(10000);
+                Ui.Section("Valheim is running");
+                Ui.Line("You can close this window at any time -- the game keeps running.");
+                Ui.Line("Leave it open and it closes by itself when you quit Valheim.");
+                Ui.Blank();
+
+                if (Game.WaitForExit())
+                {
+                    Ui.Line("Valheim has closed. See you next time.");
+                    Thread.Sleep(2000);
+                }
+                else
+                {
+                    // Never saw the game in the process table. Either the launch failed, or it
+                    // is running somewhere this process cannot see -- a Flatpak Steam runs
+                    // Valheim on the host, outside our sandbox's process namespace. Both of
+                    // those make "the game has closed" a claim we have not earned, so the
+                    // window waits for the player instead of asserting anything.
+                    Ui.Note("This window could not tell when Valheim closed, so it is staying open.");
+                    Ui.PressEnterToExit();
+                }
                 Environment.Exit(0);
 
 

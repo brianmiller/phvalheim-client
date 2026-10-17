@@ -419,9 +419,30 @@ namespace PhValheim.Launcher
 
                 string monoLibPath = Path.Combine(valheimDir, "Valheim.app", "Contents", "Frameworks", "libmonobdwgc-2.0.dylib");
 
-                ProcessStartInfo startInfo = new ProcessStartInfo(launchExec);
+                // DETACHED FROM THE TERMINAL, via `trap '' HUP` before the exec.
+                //
+                // This is what makes "you can close this window" true on macOS, and it was not
+                // true before. The .app URL handler opens a Terminal window to run this client
+                // (builders/url-handler.swift), and macOS sends SIGHUP to the foreground
+                // process group when a Terminal window closes. Valheim is our direct child
+                // here -- unlike Windows, where Steam starts it, or Linux, where we go through
+                // setsid on purpose -- so closing the window killed the game mid-session.
+                //
+                // `trap '' HUP` sets SIGHUP to SIG_IGN, and an exec INHERITS ignored signals,
+                // so the game itself ignores the hangup. This is precisely what nohup does,
+                // without nohup's habit of dropping a nohup.out in the player's home directory.
+                //
+                // Arguments go through "$@" rather than into the script text: a world name or
+                // password with a space or a quote in it would otherwise re-split inside sh,
+                // and the launch payload is positional, so a shifted field is a failed join.
+                string shQuotedExec = launchExec;
+                ProcessStartInfo startInfo = new ProcessStartInfo("/bin/sh");
                 startInfo.UseShellExecute = false;
                 startInfo.CreateNoWindow = false;
+                startInfo.ArgumentList.Add("-c");
+                startInfo.ArgumentList.Add("trap '' HUP; exec \"$@\"");
+                startInfo.ArgumentList.Add("sh");          // $0
+                startInfo.ArgumentList.Add(shQuotedExec);  // $1 -- the game
                 startInfo.ArgumentList.Add("-console");
 
                 // macOS execs the binary directly, like native Linux.
