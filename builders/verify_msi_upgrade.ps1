@@ -43,9 +43,13 @@ function Get-Installs {
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
   )
-  Get-ItemProperty $keys -ErrorAction SilentlyContinue |
+  # @(...) matters even though this currently passes: on a zero match the pipeline yields
+  # $null, and $null.Count is EMPTY rather than 0, so every `$inst.Count -eq N` test below
+  # would be false and the failure message would interpolate a blank count. Latent here, and
+  # it bit verify_msi_wizard.ps1 for real on its first run.
+  return @(Get-ItemProperty $keys -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -eq 'PhValheim Client' } |
-    Select-Object DisplayName, DisplayVersion, PSChildName
+    Select-Object DisplayName, DisplayVersion, PSChildName)
 }
 
 # msiexec returns immediately unless waited on, and its exit code is the only verdict.

@@ -68,15 +68,38 @@ function Find-Windows([string]$pattern) {
   return $hits
 }
 
+# Buttons in the dialog's CONTENT, never the window chrome.
+#
+# UI Automation exposes the titlebar's Minimize/Maximize/Close as ControlType.Button, right
+# alongside the wizard's own Next/Install. The first run of this script clicked one: it matched
+# "Close" on the progress dialog, which is the titlebar X, which raised "are you sure you want
+# to cancel?" -- and then matched the X on THAT. The install limped to a confusing end state
+# and the failure looked like a product fault. Chrome is not a control under test.
 function Get-Buttons($window) {
-  $cond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Button)
-  $found = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+  $btn = New-Object System.Windows.Automation.PropertyCondition(
+           [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+           [System.Windows.Automation.ControlType]::Button)
+  $found = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btn)
+
+  # Collect the titlebar's own buttons so they can be excluded by identity rather than by
+  # name -- a content button legitimately called "Close" must still be clickable.
+  $chrome = @()
+  $tbCond = New-Object System.Windows.Automation.PropertyCondition(
+              [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+              [System.Windows.Automation.ControlType]::TitleBar)
+  foreach ($tb in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $tbCond)) {
+    foreach ($c in $tb.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btn)) {
+      try { $chrome += $c.GetRuntimeId() -join '.' } catch { }
+    }
+  }
+
   $out = @()
   foreach ($b in $found) {
     try {
-      if ($b.Current.IsEnabled -and $b.Current.IsOffscreen -eq $false) { $out += $b }
+      if (-not $b.Current.IsEnabled -or $b.Current.IsOffscreen) { continue }
+      $rid = $b.GetRuntimeId() -join '.'
+      if ($chrome -contains $rid) { continue }
+      $out += $b
     } catch { }
   }
   return $out
@@ -136,14 +159,23 @@ desktop, this job needs a self-hosted Windows box -- it cannot be faked with /qr
 # ---------------------------------------------------------------------------
 # Starting state
 # ---------------------------------------------------------------------------
+# @(...) is load-bearing. On a zero-match the pipeline yields $null, and $null.Count is EMPTY,
+# not 0 -- so `if ($inst.Count -eq 1)` and `if ($inst.Count -ge 1)` were both false and the
+# failure message interpolated to " ARP entries after the wizard install". A count that cannot
+# be read is worse than a wrong one: it makes every branch below take the else.
+#
+# HKCU is included as well as HKLM. This package is perMachine (ALLUSERS=1), so HKLM is where
+# it should land -- but asserting only the expected location means a per-user registration
+# reads as "not installed at all" rather than as the surprise it would be.
 function Get-Installs {
   $keys = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
   )
-  Get-ItemProperty $keys -ErrorAction SilentlyContinue |
+  return @(Get-ItemProperty $keys -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -eq 'PhValheim Client' } |
-    Select-Object DisplayName, DisplayVersion, PSChildName
+    Select-Object DisplayName, DisplayVersion, PSChildName, PSPath)
 }
 
 Write-Host ""
@@ -218,7 +250,7 @@ $dialogsSeen = New-Object System.Collections.Generic.List[string]
 $clicks      = New-Object System.Collections.Generic.List[string]
 # Ordered by preference. Cancel and Back are deliberately absent: clicking either would walk
 # the wizard backwards and the run could "succeed" by never installing anything.
-$advance = @('^Next', '^Install$', '^Finish', '^Close', '^&?Yes$', '^OK$', '^Repair')
+$advance = @('^Next', '^Install$', '^Finish', '^&?Yes$', '^OK$', '^Close$', '^Repair')
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $lastClick = Get-Date
 
@@ -257,12 +289,26 @@ while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
   }
 
   # An error dialog is the whole point of running /qf -- 2814 and friends surface here and
-  # nowhere else. Capture its text before anything dismisses it.
-  foreach ($w in (Find-Windows 'Installer|Error|Windows Installer')) {
+  # nowhere else.
+  #
+  # But the TITLE is not the signal. msiexec's own "preparing to install" window is titled
+  # "Windows Installer", and the first run of this script flagged it as an error dialog and
+  # failed a perfectly good install. So read the dialog's TEXT and require it to actually say
+  # something went wrong.
+  foreach ($w in (Find-Windows '^Windows Installer$|Error')) {
     try {
-      $txt = $w.Current.Name
-      Write-Host "    !! installer dialog: $txt"
-      $clicks.Add("ERRORDIALOG: $txt")
+      $txtCond = New-Object System.Windows.Automation.PropertyCondition(
+                   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                   [System.Windows.Automation.ControlType]::Text)
+      $body = @()
+      foreach ($t in $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $txtCond)) {
+        try { $body += $t.Current.Name } catch { }
+      }
+      $all = ($w.Current.Name + ' ' + ($body -join ' ')).Trim()
+      if ($all -match 'error|failed|cannot|unexpected|not be installed|Internal Error|\b2\d{3}\b') {
+        Write-Host "    !! installer ERROR dialog: $all"
+        $clicks.Add("ERRORDIALOG: $all")
+      }
     } catch { }
   }
 
@@ -303,12 +349,31 @@ if (-not $proc.HasExited) {
 # 2814 and every other 2xxx internal error is written to the verbose log whether or not a
 # dialog survived long enough to be read.
 if (Test-Path $log) {
-  $internal = Select-String -Path $log -Pattern 'Internal Error 2\d{3}|error 28\d\d' -AllMatches
-  if (-not $internal) {
-    Ok "the verbose log contains no Internal Error 2xxx"
+  # 2826 is a LAYOUT note -- "control X extends beyond the boundaries of the dialog by N
+  # pixels" -- logged at DEBUG level on installs that succeed. The first run of this script
+  # treated it as fatal and failed a working install. It is still worth seeing, so it is
+  # reported separately rather than silently dropped: a control overflowing its dialog is a
+  # real (if cosmetic) defect in the .wxs.
+  $all2xxx  = @(Select-String -Path $log -Pattern 'Error 2\d{3}' -AllMatches)
+  $cosmetic = @($all2xxx | Where-Object { $_.Line -match 'DEBUG: Error 2826' })
+  $real     = @($all2xxx | Where-Object { $_.Line -notmatch 'DEBUG: Error 2826' })
+
+  if ($cosmetic.Count -gt 0) {
+    $px = @($cosmetic | ForEach-Object {
+      if ($_.Line -match 'Control (\S+) on dialog (\S+) extends beyond[^0-9]*(\d+) pixel') {
+        "$($Matches[2])/$($Matches[1]) by $($Matches[3])px"
+      }
+    } | Where-Object { $_ } | Select-Object -Unique)
+    Write-Host "  note: $($cosmetic.Count) cosmetic 2826 layout warning(s) -- dialog controls"
+    Write-Host "        overflow their dialog. Not fatal, but it is a .wxs defect:"
+    $px | ForEach-Object { Write-Host "          $_" }
+  }
+
+  if ($real.Count -eq 0) {
+    Ok "the verbose log contains no installer error beyond the cosmetic 2826 layout notes"
   } else {
-    Bad "the verbose log contains an internal installer error" `
-        (($internal | Select-Object -First 5 | ForEach-Object { $_.Line.Trim() }) -join "`n        ")
+    Bad "the verbose log contains a real installer error" `
+        (($real | Select-Object -First 5 | ForEach-Object { $_.Line.Trim() }) -join "`n        ")
   }
 }
 
