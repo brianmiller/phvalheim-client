@@ -37,9 +37,17 @@ if [ "$VERSION" != "$EXPECT" ]; then
 fi
 
 START=$(date +%s)
-echo "=== start $(date) -- rebuilding $VERSION (${FORMATS:-deb rpm msi flatpak}) ==="
+echo "=== start $(date) -- rebuilding $VERSION (${FORMATS:-tgz deb rpm msi flatpak}) ==="
 
 declare -A ARTIFACT=(
+	# tgz was missing from this map and from the default FORMATS below. It is a SHIPPED
+	# format -- the release carries phvalheim-client-<v>-universal-x86_64.tar.gz and
+	# macinstall.sh installs from it -- so a "rebuild the set" that silently skipped it
+	# produced five current artifacts and one stale one. Exactly the gap
+	# build-all-2.0.14.sh had with flatpak, which was invisible until someone asked for
+	# the flatpak link. Compare against the release's ASSET LIST, never against this
+	# script's previous FORMATS line.
+	[tgz]="builds/phvalheim-client-$VERSION-universal-x86_64.tar.gz"
 	[deb]="builds/phvalheim-client-$VERSION-x86_64.deb"
 	[rpm]="builds/phvalheim-client-$VERSION-x86_64.rpm"
 	[msi]="builds/phvalheim-client-$VERSION-x86_64.msi"
@@ -47,7 +55,7 @@ declare -A ARTIFACT=(
 )
 
 FAILED=0
-for fmt in ${FORMATS:-deb rpm msi flatpak}; do
+for fmt in ${FORMATS:-tgz deb rpm msi flatpak}; do
 	echo "--- building $fmt ---"
 	t0=$(date +%s)
 	# `script` supplies the pty the builders' `docker run -it` needs; "n" answers the commit
