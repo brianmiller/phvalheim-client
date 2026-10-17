@@ -130,8 +130,29 @@ step "open(1) returned"
 #
 # Best effort only, and never fatal: this script's verdict is about the handler chain, and a
 # camera must not be able to fail it.
-if [ -n "${SHOT_DIR:-}" ] && [ -x "$(dirname "$0")/shot.sh" ]; then
-	( sleep 4; SHOT_DIR="$SHOT_DIR" bash "$(dirname "$0")/shot.sh" "macos-terminal-live-during-activation" ) >/dev/null 2>&1 &
+# A BURST, not one frame, and the process state is recorded with each.
+#
+# A single shot at +4s came back showing Finder and no Terminal at all. That is either "the
+# window had not appeared yet", "it had already gone", or "it never appears on this runner" --
+# and one picture cannot tell those apart. Guessing at the delay would just produce another
+# picture with the same ambiguity, so this samples across the whole activation and writes down
+# what was actually running at each sample. If every frame says `Terminal: no`, then the
+# window path is not being exercised here at all, which is worth knowing in itself.
+if [ -n "${SHOT_DIR:-}" ] && [ -f "$(dirname "$0")/shot.sh" ]; then
+	_shotdir="$SHOT_DIR"
+	_shotsh="$(dirname "$0")/shot.sh"
+	(
+		_elapsed=0
+		# Deltas, summing to 2s 5s 9s 14s 20s after open(1) returned.
+		for _gap in 2 3 4 5 6; do
+			sleep "$_gap"
+			_elapsed=$((_elapsed + _gap))
+			_term=$(pgrep -x Terminal >/dev/null 2>&1 && echo yes || echo no)
+			_app=$(pgrep -f 'PhValheim Client.app/Contents/[M]acOS' >/dev/null 2>&1 && echo yes || echo no)
+			SHOT_DIR="$_shotdir" bash "$_shotsh" \
+				"macos-activation-t${_elapsed}s-Terminal_${_term}-handler_${_app}"
+		done
+	) >/dev/null 2>&1 &
 fi
 
 waitfor() { # waitfor <seconds> <test-command...>
