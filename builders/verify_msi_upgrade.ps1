@@ -119,14 +119,49 @@ if ($inst.Count -ge 1 -and $inst[0].DisplayVersion -eq $NewVersion) {
   Bad "ARP reports '$($inst[0].DisplayVersion)', expected $NewVersion"
 }
 
-# The payload must actually be on disk and be the new build -- an upgrade that registers but
-# leaves the old binary is the failure mode a registry-only check cannot see.
-$exe = Get-ChildItem -Path "C:\Program Files","C:\Program Files (x86)" -Filter "phvalheim-client.exe" -Recurse -ErrorAction SilentlyContinue |
-       Select-Object -First 1
+# The payload must actually be on disk AND be the new build -- an upgrade that registers the
+# new version but leaves the old binary is the failure mode a registry-only check cannot see.
+#
+# IT DOES NOT INSTALL TO PROGRAM FILES. The first cut of this searched
+# "C:\Program Files","C:\Program Files (x86)" and failed on a working upgrade -- the package
+# puts its payload under AppDataFolder\PhValheim\phvalheim-client (see the Directory table:
+# INSTALLFOLDER -> PhValheimDir -> AppDataFolder). The product is perMachine, so depending on
+# the account msiexec elevates to, that resolves either to the installing user's Roaming or to
+# the SYSTEM profile's. Search every candidate rather than assuming one.
+$roots = @(
+  (Join-Path $env:APPDATA 'PhValheim'),
+  'C:\Windows\System32\config\systemprofile\AppData\Roaming\PhValheim',
+  'C:\Windows\SysWOW64\config\systemprofile\AppData\Roaming\PhValheim',
+  'C:\Program Files',
+  'C:\Program Files (x86)'
+) | Where-Object { Test-Path $_ }
+
+$exe = $null
+foreach ($r in $roots) {
+  $hit = Get-ChildItem -Path $r -Filter 'phvalheim-client.exe' -Recurse -ErrorAction SilentlyContinue |
+         Select-Object -First 1
+  if ($hit) { $exe = $hit; break }
+}
+
 if ($exe) {
   Ok "the installed binary exists ($($exe.FullName), $([math]::Round($exe.Length/1MB,1)) MB)"
+
+  # The stronger claim: it is THIS version, not the one we upgraded from. Without this the
+  # check only proves some binary is present, which an upgrade that silently kept the old
+  # payload would also satisfy.
+  $fv = $exe.VersionInfo.FileVersion
+  if ([string]::IsNullOrWhiteSpace($fv)) {
+    Write-Host "  note: the binary carries no FileVersion metadata, so the version could not be"
+    Write-Host "        confirmed from disk -- ARP agreeing on $NewVersion is all we have here."
+  } elseif ($fv -like "$NewVersion*") {
+    Ok "and it reports $fv on disk -- the payload really was replaced"
+  } else {
+    Bad "the binary on disk reports $fv, expected $NewVersion" `
+        "ARP was updated but the payload was not -- a registry-only upgrade"
+  }
 } else {
-  Bad "no phvalheim-client.exe found under Program Files after $what"
+  Bad "no phvalheim-client.exe found after $what" `
+      ("searched: " + ($roots -join '; '))
 }
 
 # ---------------------------------------------------------------------------
