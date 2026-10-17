@@ -120,6 +120,20 @@ step "triggering: open $URL"
 bounded 20 open "$URL" 2>/dev/null || echo "  ..open(1) returned non-zero or timed out; continuing to the observations"
 step "open(1) returned"
 
+# Photograph the Terminal window the handler opens, WHILE IT IS STILL OPEN.
+#
+# The first attempt at this took its screenshot from the workflow, in a step after this
+# script had finished -- by which point the teardown at the bottom of this file has already
+# run `pkill -x Terminal`. The result was a real screenshot of a bare login shell, filed
+# under a name claiming it showed the client. A mislabelled picture is worse than no picture:
+# it answers a question it never looked at.
+#
+# Best effort only, and never fatal: this script's verdict is about the handler chain, and a
+# camera must not be able to fail it.
+if [ -n "${SHOT_DIR:-}" ] && [ -x "$(dirname "$0")/shot.sh" ]; then
+	( sleep 4; SHOT_DIR="$SHOT_DIR" bash "$(dirname "$0")/shot.sh" "macos-terminal-live-during-activation" ) >/dev/null 2>&1 &
+fi
+
 waitfor() { # waitfor <seconds> <test-command...>
 	local n="$1"; shift
 	local i=0

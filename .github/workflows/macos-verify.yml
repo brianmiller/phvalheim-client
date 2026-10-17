@@ -511,23 +511,18 @@ jobs:
         # here and had to be cancelled by hand; without a cap the default is 6h.
         # The script's own waits total well under 2 minutes.
         timeout-minutes: 5
+        env: { SHOT_DIR: screens }
         run: bash builders/verify_macos_gui.sh "$RUNNER_TEMP/gui.tsv"
 
-      # THE ONE THAT MATTERS ON THIS PLATFORM. The .app's URL handler opens a Terminal
-      # window, and closing that window used to SIGHUP the game out from under the player.
-      # The fix prints a notice in that window; this is the only place anyone can actually
-      # read it. Captured right after activation, while the window is still up.
-      - name: Screenshot -- the Terminal window the .app opens
+      # The Terminal window the .app opens is photographed from INSIDE
+      # verify_macos_gui.sh, while it is still on screen. It cannot be done from here: that
+      # script ends by pkill-ing Terminal, so a shot taken in a later step catches a bare
+      # login shell and files it under a name claiming it shows the client. That is exactly
+      # what the first version of this did.
+      - name: Screenshot -- desktop after activation
         if: always()
         env: { SHOT_DIR: screens }
-        run: |
-          sleep 2
-          bash builders/shot.sh "macos-terminal-after-activation"
-          # Front window on its own as well: the full desktop shot makes the notice text
-          # too small to read on a retina runner scaled down.
-          osascript -e 'tell application "Terminal" to activate' 2>/dev/null || true
-          sleep 2
-          bash builders/shot.sh "macos-terminal-foreground"
+        run: bash builders/shot.sh "macos-desktop-after-activation"
 
       - name: Activation report
         if: always()
@@ -602,13 +597,22 @@ jobs:
       - name: Install a display and a terminal
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb xterm imagemagick x11-apps fonts-dejavu-core > /dev/null
+          # x11-UTILS, not x11-apps. xdpyinfo lives in x11-utils; the first run installed
+          # x11-apps, the readiness probe below could never succeed, and the job correctly
+          # refused to photograph a display it could not confirm. Right refusal, wrong
+          # package list.
+          sudo apt-get install -y -qq xvfb xterm imagemagick x11-utils x11-apps fonts-dejavu-core > /dev/null
+          command -v xdpyinfo || { echo "::error::xdpyinfo still missing"; exit 1; }
           xterm -version 2>&1 | head -1
           import -version 2>&1 | head -1
 
       - name: Start the virtual display
         run: |
-          Xvfb :99 -screen 0 1280x800x24 > /tmp/xvfb.log 2>&1 &
+          # setsid, so the server outlives the shell this step runs in. Each workflow step
+          # gets its own shell; a plain `&` job is the shell's child and its survival to the
+          # next step is not something to rely on.
+          setsid Xvfb :99 -screen 0 1280x800x24 > /tmp/xvfb.log 2>&1 < /dev/null &
+          disown || true
           # Waited for, not slept at. If the display never comes up, every capture below
           # produces nothing and the job would otherwise look like it simply found no bugs.
           for i in $(seq 1 30); do
