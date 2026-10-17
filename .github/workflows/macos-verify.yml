@@ -19,9 +19,138 @@ on:
       - 'builders/ci_summary.sh'
       - 'macinstall.sh'
       - '.github/workflows/macos-verify.yml'
+      # The oracle tests themselves. Without this, editing a test did not run it -- the gate
+      # that is supposed to catch a broken test could only ever see a broken source file.
+      - 'dev_tools/**'
   pull_request:
 
 jobs:
+  # ── The oracle tests, every one of them ──────────────────────────────────────
+  # Until this job existed, CI ran NONE of dev_tools/test-*.sh. Four oracle suites --
+  # the progress line, the launch window, the macOS bundle seal and the sync display --
+  # existed, passed locally, and gated nothing on a push. The bundle-seal job below
+  # re-implements its own inline checks rather than calling the file, so even that one
+  # was not running the committed test.
+  #
+  # ubuntu-latest on purpose: these are all runnable on Linux and the SDK is preinstalled,
+  # so this is the fast gate. The macOS jobs answer the questions only a Mac can.
+  tests:
+    name: Oracle tests (dev_tools)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # --control runs compare against HEAD~, so the tests need real history. With
+          # the default shallow clone `git show HEAD:...` works but HEAD~ does not.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Run every dev_tools oracle
+        run: |
+          set -u
+          shopt -s nullglob
+          tests=(dev_tools/test-*.sh)
+
+          # A GATE THAT FINDS NOTHING MUST FAIL. If the directory is renamed or the glob
+          # stops matching, an empty loop exits 0 and reads exactly like "everything
+          # passed" -- which is how a green pipeline comes to mean nothing at all.
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo "FAIL: no dev_tools/test-*.sh found -- this gate would pass vacuously"
+            exit 1
+          fi
+          echo "found ${#tests[@]} oracle suite(s)"
+          echo
+
+          failed=0
+          for t in "${tests[@]}"; do
+            echo "=============================================================="
+            echo "== $t"
+            echo "=============================================================="
+            if bash "$t"; then
+              echo "-> OK: $t"
+            else
+              echo "-> FAILED: $t"
+              failed=$((failed + 1))
+            fi
+            echo
+          done
+
+          echo "=============================================================="
+          if [ "$failed" -gt 0 ]; then
+            echo "$failed of ${#tests[@]} oracle suite(s) FAILED"
+            exit 1
+          fi
+          echo "all ${#tests[@]} oracle suite(s) passed"
+
+      - name: Prove the oracles can still fail (mutation)
+        # The suites above pass. That only means something if they are CAPABLE of failing.
+        #
+        # BY MUTATION, NOT BY HISTORY. The first version of this step re-ran each suite with
+        # --control, which compares against the committed tree. That works exactly once:
+        # while the fix is still uncommitted. The moment it lands, HEAD *is* the fixed code,
+        # the control becomes a copy of the thing under test, and it passes. Run locally it
+        # reported both suites BLIND on a tree where both were discriminating perfectly --
+        # a false alarm built into the design. In CI it would have been permanent.
+        #
+        # So: break one load-bearing line, require the named suite to notice, put it back.
+        # Nothing here depends on what the repository's history looks like.
+        run: |
+          set -u
+          fails=0
+
+          mutate() {
+            local label="$1" file="$2" suite="$3" sedExpr="$4"
+            cp "$file" /tmp/orig.$$
+            sed -i "$sedExpr" "$file"
+            if cmp -s "$file" /tmp/orig.$$; then
+              echo "FAIL: mutation '$label' did not apply -- the sed no longer matches $file"
+              fails=$((fails + 1))
+            elif bash "$suite" > /dev/null 2>&1; then
+              echo "FAIL: '$label' broken and $suite still passed -- it is not watching this"
+              fails=$((fails + 1))
+            else
+              echo "ok: $suite catches '$label'"
+            fi
+            # Restore and PROVE the restore, per file. A mutation left in place would be
+            # compiled by every later job.
+            cp /tmp/orig.$$ "$file"
+            if ! cmp -s "$file" /tmp/orig.$$; then
+              echo "FAIL: could not restore $file after '$label'"
+              fails=$((fails + 1))
+            fi
+            rm -f /tmp/orig.$$
+          }
+
+          # The macOS SIGHUP detach: without it, closing the Terminal window the .app opens
+          # kills the player's game, and the notice the window prints becomes a lie.
+          mutate "macOS SIGHUP detach removed" Launcher.cs \
+                 dev_tools/test-launch-window-waits.sh \
+                 "s/trap '' HUP; exec/exec/"
+
+          # The wait itself: without it the window closes while the game is still running.
+          mutate "post-launch wait removed" Main.cs \
+                 dev_tools/test-launch-window-waits.sh \
+                 's/Game\.WaitForExit()/false/'
+
+          # The progress flag separation: putting stepOpen back is the original bug, one
+          # progress line per percent.
+          mutate "progress reopens stepOpen" Ui.cs \
+                 dev_tools/test-progress-single-line.sh \
+                 's/progressOpen = true;/progressOpen = true; stepOpen = true;/'
+
+          # Restoration is verified per file inside mutate(), against the copy it took --
+          # NOT with `git diff --quiet` over the whole tree. That was the first version and
+          # it is the wrong instrument: run on a working copy with any unrelated edit in it,
+          # it reports "a revert did not happen" about files no mutation ever touched. It
+          # happens to be true in CI, where the checkout is pristine, and false everywhere
+          # else, which makes it useless for anyone running this step by hand before pushing.
+          echo
+          [ "$fails" -eq 0 ] || { echo "$fails mutation(s) went unnoticed"; exit 1; }
+          echo "every mutation was caught"
   # ── What can this runner actually observe? ───────────────────────────────────
   # Reports whether there is a GUI (Aqua) session. Never fails: it exists to
   # replace a guess with a measurement, not to gate anything. Whether the

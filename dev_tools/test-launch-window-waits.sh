@@ -18,6 +18,15 @@
 # cannot tell whether ignored-signal inheritance works, and inheritance across exec is the
 # entire mechanism.
 #
+# --control IS ONLY MEANINGFUL BEFORE THE FIX IS COMMITTED. It builds the tree from HEAD, so
+# while you are developing it shows you the failures your change is fixing -- and the moment
+# you commit, HEAD *is* the fixed code and the control run passes. A passing control does NOT
+# mean the suite has stopped discriminating; it almost always just means the fix has landed.
+#
+# What proves the suite still bites is MUTATION: break the line and check this notices. The
+# "Prove the oracles can still fail" step in .github/workflows/macos-verify.yml does exactly
+# that, which is why it does not use this flag.
+#
 # Usage:  bash dev_tools/test-launch-window-waits.sh [--control]
 
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -183,16 +192,60 @@ fi
 echo
 echo "== part 5: it compiles =="
 
-if command -v docker >/dev/null 2>&1; then
-	out=$(docker run --rm -v "$SRC":/src -w /src mcr.microsoft.com/dotnet/sdk:9.0 \
-	        bash -c 'dotnet build -v q --nologo 2>&1 | tail -4' 2>&1)
+# LOCAL dotnet first, docker only as a fallback.
+#
+# CI has the SDK preinstalled, and pulling mcr.microsoft.com/dotnet/sdk:9.0 there costs about
+# a gigabyte to answer a question the runner can already answer. The fallback stays for boxes
+# with docker and no SDK.
+#
+# Neither available is a SKIP that says so. It must never read as a pass: the compile is what
+# proves the ArgumentList shape in part 3 is real C# and not just a string that greps well.
+out=""
+buildWith=""
+
+# TRY LOCAL, THEN FALL BACK -- in that order, and the fallback is not optional.
+#
+# The project targets net9.0 and this dev box has SDK 8.0.131, which cannot build it: switching
+# to "local dotnet if present" turned a passing part 5 into "1 Error(s)" and I only saw it
+# because I re-ran the test. A version check would work too, but trying the build and reading
+# the result cannot be wrong about what this SDK can actually compile.
+if command -v dotnet >/dev/null 2>&1; then
+	out=$( cd "$SRC" && dotnet build -v q --nologo 2>&1 | tail -6 )
 	if printf '%s' "$out" | grep -q '0 Error(s)'; then
-		pass "the project builds with 0 errors"
-	else
-		fail "the project does not build" "$(printf '%s' "$out" | tail -4)"
+		buildWith="local dotnet $(dotnet --version 2>/dev/null)"
 	fi
+fi
+
+if [ -z "$buildWith" ] && command -v docker >/dev/null 2>&1; then
+	dockerOut=$(docker run --rm -v "$SRC":/src -w /src mcr.microsoft.com/dotnet/sdk:9.0 \
+	        bash -c 'dotnet build -v q --nologo 2>&1 | tail -6' 2>&1)
+	# Only adopt the docker result if it got further. A local SDK that is merely too old must
+	# not mask a real compile error, so a docker run that ALSO fails leaves the local output
+	# in place as the thing to report.
+	if printf '%s' "$dockerOut" | grep -q '0 Error(s)'; then
+		out="$dockerOut"
+		buildWith="docker dotnet/sdk:9.0"
+	elif [ -z "$out" ]; then
+		out="$dockerOut"
+		buildWith="docker dotnet/sdk:9.0"
+	fi
+fi
+
+# Neither tool present at all: name it and fail, rather than reporting a pass for a compile
+# that never happened.
+if [ -z "$buildWith" ] && [ -z "$out" ]; then
+	buildWith=""
+elif [ -z "$buildWith" ]; then
+	buildWith="dotnet/docker (both failed)"
+fi
+
+if [ -z "$buildWith" ]; then
+	fail "no dotnet and no docker -- the project was NOT compiled" \
+	     "part 3 only checked that a string is present; nothing proved it is valid C#"
+elif printf '%s' "$out" | grep -q '0 Error(s)'; then
+	pass "the project builds with 0 errors ($buildWith)"
 else
-	echo "  SKIP: docker not available, cannot compile"
+	fail "the project does not build ($buildWith)" "$(printf '%s' "$out" | tail -4)"
 fi
 
 echo

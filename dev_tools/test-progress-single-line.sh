@@ -19,6 +19,11 @@
 #
 # Run with --control to build HEAD's Ui.cs instead, where the single-line assertions MUST fail.
 #
+# ONLY MEANINGFUL BEFORE THE FIX IS COMMITTED. --control reads HEAD, so once the fix lands,
+# HEAD is the fixed file and the control passes. That is not the suite going blind -- it is
+# the fix having shipped. Mutation is what proves this still bites; see the "Prove the oracles
+# can still fail" step in .github/workflows/macos-verify.yml.
+#
 # Usage:  bash dev_tools/test-progress-single-line.sh [--control]
 
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
