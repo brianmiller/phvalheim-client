@@ -24,6 +24,7 @@ on:
       - 'dev_tools/**'
       - 'builders/verify_msi_upgrade.ps1'
       - 'builders/verify_msi_wizard.ps1'
+      - 'builders/shot.sh'
       - 'builders/verify_msi_identity.sh'
       - 'builders/msi_rebuild_guard.sh'
       - 'builders/build_msi-outie'
@@ -291,6 +292,18 @@ jobs:
           path: msi-logs/
           if-no-files-found: warn
 
+      # Screenshots of every wizard dialog, for a human to look at. Not assertions -- see the
+      # header of verify_msi_wizard.ps1. if-no-files-found is `error` here on purpose: unlike
+      # the logs, these only exist if the capture worked, and an empty screenshot artifact is
+      # exactly the silent nothing this would be added to avoid.
+      - name: Keep the wizard screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens-windows-wizard
+          path: screens/
+          if-no-files-found: error
+
   # ── What can this runner actually observe? ───────────────────────────────────
   # Reports whether there is a GUI (Aqua) session. Never fails: it exists to
   # replace a guess with a measurement, not to gate anything. Whether the
@@ -483,6 +496,15 @@ jobs:
 
       # Registration is not delivery. This drives a real phvalheim:// URL through
       # Launch Services and follows it to the argv the client receives.
+      # What the installed .app looks like in Finder, before anything is launched.
+      - name: Screenshot -- installed, idle desktop
+        if: always()
+        env: { SHOT_DIR: screens }
+        run: |
+          open -a Finder "$HOME/Applications" 2>/dev/null || open -a Finder "$HOME" || true
+          sleep 3
+          bash builders/shot.sh "macos-finder-installed"
+
       - name: phvalheim:// activation
         if: always()
         # Hard cap: this step drives the window server. Run 35813131570 hung
@@ -490,6 +512,22 @@ jobs:
         # The script's own waits total well under 2 minutes.
         timeout-minutes: 5
         run: bash builders/verify_macos_gui.sh "$RUNNER_TEMP/gui.tsv"
+
+      # THE ONE THAT MATTERS ON THIS PLATFORM. The .app's URL handler opens a Terminal
+      # window, and closing that window used to SIGHUP the game out from under the player.
+      # The fix prints a notice in that window; this is the only place anyone can actually
+      # read it. Captured right after activation, while the window is still up.
+      - name: Screenshot -- the Terminal window the .app opens
+        if: always()
+        env: { SHOT_DIR: screens }
+        run: |
+          sleep 2
+          bash builders/shot.sh "macos-terminal-after-activation"
+          # Front window on its own as well: the full desktop shot makes the notice text
+          # too small to read on a retina runner scaled down.
+          osascript -e 'tell application "Terminal" to activate' 2>/dev/null || true
+          sleep 2
+          bash builders/shot.sh "macos-terminal-foreground"
 
       - name: Activation report
         if: always()
@@ -511,6 +549,14 @@ jobs:
           [ $rc -eq 0 ] && echo "✅ Uninstall removed both artifacts" >> "$GITHUB_STEP_SUMMARY"
           exit $rc
 
+      - name: Keep the macOS screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens-macos
+          path: screens/
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -521,6 +567,141 @@ jobs:
           # which is exactly the mistake that put a renamed 2.0.12 on the
           # 2.0.13 release in the first place.
           path: builds/phvalheim-client-${{ steps.ver.outputs.version }}-macos-universal.tar.gz
+          if-no-files-found: error
+
+  # ── What the Linux client LOOKS like ────────────────────────────────────────
+  #
+  # Screenshots of every client were asked for, and on Linux there is no GUI to photograph:
+  # this client is a console app. A picture of its stdout in a log pane is not what a player
+  # sees, so this runs the real binary inside a real xterm on a virtual X display and
+  # photographs that. Font, wrapping, box drawing and the single-line progress rewrite are all
+  # things only a terminal renders -- and that progress line was a bug which passed every text
+  # assertion while looking wrong on screen.
+  #
+  # FOR HUMAN EYES. Nothing here gates a release, and `|| true` on the captures is deliberate:
+  # a broken camera must not turn a good build red. The one thing that IS asserted is that at
+  # least one non-trivial png exists, because an empty screenshot artifact is precisely the
+  # silent nothing this was added to avoid.
+  linux-screens:
+    name: Linux client, photographed in a terminal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DISPLAY: ':99'
+      SHOT_DIR: screens
+      # Crop the dead black border: the xterm occupies a corner of a 1280x800 root and the
+      # rest is nothing. Without this the thing you wanted to read is a patch in one corner.
+      SHOT_TRIM: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install a display and a terminal
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb xterm imagemagick x11-apps fonts-dejavu-core > /dev/null
+          xterm -version 2>&1 | head -1
+          import -version 2>&1 | head -1
+
+      - name: Start the virtual display
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 > /tmp/xvfb.log 2>&1 &
+          # Waited for, not slept at. If the display never comes up, every capture below
+          # produces nothing and the job would otherwise look like it simply found no bugs.
+          for i in $(seq 1 30); do
+            xdpyinfo -display :99 > /dev/null 2>&1 && break
+            sleep 1
+          done
+          if ! xdpyinfo -display :99 | grep -E 'dimensions|depth of root'; then
+            echo "::error::Xvfb never came up -- there is no point photographing anything"
+            cat /tmp/xvfb.log
+            exit 1
+          fi
+
+      - name: Build the Linux binary
+        run: |
+          # phvalheim-client.csproj explicitly. A bare `dotnet publish` in this directory
+          # picks phvalheim-client.sln and dies with MSB4126 "solution configuration
+          # Release|Any CPU is invalid". Found by running it here before pushing.
+          dotnet publish phvalheim-client.csproj -c Release -r linux-x64 --self-contained true \
+            -p:PublishSingleFile=true -o /tmp/linuxclient
+          chmod +x /tmp/linuxclient/phvalheim-client
+          ls -l /tmp/linuxclient/phvalheim-client
+
+      - name: Photograph the client
+        run: |
+          set -u
+
+          # Run the client in an xterm, let it paint, photograph, kill it.
+          #
+          # -hold is load-bearing. Some paths end by exiting rather than blocking on
+          # PressEnterToExit(), and without -hold the window is already gone when the camera
+          # fires -- which produced an all-black 1280x800 frame on the first local rehearsal.
+          # -hold keeps the terminal up after the command returns, so every path is
+          # photographable regardless of how it ends.
+          shoot() {
+            label="$1"; shift
+            xterm -display :99 -hold -geometry 110x34 -fa 'DejaVu Sans Mono' -fs 11 \
+                  -bg black -fg white -e "$@" &
+            xpid=$!
+            sleep "${SETTLE:-8}"
+            bash builders/shot.sh "$label" || true
+            kill "$xpid" 2>/dev/null || true
+            # Bracketed on purpose: `pkill -f 'xterm -display :99'` matches ANY process whose
+            # command line contains that string -- including the shell running this very
+            # script. It killed my own rehearsal loop mid-sequence (exit 144 = SIGTERM).
+            pkill -f 'xterm -display :9[9]' 2>/dev/null || true
+            sleep 1
+          }
+
+          # 1. No arguments: what a player sees launching the client directly instead of
+          #    through a phvalheim:// link. The launch-help notice is worded carefully on
+          #    purpose -- "manifest but no payload" has two indistinguishable causes, so it
+          #    must never accuse the player's app of being out of date.
+          shoot "linux-01-no-arguments" /tmp/linuxclient/phvalheim-client
+
+          # 2. A link the client cannot parse -- the error path, as a player would see it.
+          #
+          #    DELIBERATELY NOT a valid launch payload. Rehearsing this locally, a
+          #    hand-built "valid" payload rendered a half-filled screen with invented field
+          #    values: a picture no player will ever see, labelled as though they would. A
+          #    real launch needs a real server, and a screenshot that misrepresents the
+          #    product is worse than one screenshot fewer.
+          #
+          #    It also must stay fake for a second reason: the launch string is positional
+          #    and carries a world password at field 2, and this artifact is public.
+          shoot "linux-02-unparseable-link" /tmp/linuxclient/phvalheim-client "phvalheim://launch?not-valid-base64"
+
+      - name: Say what was captured
+        if: always()
+        run: |
+          echo "### Linux client screenshots" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f screens/INDEX.txt ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat screens/INDEX.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          ls -l screens/ 2>/dev/null || true
+
+          # -size +1k, not a plain existence test. shot.sh already deletes zero-byte files,
+          # but a few-hundred-byte all-black png is the other failure mode and it looks
+          # exactly like a successful capture.
+          real=$(find screens -name '*.png' -size +1k 2>/dev/null | wc -l)
+          echo "non-trivial screenshots: $real"
+          if [ "$real" -lt 1 ]; then
+            echo "::error::no usable screenshot was produced"
+            exit 1
+          fi
+
+      - name: Keep the Linux screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens-linux
+          path: screens/
           if-no-files-found: error
 
   # ── Does the Linux-built artifact run on Apple Silicon? ──────────────────────

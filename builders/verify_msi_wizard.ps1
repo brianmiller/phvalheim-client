@@ -29,7 +29,8 @@ param(
   [Parameter(Mandatory=$true)][string]$Version,
   [switch]$NoClickControl,
   [int]$TimeoutSeconds = 240,
-  [string]$LogDir = "msi-logs"
+  [string]$LogDir = "msi-logs",
+  [string]$ShotDir = "screens"
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +48,74 @@ function Bad($m, $d = "") {
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms   # SendKeys, for buttons with no InvokePattern
+Add-Type -AssemblyName System.Drawing         # CopyFromScreen, for the screenshots
+
+# ---------------------------------------------------------------------------
+# Screenshots
+#
+# THESE ARE FOR A HUMAN TO LOOK AT. They are not assertions and they gate nothing: a
+# screenshot passes no matter how wrong the pixels are, so treating one as proof would be the
+# same trap as a test that measures nothing. Every capture failure is swallowed deliberately --
+# a broken camera must not turn a good install red.
+#
+# Each shot is the DIALOG's own rectangle where one is given, not the whole desktop: the
+# wizard occupies a fraction of a 1024x768 runner screen and a full-desktop shot makes the
+# 3px control overflow this suite found impossible to see.
+# ---------------------------------------------------------------------------
+New-Item -ItemType Directory -Force -Path $ShotDir | Out-Null
+$script:ShotNum = 0
+$script:ShotIndex = New-Object System.Collections.Generic.List[string]
+
+function Save-Shot($label, $element) {
+  $script:ShotNum++
+  $safe = ($label -replace '[^A-Za-z0-9._-]', '_')
+  $name = "{0:D2}-{1}.png" -f $script:ShotNum, $safe
+  $path = Join-Path $ShotDir $name
+  try {
+    $x = 0; $y = 0
+    $w = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
+    $h = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height
+    $scope = "full screen"
+
+    if ($element) {
+      $r = $element.Current.BoundingRectangle
+      if ($r.Width -gt 0 -and $r.Height -gt 0) {
+        # A 12px margin so the window's own edge is visible -- the overflow defect this is
+        # meant to show happens AT the boundary, and a flush crop hides it.
+        $x = [int]$r.X - 12; $y = [int]$r.Y - 12
+        $w = [int]$r.Width + 24; $h = [int]$r.Height + 24
+        if ($x -lt 0) { $x = 0 }
+        if ($y -lt 0) { $y = 0 }
+        $scope = "window"
+      }
+    }
+
+    $bmp = New-Object System.Drawing.Bitmap($w, $h)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($w, $h)))
+    $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $g.Dispose(); $bmp.Dispose()
+
+    $kb = [math]::Round((Get-Item $path).Length / 1KB)
+    Write-Host "      [shot] $name  ($scope, ${w}x${h}, ${kb} KB)"
+    $script:ShotIndex.Add("$name`t$label`t$scope ${w}x${h}")
+  } catch {
+    Write-Host "      [shot] could not capture '$label': $($_.Exception.Message)"
+  }
+}
+
+# A plain-text index, so the artifact explains itself months later instead of being a pile of
+# numbered pngs.
+function Write-ShotIndex($leg) {
+  try {
+    $f = Join-Path $ShotDir "INDEX-$leg.txt"
+    "PhValheim Client $Version -- MSI wizard, leg: $leg" | Out-File $f -Encoding utf8
+    "Captured for human review. These are NOT assertions." | Out-File $f -Append -Encoding utf8
+    "" | Out-File $f -Append -Encoding utf8
+    $script:ShotIndex | Out-File $f -Append -Encoding utf8
+    Write-Host "  wrote $f ($($script:ShotIndex.Count) shot(s))"
+  } catch { }
+}
 
 # ---------------------------------------------------------------------------
 # Window / button plumbing
@@ -201,6 +270,10 @@ if ($NoClickControl) {
     Start-Sleep -Seconds 2; $waited += 2
   }
 
+  # The control leg's shot is worth having on its own: it is the wizard exactly as a user
+  # first sees it, with nothing touched yet.
+  foreach ($w in (Find-Windows 'PhValheim')) { Save-Shot "control-untouched-wizard" $w }
+
   if ($sawDialog) { Ok "the wizard rendered a dialog (so /qf really does show UI here)" }
   else { Bad "no PhValheim dialog appeared in ${waited}s under /qf" "the control cannot distinguish anything" }
 
@@ -230,6 +303,7 @@ operated, so WelcomeForm/ConfirmInstallForm are not gating anything we are testi
     if ($leftover.MainWindowHandle -ne 0) { try { $leftover.Kill() } catch { } }
   }
 
+  Write-ShotIndex "control-no-clicks"
   Write-Host ""
   Write-Host "$script:Pass passed, $script:Fail failed"
   if ($script:Fail -gt 0) { exit 1 }
@@ -248,6 +322,7 @@ $proc = Start-Process -FilePath "msiexec.exe" `
 
 $dialogsSeen = New-Object System.Collections.Generic.List[string]
 $clicks      = New-Object System.Collections.Generic.List[string]
+$shotSigs    = New-Object System.Collections.Generic.List[string]
 # Ordered by preference. Cancel and Back are deliberately absent: clicking either would walk
 # the wizard backwards and the run could "succeed" by never installing anything.
 $advance = @('^Next', '^Install$', '^Finish', '^&?Yes$', '^OK$', '^Close$', '^Repair')
@@ -268,6 +343,18 @@ while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
     $names = @()
     foreach ($b in $buttons) { try { $names += $b.Current.Name } catch { } }
     if ($names.Count -gt 0) { Write-Host "      buttons: $($names -join ' | ')" }
+
+    # One shot per distinct BUTTON SET rather than per loop pass. The loop spins every 800ms,
+    # so shooting unconditionally would produce a hundred near-identical frames of the
+    # progress bar; and shooting once per window title would produce exactly ONE, because
+    # every MSI dialog in this package shares the title "PhValheim Client". The button set is
+    # what actually changes between Welcome, Confirm, Progress and Finished.
+    $sig = "$title :: " + ($names -join '|')
+    if (-not $shotSigs.Contains($sig)) {
+      $shotSigs.Add($sig)
+      $step = if ($names.Count -gt 0) { ($names -join '-') } else { 'no-buttons' }
+      Save-Shot "wizard-$($dialogsSeen.Count)-$step" $w
+    }
 
     $clicked = $false
     foreach ($pat in $advance) {
@@ -307,6 +394,7 @@ while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
       $all = ($w.Current.Name + ' ' + ($body -join ' ')).Trim()
       if ($all -match 'error|failed|cannot|unexpected|not be installed|Internal Error|\b2\d{3}\b') {
         Write-Host "    !! installer ERROR dialog: $all"
+        Save-Shot "ERROR-dialog" $w
         $clicks.Add("ERRORDIALOG: $all")
       }
     } catch { }
@@ -428,6 +516,7 @@ else { Bad "uninstall failed (exit $($u.ExitCode))" }
 if (@(Get-Installs).Count -eq 0) { Ok "no ARP entries remain" }
 else { Bad "entries remain after uninstall" }
 
+Write-ShotIndex "clicked"
 Write-Host ""
 Write-Host "$script:Pass passed, $script:Fail failed"
 if ($script:Fail -gt 0) { exit 1 }
