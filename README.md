@@ -110,6 +110,23 @@ Run with no arguments to print the version and usage:
 phvalheim-client            # or: flatpak run com.phvalheim.Client
 ```
 
+### Steam overlay on Linux
+
+From 2.0.16 a modded launch on Linux has the Steam overlay (Shift+Tab) like a
+vanilla one. A modded launch starts the game directly rather than through
+Steam, so Steam never injects its overlay itself; the client now does what
+Steam would have done, by putting Steam's `gameoverlayrenderer.so` on the
+game's `LD_PRELOAD` after BepInEx's doorstop and naming Valheim's app id. If
+that library is not where Steam keeps it the client says so on the launch
+console and starts the game without it. Steam must be running first, as it
+always had to be. If the overlay misbehaves on your machine (some Mesa and
+Wayland combinations crash with it), set `PHVALHEIM_NO_OVERLAY=1` in the
+client's environment to turn it off; for the Flatpak that is:
+
+```bash
+flatpak override --user --env=PHVALHEIM_NO_OVERLAY=1 com.phvalheim.Client
+```
+
 ### Flatpak usage notes
 
 The Flatpak is a normal app once installed — the launch link works the same as
@@ -135,6 +152,14 @@ flatpak override --user --filesystem=/data/games com.phvalheim.Client
 The client prints its progress to a terminal, which your desktop opens for it.
 **In Steam Deck Game Mode there is no terminal**, so a launch there runs
 silently — it works, but you get no progress output.
+
+**Bazaar (Bazzite's app store) may show an old version** for this app after
+you install a newer bundle, on the detail page, in your Library, or both.
+That is Bazaar's own cache: an app installed from a bundle has no remote for
+it to resync from, so it keeps showing whichever version it first saw. The
+installed version is what `flatpak info com.phvalheim.Client` prints, and
+Warehouse shows the same. Bazaar's Refresh fixes the display, or delete
+`~/.cache/io.github.kolunmi.Bazaar`.
 
 #### Flatpak Steam
 

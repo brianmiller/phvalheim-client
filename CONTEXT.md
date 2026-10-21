@@ -1,7 +1,7 @@
 # phvalheim-client — Project Context
 
 > Maintained by Skippy. Updated when significant changes are made.
-> Last updated: 2026-09-11
+> Last updated: 2026-10-21
 
 ## Overview
 
@@ -11,13 +11,14 @@ and launches Valheim with the correct BepInEx environment via the `phvalheim://`
 **Flow:** `phvalheim://` URL → client → sync check → download world zip if needed → launch Valheim + BepInEx
 
 ## Current Version
-**2.0.13**
+**2.0.16** (in progress, see `RELEASE-2.0.16.md`; 2.0.15 released 2026-10-17)
 
 ## Platform Support
 - **Windows:** `.msi` — URL scheme registered automatically by installer; installs to `%AppData%\PhValheim\phvalheim-client\`
 - **Linux Debian/Ubuntu:** `.deb` — needs `xdg-mime` registration post-install
 - **Linux Fedora/RHEL:** `.rpm` — needs `xdg-mime` registration post-install
 - **Linux Universal:** `.tar.gz` — install via `phvalheim-client-installer.sh`
+- **Linux Flatpak:** `.flatpak` bundle (`com.phvalheim.Client`), runtime `org.freedesktop.Platform` 25.08 from 2.0.16 — see `docs/FLATPAK.md`
 - **macOS:** `macinstall.sh` curl-bash one-liner — Intel + Apple Silicon
 
 ## Build System

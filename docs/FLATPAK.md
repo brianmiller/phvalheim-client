@@ -157,6 +157,31 @@ no error message.
   host-level `LD_PRELOAD` (a MangoHud or gamescope wrapper, say) is dropped
   for the Valheim process. Deliberate: the alternative was a fix that looks
   like it works and does not.
+- **Bazaar shows an old version.** Bazzite's app store (Bazaar) can show the
+  Flatpak's detail page at one old version and its Library row at another,
+  while `flatpak info com.phvalheim.Client` and Warehouse both show the real
+  one. Established 2026-10-21 by unpacking the 2.0.13, 2.0.14 and 2.0.15
+  bundles: each carries its own version in the metainfo, the composed
+  AppStream XML and the ostree commit, so nothing stale ships. Bazaar keeps a
+  groups cache under `~/.cache/io.github.kolunmi.Bazaar` holding each app's
+  AppStream entry and installed-versions string, and on start it only
+  reconciles the installed *flag*. A bundle-installed app has no remote, so
+  nothing ever rewrites that entry: the detail page shows the first version
+  Bazaar ever saw and the Library row the last install it happened to
+  notice. Remedy: Bazaar's Refresh, or delete that cache directory. The only
+  fix on our side would be publishing a real Flatpak remote, which is a
+  separate project.
+- **The Steam overlay with a Flatpak Steam is untested**, like everything else
+  on that path. From 2.0.16 a modded Linux launch puts
+  `<steam root>/ubuntu12_64/gameoverlayrenderer.so` on the game's `LD_PRELOAD`
+  after doorstop, when that file exists. With a Flatpak Steam the root is
+  `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`, which this sandbox
+  can see (the manifest grants it) and which resolves to the same file inside
+  Steam's own sandbox, where the game runs. The stub rig asserts the
+  composition of the environment for the native shape only; it cannot run a
+  Flatpak Steam. `PHVALHEIM_NO_OVERLAY=1` turns the injection off; for the
+  Flatpak client that is
+  `flatpak override --user --env=PHVALHEIM_NO_OVERLAY=1 com.phvalheim.Client`.
 - **No LICENSE file exists in this repository**, so the AppStream metadata
   declares `LicenseRef-proprietary`, which is the only accurate value.
   **This blocks a Flathub submission**, which requires a real open-source

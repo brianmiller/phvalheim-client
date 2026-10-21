@@ -153,7 +153,7 @@ case "$stage" in
 	flatpak remote-add $fpScope --if-not-exists flathub \
 		https://dl.flathub.org/repo/flathub.flatpakrepo || exit 1
 	flatpak install $fpScope --noninteractive --or-update flathub \
-		org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 || exit 1
+		org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 || exit 1
 
 	repoDir="$stagingDir/repo"
 	buildDir="$stagingDir/build"

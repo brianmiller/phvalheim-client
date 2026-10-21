@@ -209,6 +209,48 @@ namespace PhValheim.Launcher
                       ? "libdoorstop_x64.so"
                       : $"libdoorstop_x64.so:{existingLdPreload}";
 
+                  // The Steam overlay (2.0.16).
+                  //
+                  // A vanilla launch goes through `steam -applaunch`, so Steam sets the game
+                  // up itself and Shift+Tab works. A modded launch execs valheim.x86_64
+                  // directly -- Steam never sees it start, so it never injects the overlay,
+                  // and that is what players on Linux reported. Steam's injection is nothing
+                  // more than these environment variables: gameoverlayrenderer.so on
+                  // LD_PRELOAD and the app id in three names (the overlay refuses to attach
+                  // without one). Doorstop FIRST, overlay second -- that is the order every
+                  // BepInEx-on-Steam Linux user already runs, because run_bepinex.sh prepends
+                  // doorstop to the LD_PRELOAD Steam handed it.
+                  //
+                  // Only the 64-bit library. Valheim is x86_64; adding ubuntu12_32 as Steam
+                  // does would print "wrong ELF class" into the console window on every
+                  // launch for nothing. And NEVER a path that does not exist: ld.so complains
+                  // at exec and the game still starts, which is the worst kind of warning.
+                  // So: present on disk -> injected; absent -> LD_PRELOAD exactly as before
+                  // and a visible note. PHVALHEIM_NO_OVERLAY=1 is the opt-out for the
+                  // Mesa/Wayland combinations where the overlay itself crashes the game.
+                  //
+                  // Both launch shapes below (native env dictionary, Flatpak-Steam
+                  // `flatpak run --env=`) are fed from doorstopEnv, so this one edit covers
+                  // both. For Flatpak Steam the path is ~/.var/app/com.valvesoftware.Steam/...,
+                  // which resolves to the same file inside Steam's sandbox.
+                  const string valheimAppId = "892970";
+                  string overlaySo = Path.Combine(steamDir, "ubuntu12_64", "gameoverlayrenderer.so");
+                  bool overlayOptOut = System.Environment.GetEnvironmentVariable("PHVALHEIM_NO_OVERLAY") == "1";
+                  bool overlayOn = false;
+                  if (overlayOptOut)
+                  {
+                      Ui.Note("Steam overlay skipped: PHVALHEIM_NO_OVERLAY is set");
+                  }
+                  else if (!File.Exists(overlaySo))
+                  {
+                      Ui.Note("Steam overlay skipped: " + overlaySo + " not found");
+                  }
+                  else
+                  {
+                      overlayOn = true;
+                      ld_preload = ld_preload + ":" + overlaySo;
+                  }
+
                   // The doorstop environment. Passing it as a dictionary rather
                   // than mutating psi.EnvironmentVariables is what lets the
                   // same call work in both worlds: outside a sandbox these
@@ -223,6 +265,14 @@ namespace PhValheim.Launcher
                       ["LD_LIBRARY_PATH"] = ld_library_path,
                       ["LD_PRELOAD"] = ld_preload,
                   };
+
+                  if (overlayOn)
+                  {
+                      doorstopEnv["SteamAppId"] = valheimAppId;
+                      doorstopEnv["SteamGameId"] = valheimAppId;
+                      doorstopEnv["SteamOverlayGameId"] = valheimAppId;
+                      doorstopEnv["ENABLE_VK_LAYER_VALVE_steam_overlay_1"] = "1";
+                  }
 
                   ProcessStartInfo startInfo;
 
@@ -310,17 +360,22 @@ namespace PhValheim.Launcher
                   // The game never started and the window vanished with the stack trace in it.
                   //
                   // ContainsKey first, and the loop only runs when someone asked for it.
+                  //
+                  // 2.0.16: it now walks doorstopEnv itself rather than a hand-written list of
+                  // names read back out of startInfo. The list had drifted ("DOORSTOP_ENABLE",
+                  // "DOORSTOP_INVOKE_DLL_PATH" -- neither is a key we set) and printed
+                  // "(unset)" for them on every run, and in the Flatpak-Steam shape startInfo
+                  // carries none of these at all (they ride in as --env= arguments), so the
+                  // one dictionary both shapes are fed from is the thing worth printing.
                   if (Ui.Verbose)
                   {
                       Ui.Detail("exec", exec);
                       Ui.Detail("args", startInfo.Arguments);
                       Ui.Detail("cwd", startInfo.WorkingDirectory);
-                      foreach (string ev in new[] { "DOORSTOP_ENABLE", "DOORSTOP_INVOKE_DLL_PATH",
-                                                    "DOORSTOP_CORLIB_OVERRIDE_PATH",
-                                                    "LD_LIBRARY_PATH", "LD_PRELOAD" })
+                      Ui.Detail("steam overlay", overlayOn ? overlaySo : "(off)");
+                      foreach (var kv in doorstopEnv.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                       {
-                          Ui.Detail(ev, startInfo.EnvironmentVariables.ContainsKey(ev)
-                                            ? startInfo.EnvironmentVariables[ev] : "(unset)");
+                          Ui.Detail(kv.Key, kv.Value);
                       }
                   }
 

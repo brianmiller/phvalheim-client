@@ -153,7 +153,7 @@ metaText=$(cat "$metadata" 2>/dev/null)
 
 eq  "metadata declares our app id"  "$appId"  "$(sed -n 's/^name=//p' "$metadata" | head -1)"
 eq  "command is the client binary"  "phvalheim-client"  "$(sed -n 's/^command=//p' "$metadata" | head -1)"
-contains "runtime is org.freedesktop.Platform 24.08" "org.freedesktop.Platform/x86_64/24.08" \
+contains "runtime is org.freedesktop.Platform 25.08" "org.freedesktop.Platform/x86_64/25.08" \
 	"$(sed -n 's/^runtime=//p' "$metadata" | head -1)"
 
 sharedLine=$(sed -n 's/^shared=//p' "$metadata" | head -1)

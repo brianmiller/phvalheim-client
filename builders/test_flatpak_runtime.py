@@ -78,6 +78,13 @@ HOME = Path(os.environ.get("HOME", "/root"))
 FAKE = Path("/run/media/phv-testdrive")
 STEAM_LOG = FAKE / "steam.log"
 VALHEIM_LOG = FAKE / "valheim.json"
+
+# Steam's overlay library, where a system Steam keeps it. Client 2.0.16 puts it on
+# the game's LD_PRELOAD after doorstop when it exists; an empty file is enough here
+# because the stub game never loads it. HOME-relative on purpose: Platform.cs
+# resolves the Steam root as $HOME/.steam/steam, and this must be the same string.
+OVERLAY_SO = HOME / ".steam" / "steam" / "ubuntu12_64" / "gameoverlayrenderer.so"
+VALHEIM_APP_ID = "892970"
 SHOTS = Path("/git/builders/.flatpak_shots")
 
 # Which installation the innie used. flatpak refuses every modifying --user
@@ -210,6 +217,8 @@ def build_fake_host():
     steamroot.mkdir(parents=True, exist_ok=True)
     (steamroot / "libraryfolders.vdf").write_text(
         '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n' % lib)
+    OVERLAY_SO.parent.mkdir(parents=True, exist_ok=True)
+    OVERLAY_SO.write_bytes(b"")
 
     return lib / "steamapps" / "common" / "Valheim"
 
@@ -583,7 +592,16 @@ def assert_valheim_env(rec, valheim_dir):
              "BepInEx/core/BepInEx.Preloader.dll", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
     contains("DOORSTOP_TARGET_ASSEMBLY is under the world directory",
              f"PhValheim/worlds/{SRV_HOST}/{WORLD}", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
-    contains("LD_PRELOAD injects doorstop", "libdoorstop_x64.so", env.get("LD_PRELOAD", ""))
+    # The WHOLE string, not "contains": doorstop first, then Steam's overlay, nothing
+    # else. Order is the point (it is the order every BepInEx-on-Steam user runs), and
+    # a "contains libdoorstop" check would wave through a launch that had quietly
+    # dropped the overlay again -- the 2.0.15 behaviour this release exists to fix.
+    eq("LD_PRELOAD is doorstop, then Steam's overlay, in that order",
+       f"libdoorstop_x64.so:{OVERLAY_SO}", env.get("LD_PRELOAD"))
+    eq("SteamAppId names Valheim", VALHEIM_APP_ID, env.get("SteamAppId"))
+    eq("SteamGameId names Valheim", VALHEIM_APP_ID, env.get("SteamGameId"))
+    eq("SteamOverlayGameId names Valheim", VALHEIM_APP_ID, env.get("SteamOverlayGameId"))
+    eq("the Vulkan overlay layer is enabled", "1", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
     eq("LD_LIBRARY_PATH is the game's doorstop_libs",
        str(Path(valheim_dir) / "doorstop_libs"), env.get("LD_LIBRARY_PATH"))
 

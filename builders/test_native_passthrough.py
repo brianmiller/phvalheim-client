@@ -43,9 +43,12 @@ def chk(label, cond, detail=""):
         print(f"  FAIL  {label}\n        {detail}", flush=True)
 
 
-def run(exe, url):
+def run(exe, url, extra_env=None):
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
     p = subprocess.run([exe, url], capture_output=True, timeout=300,
-                       stdin=subprocess.DEVNULL)
+                       stdin=subprocess.DEVNULL, env=env)
     return p.returncode, p.stdout.decode(errors="replace"), p.stderr.decode(errors="replace")
 
 
@@ -121,8 +124,14 @@ def main():
         chk("DOORSTOP_TARGET_ASSEMBLY points at the synced preloader",
             "BepInEx.Preloader.dll" in env.get("DOORSTOP_TARGET_ASSEMBLY", ""),
             env.get("DOORSTOP_TARGET_ASSEMBLY"))
-        chk("LD_PRELOAD injects doorstop",
-            "libdoorstop_x64.so" in env.get("LD_PRELOAD", ""), env.get("LD_PRELOAD"))
+        # Exact string: doorstop first, then Steam's overlay (2.0.16), nothing else.
+        chk("LD_PRELOAD is doorstop, then Steam's overlay, in that order",
+            env.get("LD_PRELOAD") == f"libdoorstop_x64.so:{T.OVERLAY_SO}", env.get("LD_PRELOAD"))
+        for var in ("SteamAppId", "SteamGameId", "SteamOverlayGameId"):
+            chk(f"{var} names Valheim", env.get(var) == T.VALHEIM_APP_ID, env.get(var))
+        chk("the Vulkan overlay layer is enabled",
+            env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1") == "1",
+            env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
         chk("LD_LIBRARY_PATH is the game's doorstop_libs",
             env.get("LD_LIBRARY_PATH") == str(Path(valheim_dir) / "doorstop_libs"),
             env.get("LD_LIBRARY_PATH"))
@@ -143,6 +152,55 @@ def main():
         # Nothing flatpak-shaped may appear on a native run.
         chk("no flatpak-spawn wrapper leaked into the native launch",
             "flatpak" not in " ".join(rec["argv"]).lower(), rec["argv"])
+
+        # ---- overlay mutation controls ----
+        #
+        # The positive assertions above would also pass if the client put the overlay
+        # path on LD_PRELOAD unconditionally. These prove the guard exists: with no
+        # library on disk the client must NOT name it (ld.so would complain at every
+        # launch and the game would start anyway -- the worst kind of warning), and the
+        # opt-out must work without a release. Each control re-launches the same modded
+        # world; the payload is already synced, so only the launch runs again.
+        def modded_launch(label, extra_env=None):
+            T.clear_logs()
+            rc, out, err = run(exe, T.launch_url(T.WORLD, port, vanilla=False), extra_env)
+            rec = T.wait_for_json(T.VALHEIM_LOG, timeout=90)
+            chk(f"{label}: Valheim was executed on the host", rec is not None,
+                f"rc={rc} stdout={out[-400:]!r} stderr={err[:400]!r}")
+            return rec, out
+
+        print("\n-- control: no overlay library on disk --")
+        T.OVERLAY_SO.unlink()
+        try:
+            rec, out = modded_launch("no library")
+            if rec is not None:
+                env = rec["env"]
+                chk("no library: LD_PRELOAD is doorstop alone",
+                    env.get("LD_PRELOAD") == "libdoorstop_x64.so", env.get("LD_PRELOAD"))
+                chk("no library: no Steam app id is set",
+                    not any(k in env for k in ("SteamAppId", "SteamGameId", "SteamOverlayGameId")),
+                    {k: env.get(k) for k in ("SteamAppId", "SteamGameId", "SteamOverlayGameId")})
+            # Ui.Note wraps at 76 columns on word boundaries, and the path is a long
+            # word, so the note arrives as two or three lines. Collapsing whitespace
+            # puts it back together; the check is the sentence, not the layout.
+            chk("no library: the client says why the overlay was skipped",
+                f"Steam overlay skipped: {T.OVERLAY_SO} not found" in " ".join(out.split()),
+                out[-600:])
+        finally:
+            T.OVERLAY_SO.write_bytes(b"")
+
+        print("\n-- control: PHVALHEIM_NO_OVERLAY=1 --")
+        rec, out = modded_launch("opt-out", {"PHVALHEIM_NO_OVERLAY": "1"})
+        if rec is not None:
+            env = rec["env"]
+            chk("opt-out: LD_PRELOAD is doorstop alone",
+                env.get("LD_PRELOAD") == "libdoorstop_x64.so", env.get("LD_PRELOAD"))
+            chk("opt-out: no Steam app id is set",
+                not any(k in env for k in ("SteamAppId", "SteamGameId", "SteamOverlayGameId")),
+                {k: env.get(k) for k in ("SteamAppId", "SteamGameId", "SteamOverlayGameId")})
+        chk("opt-out: the client names the variable",
+            "Steam overlay skipped: PHVALHEIM_NO_OVERLAY is set" in " ".join(out.split()),
+            out[-600:])
     finally:
         srv.shutdown()
 
