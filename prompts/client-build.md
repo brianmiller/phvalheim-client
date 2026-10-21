@@ -150,3 +150,11 @@ unverified".
 - [ ] You actually ran the client against a real server, or you said you did not
       — the smoke test does not reach any of the sync/launch logic.
 - [ ] Release tag is bare numeric.
+- [ ] Every package was installed OVER the previous PUBLISHED release and read back:
+      `gh release download <prev>` into a scratch dir, then
+      `builders/verify_linux_upgrade.sh {deb|rpm|tgz}` in the Debian/Fedora build images and
+      `builders/verify_flatpak_upgrade.sh` in `phvalheim-flatpak-env` (both runtimes are in the
+      `phvalheim-flatpak-cache` volume). Each has a control: pass the OLD package as the new one
+      and it must fail. Windows and macOS upgrades run in CI (`msi-upgrade`, `macos-upgrade`)
+      against the published assets, so re-run `macos-verify.yml` AFTER the release exists and
+      add the version you just shipped to both matrices for the next one.

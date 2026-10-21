@@ -1,5 +1,12 @@
-Three things, all Linux. Windows and macOS are unchanged in this build, and nothing in it
-needs a particular server version.
+**Pre-release.** This build is published for players who want to try the Linux changes below
+before they become the recommended client. Two things follow from that: the client's own
+"a newer version is available" check and your server's web page download buttons both skip
+pre-releases, so nothing will nudge anyone toward this build and your server will keep
+offering 2.0.15 until 2.0.16 is promoted. Get it from this page. Nothing in it needs a
+particular server version.
+
+Three things, all Linux. The Windows and macOS packages carry no code change beyond the
+version number; they are published so that every platform is on one version.
 
 ## What changed
 
@@ -62,3 +69,21 @@ another after you install a newer bundle. The bundles are correct (each of 2.0.1
 for an app installed from a bundle rather than a remote, never refreshes it. `flatpak info
 com.phvalheim.Client` and Warehouse show the installed version. Bazaar's Refresh fixes the
 display, or delete `~/.cache/io.github.kolunmi.Bazaar`.
+
+## Upgrading from 2.0.15
+
+Every package here was installed OVER the published 2.0.15 package, by the package manager a
+player would use, and the result was run and read back. Each path has a control that feeds the
+rig the old package as the "new" one and requires it to fail.
+
+| Client | How to upgrade | Verified |
+|---|---|---|
+| Debian / Ubuntu `.deb` | `sudo dpkg -i phvalheim-client-2.0.16-x86_64.deb` | `builders/verify_linux_upgrade.sh deb`, in the Debian build image |
+| Fedora `.rpm` | `sudo dnf install ./phvalheim-client-2.0.16-x86_64.rpm` (or `rpm -U`) | `builders/verify_linux_upgrade.sh rpm`, in the Fedora build image |
+| Universal tarball | extract, `sudo ./phvalheim-client-installer.sh install` | `builders/verify_linux_upgrade.sh tgz` |
+| Flatpak | `flatpak install phvalheim-client-2.0.16-x86_64.flatpak` — no `--reinstall` needed, the commit and runtime both move | `builders/verify_flatpak_upgrade.sh`, bundle over bundle, 24.08 → 25.08 |
+| Windows `.msi` | run the installer | CI: `msiexec` upgrade from each of 2.0.12, 2.0.13, 2.0.14 and 2.0.15, plus the full wizard clicked |
+| macOS | `macinstall.sh install`, or the tarball | CI: 2.0.15 installed by its own installer, then this build installed over it on Apple Silicon |
+
+The Windows and macOS legs run against the published assets on this page, so their result
+is in this release's CI run rather than in a log on a build machine.

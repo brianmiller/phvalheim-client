@@ -195,7 +195,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        from: ['2.0.12', '2.0.13', '2.0.14']
+        from: ['2.0.12', '2.0.13', '2.0.14', '2.0.15']
     steps:
       - uses: actions/checkout@v4
 
@@ -563,6 +563,75 @@ jobs:
           # 2.0.13 release in the first place.
           path: builds/phvalheim-client-${{ steps.ver.outputs.version }}-macos-universal.tar.gz
           if-no-files-found: error
+
+  # ── Does macOS agree to UPGRADE what we shipped? ─────────────────────────────
+  # `native` above installs the CURRENT tarball on a clean runner. A player's Mac is not
+  # clean: it has the previous release in /Applications and /usr/local/bin, put there by
+  # the PREVIOUS release's macinstall.sh. This installs exactly that -- the published old
+  # tarball through the published old installer -- then runs the current installer over
+  # it with the current PUBLISHED tarball, and hands the result to the same verify_macos.sh
+  # the clean install must pass. Like msi-upgrade, it needs the current release to exist,
+  # so on the push that bumps the version it is red until the release is published.
+  macos-upgrade:
+    name: macOS upgrade ${{ matrix.from }} → current
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        from: ['2.0.15']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the current published version
+        id: cur
+        run: echo "v=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' phvalheim-client.csproj | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Download the old installer and both tarballs from their releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release download "${{ matrix.from }}"        -p '*macos-universal.tar.gz' -p 'macinstall.sh' -D old
+          gh release download "${{ steps.cur.outputs.v }}" -p '*macos-universal.tar.gz' -D new
+          # A missing download must not read as a passing test.
+          test -f old/macinstall.sh && test -f old/*macos-universal.tar.gz && test -f new/*macos-universal.tar.gz
+          ls -l old new
+
+      - name: Install ${{ matrix.from }} with ITS OWN installer
+        env:
+          PHVALHEIM_TARBALL: old/phvalheim-client-${{ matrix.from }}-macos-universal.tar.gz
+        run: bash old/macinstall.sh install
+
+      # CONTROL. If the banner cannot be read for the OLD version, the version pin after the
+      # upgrade below would be a check that reads itself blind.
+      - name: CONTROL -- the old client is what is installed
+        run: |
+          got=$(/usr/local/bin/phvalheim-client 2>&1 </dev/null | grep -m1 -o 'PhValheim Client [0-9][0-9.]*' || true)
+          echo "banner: $got"
+          [ "$got" = "PhValheim Client ${{ matrix.from }}" ]
+
+      - name: Install ${{ steps.cur.outputs.v }} over it with the CURRENT installer
+        env:
+          PHVALHEIM_TARBALL: new/phvalheim-client-${{ steps.cur.outputs.v }}-macos-universal.tar.gz
+        run: bash macinstall.sh install
+
+      - name: Verify the upgraded install
+        run: bash builders/verify_macos.sh "${{ steps.cur.outputs.v }}" "$RUNNER_TEMP/results.tsv"
+
+      - name: Upgrade report
+        if: always()
+        run: bash builders/ci_summary.sh "macOS upgrade ${{ matrix.from }} → \`${{ steps.cur.outputs.v }}\` on Apple Silicon" "$RUNNER_TEMP/results.tsv"
+
+      - name: Uninstall cleanly
+        if: always()
+        run: |
+          bash macinstall.sh uninstall
+          rc=0
+          [ -e /usr/local/bin/phvalheim-client ] && { echo "FAIL: binary survived uninstall"; rc=1; }
+          [ -e "/Applications/PhValheim Client.app" ] && { echo "FAIL: app survived uninstall"; rc=1; }
+          [ $rc -eq 0 ] && echo "✅ Uninstall removed both artifacts" >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
   # ── What the Linux client LOOKS like ────────────────────────────────────────
   #
