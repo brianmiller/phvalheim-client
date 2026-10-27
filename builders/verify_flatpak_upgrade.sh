@@ -100,7 +100,9 @@ case "$newRuntime" in
 	*/25.08) ok "runtime is 25.08 after the upgrade" "$newRuntime" ;;
 	*) bad "runtime is 25.08 after the upgrade" "org.freedesktop.Platform/x86_64/25.08" "${newRuntime:-none}" ;;
 esac
-[ "$newRuntime" != "$oldRuntime" ] && ok "runtime moved with the upgrade" "$oldRuntime -> $newRuntime" || bad "runtime moved with the upgrade" "a change from $oldRuntime" "unchanged"
+# Consecutive client releases can use the same runtime (2.0.16 and 2.0.17 both
+# use 25.08). The target-runtime assertion above validates either path; requiring
+# a runtime change here would reject a successful application-only upgrade.
 # One app, one active deploy: the installation must not hold two versions side by side.
 n=$(flatpak list --installation=phv-upgrade --app --columns=application 2>/dev/null | grep -cx "$appId")
 eq "exactly one $appId installed" "1" "$n"

@@ -19,16 +19,29 @@ release has been published by this work.
 
 - Windows: signed `phvalheim-client-2.0.17-x86_64.msi`.
 - Linux: `phvalheim-client-2.0.17-universal-x86_64.tar.gz`.
+- Flatpak: `phvalheim-client-2.0.17-x86_64.flatpak`.
 - `SHA256SUMS` records the exact tested downloads. The MSI must not be rebuilt under the
   same version: its Windows product identity has already been handed to testers.
 
-macOS and additional Linux package formats remain pending. The existing Windows artifact
+macOS, Debian, and RPM packages remain pending. The existing Windows artifact
 passed 75 verification checks, 24 executable smoke checks, and 36 MSI behavior checks.
+
+The Flatpak passed 42 package checks, 51 sandbox/runtime checks, 27 native-launch
+regression checks, and 16 upgrade checks
+from the published 2.0.16 bundle. A control using the old bundle as the proposed update
+failed as expected. Browser launch and Steam/Valheim handoff tests use recording stubs;
+they do not claim a live game session or testing on SteamOS/Bazzite.
+
+Install or upgrade the downloaded Flatpak with:
+
+```sh
+flatpak install --user ./phvalheim-client-2.0.17-x86_64.flatpak
+```
 
 Install this client before updating a test world to Server 2.60. Confirm personal settings
 survive both a full mod update and a config-only update, then clear Overridable in the admin
 UI and confirm the operator's value returns before launch. A mod's own runtime synchronization
 can still override settings during play.
 
-Publishing a client prerelease can trigger the existing launcher's upgrade notification;
-keep this release in draft until that notification and platform availability are intended.
+Keep this release in draft until public testing and platform availability are intended.
+The current launcher compares against stable releases when checking for updates.
