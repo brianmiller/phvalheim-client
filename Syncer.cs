@@ -46,7 +46,7 @@ namespace PhValheim.Syncer
             try
             {
                 using (var client = new WebClient())
-                using (var stream = client.OpenRead(phvalheimURL + "/api.php?mode=getSyncState&world=" + world))
+                using (var stream = client.OpenRead(phvalheimURL + "/api.php?mode=getSyncState&configPolicy=1&world=" + world))
                 using (var reader = new StreamReader(stream))
                 {
                     string? line;
@@ -80,7 +80,7 @@ namespace PhValheim.Syncer
             try
             {
                 using (var client = new WebClient())
-                using (var stream = client.OpenRead(phvalheimURL + "/api.php?mode=getMD5&world=" + world))
+                using (var stream = client.OpenRead(phvalheimURL + "/api.php?mode=getMD5&configPolicy=1&world=" + world))
                 using (var reader = new StreamReader(stream))
                 {
                     state.WorldMd5 = (reader.ReadLine() ?? "").Trim();
@@ -364,6 +364,9 @@ namespace PhValheim.Syncer
                 if (!Directory.Exists(localWorldDir))
                 {
                     readyToExtract = true;
+                    // A config-only sync can be newer than the cached full archive.
+                    // Re-extraction restores that archive, so fetch the current config again.
+                    heldConfigMD5 = "";
                 }
             }
 
@@ -387,39 +390,17 @@ namespace PhValheim.Syncer
             {
                 Ui.Step("Installing world files");
 
-                //delete world directory, just in case
-                if (Directory.Exists(localWorldDir))
-                {
-                    Directory.Delete(localWorldDir, true);
-                }
-
                 try
                 {
-                    ZipFile.ExtractToDirectory(localWorldFile, localWorldDir);
+                    ConfigPolicy.InstallArchive(localWorldFile, localWorldDir, full: true);
                 }
-                catch
+                catch (Exception e)
                 {
                     Ui.Fail("failed");
-                    Ui.Error("The world files downloaded but could not be unpacked.",
-                             "This is usually a full disk or antivirus holding a file open.",
-                             "Launch again once there is room; the download will not be repeated.");
+                    Ui.Error("The update could not be installed. Your existing world files were kept.",
+                             e.Message, "Resolve the problem and launch again to retry.");
 
-                    // Remove the half-written tree, then record the payload anyway.
-                    //
-                    // The payload on disk is correct -- it was either verified against the
-                    // server's checksum moments ago, or it already matched before we got here.
-                    // Only the extraction failed. Recording it, with the directory gone, means
-                    // the next launch takes the "payload matches but the directory is missing"
-                    // path and re-extracts from the copy we already hold.
-                    //
-                    // Without this the old behaviour is lost: the previous client re-hashed the
-                    // payload on every launch, so it recovered from a failed extract without
-                    // downloading anything. Returning here without recording would make the next
-                    // launch re-download 573 MB to fix a unzip that failed. And leaving the
-                    // partial directory in place would be worse than either -- Directory.Exists
-                    // would be true and Valheim would be launched from an incomplete tree.
-                    try { Directory.Delete(localWorldDir, true); } catch { }
-                    WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5);
+                    // Installation is staged; the previous world remains intact on failure.
                     return false;
                 }
 
@@ -472,41 +453,26 @@ namespace PhValheim.Syncer
                 {
                     Ui.Warn("kept yours");
                     Ui.Warning("The updated mod settings did not download, so the ones you already have are being kept.",
-                               "The game will still start. Launch again later to pick them up.");
-                    return true;
+                               "Launch again to retry before joining this world.");
+                    return false;
                 }
 
                 if (gotConfigMD5 != remote.ConfigMd5)
                 {
                     Ui.Warn("kept yours");
                     Ui.Warning("The updated mod settings arrived damaged, so the ones you already have are being kept.",
-                               "The game will still start. Launch again later to pick them up.");
+                               "Launch again to retry before joining this world.");
                     try { File.Delete(localConfigFile); } catch { }
-                    return true;
+                    return false;
                 }
 
                 try
                 {
-                    // Replaced WHOLESALE -- deleted, then extracted -- never merged file by
-                    // file. Resetting a setting in the admin editor REMOVES a key, and can
-                    // remove a whole file; a merge would leave the stale one behind and the
-                    // reset would never reach the player.
-                    //
-                    // This is no more destructive than the full path above, which deletes the
-                    // entire world directory. BepInEx re-adopts the server's values and
-                    // re-expands each file at next boot, which is the same mechanism the
-                    // server side relies on.
-                    string configDir = Path.Combine(localWorldDir, "BepInEx", "config");
-                    if (Directory.Exists(configDir))
-                    {
-                        Directory.Delete(configDir, true);
-                    }
-
-                    ZipFile.ExtractToDirectory(localConfigFile, localWorldDir, true);
+                    ConfigPolicy.InstallArchive(localConfigFile, localWorldDir, full: false);
                 }
                 catch (Exception e)
                 {
-                    // The config directory may now be missing, so this one IS fatal -- unlike
+                    // The staged settings were not applied; stop rather than launch stale enforcement. Unlike
                     // a failed download, which leaves the old config intact. Clear the record
                     // so the next launch re-syncs from scratch rather than trusting a tree we
                     // half-rewrote.
@@ -572,6 +538,13 @@ namespace PhValheim.Syncer
             }
 
             Ui.Done("ready");
+            try { ConfigPolicy.Enforce(localWorldDir); }
+            catch (Exception e)
+            {
+                Ui.Error("Could not apply this world's mod settings. Your existing files were kept.", e.Message);
+                return false;
+            }
+
             return true;
         }
     }

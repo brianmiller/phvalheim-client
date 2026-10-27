@@ -1,0 +1,122 @@
+using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
+using PhValheim;
+
+namespace PhValheim.Platform {
+    public static class State {
+        public static string WorldName="test", ValheimDir="", PhValheimDir="", PhValheimServerRoot="", PhValheimServerWorld="";
+    }
+}
+class Tests {
+    static int passed;
+    static string root=Path.Combine(Path.GetTempPath(),"phv-policy-"+Guid.NewGuid().ToString("N"));
+    static void Check(bool condition,string name) {
+        if(!condition) throw new Exception("FAIL: "+name);
+        Console.WriteLine("PASS: "+name); passed++;
+    }
+    static void Put(string path,string text) { Directory.CreateDirectory(Path.GetDirectoryName(path)!);File.WriteAllText(path,text); }
+    static object Rule(string key,string value,bool overridable=true) => new {section="UI",key,value,overridable};
+    static string Policy(params object[] rules) => JsonSerializer.Serialize(new {version=1,minClientVersion="2.0.17",
+        files= rules.Length==0 ? Array.Empty<object>() : new object[]{new {file="test.cfg",entries=rules}},
+        managedFiles=new[]{"BepInEx.cfg","ZeroBandwidth.CustomSeed.cfg","quick_connect_servers.cfg"}});
+    static string Archive(string policy,string plugin="new") {
+        string src=Path.Combine(root,Guid.NewGuid().ToString("N"));
+        Put(Path.Combine(src,"BepInEx/config/"+ConfigPolicy.ManifestName),policy);
+        Put(Path.Combine(src,"BepInEx/config/BepInEx.cfg"),"managed");
+        Put(Path.Combine(src,"BepInEx/config/personal.json"),"{\"seen\":false}");
+        Put(Path.Combine(src,"BepInEx/plugins/test.dll"),plugin);
+        Put(Path.Combine(src,"doorstop_libs/test.so"),"loader");
+        Put(Path.Combine(src,"doorstop_config.ini"),"loader");
+        Put(Path.Combine(src,"winhttp.dll"),"loader");
+        ZipFile.CreateFromDirectory(src,src+".zip");
+        return src+".zip";
+    }
+    static async Task Main() {
+        Directory.CreateDirectory(root);
+        try {
+            string world=Path.Combine(root,"world"),cfg=Path.Combine(world,"BepInEx/config/test.cfg");
+            Put(cfg,"# personal\r\n[UI]\r\nWeight = true\r\nPopup = seen\r\nLimit = 99\r\nCase = A\r\ncase = b\r\n");
+            Put(Path.Combine(world,"BepInEx/config/local-only.cfg"),"personal-only");
+            Put(Path.Combine(world,"BepInEx/config/personal.json"),"{\"seen\":true}");
+            Put(Path.Combine(world,"BepInEx/config/BepInEx.cfg"),"old-loader");
+            Put(Path.Combine(world,"BepInEx/plugins/removed.dll"),"old");
+            string first=Archive(Policy(Rule("Weight","false"),Rule("Popup","new"),Rule("Limit","10",false),Rule("Zero","0"),Rule("Empty",""),Rule("Unicode","雪 = yes")));
+            ConfigPolicy.InstallArchive(first,world,true);
+            string text=File.ReadAllText(cfg);
+            Check(text.Contains("Weight = true") && text.Contains("Popup = seen"),"full update retains player preferences and popup state");
+            Check(text.Contains("Limit = 10"),"full update applies enforced setting");
+            Check(text.Contains("Zero = 0") && text.Contains("Empty = ") && text.Contains("Unicode = 雪 = yes"),"missing defaults preserve zero, empty and unicode values");
+            Check(text.Contains("# personal\r\n") && text.Contains("Case = A") && text.Contains("case = b"),"comments, CRLF and case-sensitive keys survive");
+            Check(File.Exists(Path.Combine(world,"BepInEx/config/local-only.cfg")),"client-generated file absent from server survives");
+            Check(File.ReadAllText(Path.Combine(world,"BepInEx/config/personal.json")).Contains("true"),"personal non-cfg files also survive updates");
+            Check(!File.Exists(Path.Combine(world,"BepInEx/plugins/removed.dll")),"removed plugin is not resurrected");
+            Check(File.ReadAllText(Path.Combine(world,"BepInEx/config/BepInEx.cfg"))=="managed","loader config remains managed");
+            Put(cfg,text.Replace("Limit = 10","Limit = 999").Replace("Weight = true","Weight = personal"));
+            ConfigPolicy.Enforce(world);
+            Check(File.ReadAllText(cfg).Contains("Limit = 10") && File.ReadAllText(cfg).Contains("Weight = personal"),"unchanged launch reapplies only enforced values");
+            string second=Archive(Policy(Rule("Weight","updated-default"),Rule("Limit","20",false),Rule("Added","yes")),"not-installed-by-config-only");
+            ConfigPolicy.InstallArchive(second,world,false);
+            Check(File.ReadAllText(cfg).Contains("Weight = personal") && File.ReadAllText(cfg).Contains("Limit = 20"),"config-only update preserves player choice and changes enforced value");
+            Check(File.ReadAllText(Path.Combine(world,"BepInEx/plugins/test.dll"))=="new","config-only archive cannot replace plugins");
+            ConfigPolicy.InstallArchive(Archive(Policy()),world,false);
+            Check(!File.ReadAllText(cfg).Contains("Limit = 20") && File.ReadAllText(cfg).Contains("Weight = personal"),"disabling client delivery releases enforcement while preserving personal settings");
+            string before=File.ReadAllText(cfg);
+            foreach(var bad in new[]{"{broken",Policy(Rule("x","yes")).Replace("test.cfg","../escape.cfg"),Policy().Replace("\"version\":1","\"version\":2")}) {
+                bool failed=false;try {ConfigPolicy.InstallArchive(Archive(bad),world,true);}catch {failed=true;}
+                Check(failed && File.ReadAllText(cfg)==before,"invalid policy leaves previous world intact");
+            }
+            string corrupt=Path.Combine(root,"bad.zip");File.WriteAllText(corrupt,"not a zip");
+            bool rejected=false;try {ConfigPolicy.InstallArchive(corrupt,world,true);}catch {rejected=true;}
+            Check(rejected && File.ReadAllText(cfg)==before,"damaged archive preserves working config");
+            string fresh=Path.Combine(root,"fresh");ConfigPolicy.InstallArchive(first,fresh,true);
+            Check(File.ReadAllText(Path.Combine(fresh,"BepInEx/config/test.cfg")).Contains("Weight = false"),"new player receives selected starting values");
+            string local=Path.Combine(root,"local-defaults");ConfigPolicy.InstallArchive(Archive(Policy()),local,true);
+            Check(!File.Exists(Path.Combine(local,"BepInEx/config/test.cfg")),"client delivery off leaves mod to generate config");
+
+            // Real Syncer, real HTTP downloads and real sync-record decisions.
+            string wireWorld=Path.Combine(root,"http/test");
+            PhValheim.Platform.State.PhValheimServerWorld=wireWorld;
+            PhValheim.Platform.State.PhValheimServerRoot=Path.GetDirectoryName(wireWorld)!;
+            PhValheim.Platform.State.PhValheimDir=Path.Combine(root,"legacy");
+            PhValheim.Platform.State.ValheimDir=Path.Combine(root,"game");
+            Directory.CreateDirectory(Path.GetDirectoryName(wireWorld)!);
+            Directory.CreateDirectory(PhValheim.Platform.State.ValheimDir);
+            var tcp=new TcpListener(IPAddress.Loopback,0);tcp.Start();int port=((IPEndPoint)tcp.LocalEndpoint).Port;tcp.Stop();
+            using var listener=new HttpListener();string url="http://127.0.0.1:"+port;listener.Prefixes.Add(url+"/");listener.Start();
+            string full=first,small=first,mods="mods-one";int downloads=0;bool brokenDownload=false;
+            var serving=Task.Run(async()=>{
+                while(listener.IsListening) {
+                    HttpListenerContext c;try {c=await listener.GetContextAsync();}catch {break;}
+                    byte[] data;
+                    if(c.Request.Url!.AbsolutePath.EndsWith(".zip")) {
+                        downloads++;data=brokenDownload ? Encoding.UTF8.GetBytes("broken") : File.ReadAllBytes(c.Request.Url.AbsolutePath.EndsWith("-config.zip")?small:full);
+                    } else if(c.Request.QueryString["mode"]=="getSyncState")
+                        data=Encoding.UTF8.GetBytes("world="+PhValheim.Tooling.PhValheim.getMD5(full)+"\nmods="+mods+"\nconfig="+PhValheim.Tooling.PhValheim.getMD5(small)+"\n");
+                    else data=Encoding.UTF8.GetBytes("ready");
+                    c.Response.ContentLength64=data.Length;await c.Response.OutputStream.WriteAsync(data);c.Response.Close();
+                }
+            });
+            Check(PhValheim.Syncer.PhValheim.Sync(url),"actual Syncer first launch succeeds");
+            string wireCfg=Path.Combine(wireWorld,"BepInEx/config/test.cfg");
+            Put(wireCfg,File.ReadAllText(wireCfg).Replace("Weight = false","Weight = player").Replace("Limit = 10","Limit = 700"));
+            int prior=downloads;
+            Check(PhValheim.Syncer.PhValheim.Sync(url) && downloads==prior,"unchanged launch downloads nothing");
+            Check(File.ReadAllText(wireCfg).Contains("Weight = player") && File.ReadAllText(wireCfg).Contains("Limit = 10"),"actual no-download launch enforces rules and preserves preferences");
+            small=second;
+            Check(PhValheim.Syncer.PhValheim.Sync(url) && downloads==prior+1 && File.ReadAllText(wireCfg).Contains("Limit = 20"),"actual config-only sync applies new policy");
+            full=Archive(Policy(Rule("Weight","server"),Rule("Limit","30",false)),"v2");small=full;mods="mods-two";
+            Check(PhValheim.Syncer.PhValheim.Sync(url) && File.ReadAllText(wireCfg).Contains("Weight = player") && File.ReadAllText(wireCfg).Contains("Limit = 30"),"actual mod update preserves settings and applies rules");
+            small=second;
+            Check(PhValheim.Syncer.PhValheim.Sync(url),"config-only generation advances beyond cached full archive");
+            Directory.Delete(wireWorld,true);
+            Check(PhValheim.Syncer.PhValheim.Sync(url) && File.ReadAllText(wireCfg).Contains("Limit = 20"),"re-extraction of cached full archive fetches current config rules");
+            small=first;brokenDownload=true;before=File.ReadAllText(wireCfg);
+            Check(!PhValheim.Syncer.PhValheim.Sync(url) && File.ReadAllText(wireCfg)==before,"failed settings download blocks launch and keeps files");
+            listener.Stop();await serving;
+            Console.WriteLine("CONFIG POLICY: "+passed+" passed");
+        } finally {Directory.Delete(root,true);}
+    }
+}

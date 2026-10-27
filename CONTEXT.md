@@ -11,7 +11,7 @@ and launches Valheim with the correct BepInEx environment via the `phvalheim://`
 **Flow:** `phvalheim://` URL → client → sync check → download world zip if needed → launch Valheim + BepInEx
 
 ## Current Version
-**2.0.16** (in progress, see `builds/RELEASE-NOTES-2.0.16.md`; 2.0.15 released 2026-10-17)
+**2.0.17** (development; config delivery for Server 2.60, see `RELEASE-2.0.17.md`)
 
 ## Platform Support
 - **Windows:** `.msi` — URL scheme registered automatically by installer; installs to `%AppData%\PhValheim\phvalheim-client\`

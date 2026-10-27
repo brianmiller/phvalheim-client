@@ -2,6 +2,16 @@
 
 The client-side companion to [phvalheim-server](https://github.com/brianmiller/phvalheim-server). PhValheim Client syncs world contexts from a remote PhValheim Server and launches Valheim with the correct BepInEx mod environment for that world.
 
+## Personal mod settings (2.0.17)
+
+With a PhValheim 2.60 world, your ordinary BepInEx config files survive mod updates and
+config-only updates. Edit personal settings using your preferred tool. The operator can
+supply defaults for missing settings, or clear **Overridable** to reapply a value before
+every launch. A mod's own runtime synchronization can still control settings during play.
+
+Install 2.0.17 before joining a world updated to the new model. Older servers retain their
+legacy sync behavior. Failed updates leave the working world intact.
+
 ## How it works
 
 PhValheim Server registers a `phvalheim://` URL scheme handler on your desktop. When you click a world launch link from the server's web UI, PhValheim Client:
