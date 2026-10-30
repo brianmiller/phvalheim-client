@@ -1,0 +1,74 @@
+using System.Diagnostics;
+using System.Reflection;
+using PhValheim;
+
+if (args.Length > 0 && args[0] == "lock")
+{
+    using var held = LaunchGuard.Acquire(args[1], out _);
+    Console.WriteLine(held == null ? "busy" : "locked");
+    Console.Out.Flush();
+    if (held != null) Thread.Sleep(30000);
+    return;
+}
+int pass=0, fail=0;
+void Check(string name, bool ok) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")} {name}"); if(ok)pass++;else fail++; }
+string root = Path.Combine(Path.GetTempPath(), "phv-safety-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(root);
+try
+{
+    Check("overlay off strips inherited renderer and preserves other hooks",
+        LinuxOverlay.Preload("/steam/gameoverlayrenderer.so:other.so libdoorstop_x64.so", null) == "libdoorstop_x64.so:other.so");
+    Check("overlay opt-in adds renderer exactly once",
+        LinuxOverlay.Preload("/old/gameoverlayrenderer.so", "/new/gameoverlayrenderer.so") == "libdoorstop_x64.so:/new/gameoverlayrenderer.so");
+    Check("unrelated overlay-named library is preserved",
+        LinuxOverlay.Preload("/mod/mygameoverlayrenderer.so", null) == "libdoorstop_x64.so:/mod/mygameoverlayrenderer.so");
+    Check("host inspection succeeds with no game", Game.GetState() == GameState.Stopped);
+    Check("exact Linux process name", Game.ParseLinuxProcesses(0, "Sl valheim.x86_64\n") == GameState.Running);
+    Check("Proton-style process name", Game.ParseLinuxProcesses(0, "Sl valheim\n") == GameState.Running);
+    Check("zombie is stopped", Game.ParseLinuxProcesses(0, "Z valheim.x86_64\n") == GameState.Stopped);
+    Check("unrelated names do not block", Game.ParseLinuxProcesses(0, "S valheim-server\nS phvalheim-client") == GameState.Stopped);
+    Check("failed host probe is unknown", Game.ParseLinuxProcesses(127, "") == GameState.Unknown);
+    Check("malformed host output is unknown", Game.ParseLinuxProcesses(0, "broken") == GameState.Unknown);
+    string sleep = Path.Combine(root, "valheim.x86_64");
+    File.Copy("/bin/sleep", sleep);
+    File.SetUnixFileMode(sleep, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    using (var game = Process.Start(sleep, "2")!)
+    {
+        Thread.Sleep(100);
+        Check("real host game is detected", Game.GetState() == GameState.Running);
+        Check("wait observes real exit", Game.WaitForExit(4));
+        game.WaitForExit();
+    }
+    Check("no game after exit", Game.GetState() == GameState.Stopped);
+    Check("never-seen game is not reported as clean exit", !Game.WaitForExit(0));
+
+    var psi = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true };
+    psi.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
+    psi.ArgumentList.Add("lock"); psi.ArgumentList.Add(root);
+    using (var child = Process.Start(psi)!)
+    {
+        try
+        {
+            Check("child acquired lock", child.StandardOutput.ReadLine() == "locked");
+            using var second = LaunchGuard.Acquire(root, out var reason);
+            Check("second process cannot acquire lock", second == null && reason.Contains("Another PhValheim"));
+        }
+        finally { child.Kill(true); child.WaitForExit(); }
+    }
+    using (var afterKill = LaunchGuard.Acquire(root, out _))
+        Check("crashed launcher does not leave stale lock", afterKill != null);
+    using (var afterClose = LaunchGuard.Acquire(root, out _))
+        Check("normal close releases lock", afterClose != null);
+    Check("lock inode remains on disk", File.Exists(Path.Combine(root, ".launch.lock")));
+
+    var clock = Stopwatch.StartNew();
+    var stalled = PhValheim.Sandbox.Flatpak.HostShell("sleep 10", 150);
+    Check("silent host helper actually times out", stalled.exitCode == -1 && clock.Elapsed.TotalSeconds < 3);
+    var stderr = PhValheim.Sandbox.Flatpak.HostShell("head -c 200000 /dev/zero >&2; echo ready", 3000);
+    Check("full stderr pipe cannot deadlock host probe", stderr.exitCode == 0 && stderr.stdout == "ready");
+    var failed = PhValheim.Sandbox.Flatpak.HostShell("exit 7", 3000);
+    Check("host exit code preserved", failed.exitCode == 7);
+}
+finally { Directory.Delete(root,true); }
+Console.WriteLine($"{pass} passed, {fail} failed");
+Environment.Exit(fail == 0 ? 0 : 1);

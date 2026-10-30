@@ -171,17 +171,13 @@ no error message.
   notice. Remedy: Bazaar's Refresh, or delete that cache directory. The only
   fix on our side would be publishing a real Flatpak remote, which is a
   separate project.
-- **The Steam overlay with a Flatpak Steam is untested**, like everything else
-  on that path. From 2.0.16 a modded Linux launch puts
-  `<steam root>/ubuntu12_64/gameoverlayrenderer.so` on the game's `LD_PRELOAD`
-  after doorstop, when that file exists. With a Flatpak Steam the root is
-  `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`, which this sandbox
-  can see (the manifest grants it) and which resolves to the same file inside
-  Steam's own sandbox, where the game runs. The stub rig asserts the
-  composition of the environment for the native shape only; it cannot run a
-  Flatpak Steam. `PHVALHEIM_NO_OVERLAY=1` turns the injection off; for the
-  Flatpak client that is
-  `flatpak override --user --env=PHVALHEIM_NO_OVERLAY=1 com.phvalheim.Client`.
+- **Direct modded launches default to overlay off as of 2.0.18.** This applies to
+  both native and Flatpak Steam. Explicit `PHVALHEIM_ENABLE_OVERLAY=1` opts in;
+  `PHVALHEIM_NO_OVERLAY=1` always wins. See [overlay controls](../README.md#steam-overlay-on-linux).
+  Live overlay compatibility with Flatpak Steam remains untested.
+- **Game monitoring checks the host process list**, including when this launcher is
+  sandboxed. Duplicate launches share a lock in `~/.config/PhValheim`; an existing
+  game blocks sync and launch. If the host cannot be inspected, launch is refused.
 - **No LICENSE file exists in this repository**, so the AppStream metadata
   declares `LicenseRef-proprietary`, which is the only accurate value.
   **This blocks a Flathub submission**, which requires a real open-source

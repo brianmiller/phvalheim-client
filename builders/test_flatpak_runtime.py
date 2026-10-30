@@ -186,9 +186,11 @@ VALHEIM_STUB = """#!/usr/bin/python3
 # Stub Valheim. Records argv, cwd and the COMPLETE environment it was handed.
 # The environment is the interesting part: it is the only way to see what
 # survived the trip out of the Flatpak sandbox.
-import json, os, sys
+import ctypes, json, os, sys, time
+ctypes.CDLL(None).prctl(15, b"valheim.x86_64", 0, 0, 0)
 with open("__LOG__", "w") as f:
-    json.dump({"argv": sys.argv, "cwd": os.getcwd(), "env": dict(os.environ)}, f, indent=1)
+    json.dump({"argv": sys.argv, "cwd": os.getcwd(), "env": dict(os.environ), "pid": os.getpid()}, f, indent=1)
+time.sleep(4)
 """
 
 
@@ -220,6 +222,8 @@ def build_fake_host():
     OVERLAY_SO.parent.mkdir(parents=True, exist_ok=True)
     OVERLAY_SO.write_bytes(b"")
 
+    # Simulate Steam handing off to a visible, finite-lived game process.
+    steam.write_text(steam.read_text().replace("exit 0", f'case " $* " in *" -applaunch "*) "{valheim}" & ;; esac\nexit 0'))
     return lib / "steamapps" / "common" / "Valheim"
 
 
@@ -248,6 +252,7 @@ def build_config_zip(path):
 
 
 class FakeServer(http.server.BaseHTTPRequestHandler):
+    requests = []
     zip_bytes = b""
     config_bytes = None
     page = b""
@@ -263,6 +268,7 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        type(self).requests.append(self.path)
         # Every checksum here is computed from the bytes this server actually
         # serves. It used to answer getMD5 with a hardcoded
         # 0123456789abcdef... that no real zip could ever hash to.
@@ -592,16 +598,10 @@ def assert_valheim_env(rec, valheim_dir):
              "BepInEx/core/BepInEx.Preloader.dll", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
     contains("DOORSTOP_TARGET_ASSEMBLY is under the world directory",
              f"PhValheim/worlds/{SRV_HOST}/{WORLD}", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
-    # The WHOLE string, not "contains": doorstop first, then Steam's overlay, nothing
-    # else. Order is the point (it is the order every BepInEx-on-Steam user runs), and
-    # a "contains libdoorstop" check would wave through a launch that had quietly
-    # dropped the overlay again -- the 2.0.15 behaviour this release exists to fix.
-    eq("LD_PRELOAD is doorstop, then Steam's overlay, in that order",
-       f"libdoorstop_x64.so:{OVERLAY_SO}", env.get("LD_PRELOAD"))
-    eq("SteamAppId names Valheim", VALHEIM_APP_ID, env.get("SteamAppId"))
-    eq("SteamGameId names Valheim", VALHEIM_APP_ID, env.get("SteamGameId"))
-    eq("SteamOverlayGameId names Valheim", VALHEIM_APP_ID, env.get("SteamOverlayGameId"))
-    eq("the Vulkan overlay layer is enabled", "1", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default LD_PRELOAD contains doorstop only", "libdoorstop_x64.so", env.get("LD_PRELOAD"))
+    eq("default overlay game id is cleared", "", env.get("SteamOverlayGameId"))
+    eq("default Vulkan overlay enable flag is cleared", "0", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default Vulkan overlay is explicitly disabled", "1", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
     eq("LD_LIBRARY_PATH is the game's doorstop_libs",
        str(Path(valheim_dir) / "doorstop_libs"), env.get("LD_LIBRARY_PATH"))
 
@@ -741,6 +741,29 @@ def scenario_modded_launch(port, valheim_dir):
     assert_valheim_env(rec, valheim_dir)
 
 
+def scenario_launch_lifecycle(port):
+    print("\n-- host game lifetime and duplicate launch guard --")
+    clear_logs()
+    with open("/tmp/phv-lifecycle.log", "w+") as log:
+        first = subprocess.Popen(["flatpak", "run", APP_ID, launch_url(WORLD, port, False)],
+                                 stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        try:
+            rec = wait_for_json(VALHEIM_LOG, timeout=60)
+            if rec is None:
+                bad("lifecycle launch reached host game", "game record", "none")
+                return
+            rc, out = sh(["flatpak", "run", APP_ID, launch_url(WORLD, port, False)], timeout=20)
+            contains("second launcher refuses a concurrent launch", "Another PhValheim launch is active", out)
+            eq("second click did not start another game", rec["pid"], json.loads(VALHEIM_LOG.read_text())["pid"])
+            first.wait(timeout=15)
+            log.seek(0)
+            contains("Flatpak observes host game exit and closes", "Valheim has closed", log.read())
+        finally:
+            if first.poll() is None:
+                first.terminate()
+                first.wait(timeout=10)
+
+
 def scenario_uninstall():
     print("\n-- uninstall --")
     rc, out = sh(f"flatpak uninstall {SCOPE} --noninteractive {APP_ID}", timeout=300)
@@ -820,7 +843,10 @@ def main():
         run(scenario_runs_at_all, version)
         run(scenario_host_escape)
         run(scenario_vanilla_launch, port)
+        time.sleep(7)  # stub game exits; first launcher releases its lock
         run(scenario_modded_launch, port, valheim_dir)
+        time.sleep(7)
+        run(scenario_launch_lifecycle, port)
         run(scenario_uninstall)
     finally:
         srv.shutdown()

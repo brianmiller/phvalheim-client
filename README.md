@@ -122,20 +122,34 @@ phvalheim-client            # or: flatpak run com.phvalheim.Client
 
 ### Steam overlay on Linux
 
-From 2.0.16 a modded launch on Linux has the Steam overlay (Shift+Tab) like a
-vanilla one. A modded launch starts the game directly rather than through
-Steam, so Steam never injects its overlay itself; the client now does what
-Steam would have done, by putting Steam's `gameoverlayrenderer.so` on the
-game's `LD_PRELOAD` after BepInEx's doorstop and naming Valheim's app id. If
-that library is not where Steam keeps it the client says so on the launch
-console and starts the game without it. Steam must be running first, as it
-always had to be. If the overlay misbehaves on your machine (some Mesa and
-Wayland combinations crash with it), set `PHVALHEIM_NO_OVERLAY=1` in the
-client's environment to turn it off; for the Flatpak that is:
+Client 2.0.18 leaves the overlay **off by default for direct modded Linux launches**.
+Earlier clients injected it automatically, outside Steam's normal game launch flow.
+A reported startup hang involved the overlay, so the client now requires explicit opt-in.
+This does not change Steam's global settings or vanilla launches through Steam.
+
+To opt in (Shift+Tab may work, but overlay-related startup hangs can return):
 
 ```bash
-flatpak override --user --env=PHVALHEIM_NO_OVERLAY=1 com.phvalheim.Client
+flatpak override --user --env=PHVALHEIM_ENABLE_OVERLAY=1 com.phvalheim.Client
 ```
+
+To return to the default:
+
+```bash
+flatpak override --user --unset-env=PHVALHEIM_ENABLE_OVERLAY com.phvalheim.Client
+```
+
+The existing `PHVALHEIM_NO_OVERLAY=1` opt-out still wins over opt-in. With the overlay
+off, the launcher removes inherited Steam renderer entries from the game's `LD_PRELOAD`,
+keeps BepInEx and other preload libraries, and disables the implicit Vulkan overlay layer.
+For the native Linux package, use the same environment variables when invoking the client.
+Steam's overlay checkbox alone does not control PhValheim's explicit opt-in.
+
+The launcher checks the host for Valheim before syncing and holds a per-user lock across
+sync, launch, and game monitoring. A duplicate click is rejected; it does not queue a
+relaunch. Quit Valheim before launching another world. Flatpak launch windows now observe
+the host game and close when it exits. If observation fails, the window explains that and
+closes after 30 seconds; it does not claim the game exited or kill it.
 
 ### Flatpak usage notes
 

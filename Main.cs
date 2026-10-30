@@ -90,6 +90,25 @@ namespace PhValheim
             if (command == "launch")
             {
 
+                // Lock BEFORE any sync/prep writes. A second browser click must
+                // neither start another game nor replace files under a running one.
+                using var launchLease = LaunchGuard.Acquire(Platform.State.PhValheimDir, out var lockError);
+                if (launchLease == null)
+                {
+                    Ui.Error(lockError);
+                    Thread.Sleep(5000);
+                    return;
+                }
+                var gameState = Game.GetState();
+                if (gameState != GameState.Stopped)
+                {
+                    Ui.Error(gameState == GameState.Running
+                        ? "Valheim is already running. Quit the game before launching another world."
+                        : "PhValheim could not check whether Valheim is running. No files were synced and no game was started.");
+                    Thread.Sleep(5000);
+                    return;
+                }
+
                 //check client version
                 Ver.PhValheim.VersionCheck(phvalheimLauncherVersion);
 
@@ -164,13 +183,9 @@ namespace PhValheim
                 }
                 else
                 {
-                    // Never saw the game in the process table. Either the launch failed, or it
-                    // is running somewhere this process cannot see -- a Flatpak Steam runs
-                    // Valheim on the host, outside our sandbox's process namespace. Both of
-                    // those make "the game has closed" a claim we have not earned, so the
-                    // window waits for the player instead of asserting anything.
-                    Ui.Note("This window could not tell when Valheim closed, so it is staying open.");
-                    Ui.PressEnterToExit();
+                    Ui.Note("PhValheim could not observe the game through to its exit.");
+                    Ui.Line("The game may still be running. This launcher closes in 30 seconds.");
+                    Thread.Sleep(30000);
                 }
                 Environment.Exit(0);
 

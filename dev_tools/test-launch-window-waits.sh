@@ -90,8 +90,8 @@ n=$(code "$M" | grep -c 'Game.WaitForExit()')
 postLaunch=$(code "$M" | sed -n '/Launcher.PhValheim.Launch/,$p')
 if [ -z "$postLaunch" ]; then
 	fail "could not find the launch call in Main.cs" "extraction is stale"
-elif printf '%s' "$postLaunch" | grep -q 'PressEnterToExit'; then
-	pass "and when it cannot tell, the window waits for the player instead of guessing"
+elif printf '%s' "$postLaunch" | grep -q 'Thread.Sleep(30000)'; then
+	pass "when it cannot tell, the window shows a bounded warning instead of accumulating"
 else
 	fail "no fallback when the game is never seen" \
 	     "the window would close instantly on a Flatpak, where the game is outside our namespace"

@@ -139,13 +139,18 @@ namespace PhValheim.Sandbox
                 using Process? p = Process.Start(psi);
                 if (p == null) return (-1, "");
 
-                string output = p.StandardOutput.ReadToEnd();
-                if (!p.WaitForExit(timeoutMs))
+                // Drain both pipes concurrently. Reading stdout synchronously before
+                // WaitForExit made the timeout ineffective for a stalled host helper.
+                var clock = Stopwatch.StartNew();
+                var output = p.StandardOutput.ReadToEndAsync();
+                var error = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(timeoutMs) ||
+                    !Task.WhenAll(output, error).Wait(Math.Max(0, timeoutMs - (int)clock.ElapsedMilliseconds)))
                 {
                     try { p.Kill(true); } catch { }
                     return (-1, "");
                 }
-                return (p.ExitCode, output.Trim());
+                return (p.ExitCode, output.Result.Trim());
             }
             catch (Exception)
             {
