@@ -171,7 +171,7 @@ no error message.
   notice. Remedy: Bazaar's Refresh, or delete that cache directory. The only
   fix on our side would be publishing a real Flatpak remote, which is a
   separate project.
-- **Direct modded launches default to overlay off as of 2.0.18.** This applies to
+- **Direct modded launches default to overlay off as of 2.0.17.** This applies to
   both native and Flatpak Steam. Explicit `PHVALHEIM_ENABLE_OVERLAY=1` opts in;
   `PHVALHEIM_NO_OVERLAY=1` always wins. See [overlay controls](../README.md#steam-overlay-on-linux).
   Live overlay compatibility with Flatpak Steam remains untested.

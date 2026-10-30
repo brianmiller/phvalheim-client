@@ -122,7 +122,7 @@ phvalheim-client            # or: flatpak run com.phvalheim.Client
 
 ### Steam overlay on Linux
 
-Client 2.0.18 leaves the overlay **off by default for direct modded Linux launches**.
+Client 2.0.17 leaves the overlay **off by default for direct modded Linux launches**.
 Earlier clients injected it automatically, outside Steam's normal game launch flow.
 A reported startup hang involved the overlay, so the client now requires explicit opt-in.
 This does not change Steam's global settings or vanilla launches through Steam.
