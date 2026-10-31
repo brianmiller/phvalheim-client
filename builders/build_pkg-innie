@@ -26,7 +26,15 @@ codesign --verify --deep --strict "$staging/root/Applications/PhValheim Client.a
 cat > "$staging/scripts/postinstall" <<'SCRIPT'
 #!/bin/bash
 set -e
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Applications/PhValheim Client.app"
+# Installer scripts run as root. Register in the active desktop user's
+# Launch Services database, not root's; headless installs register at login.
+console_user=$(/usr/bin/stat -f %Su /dev/console)
+if [ "$console_user" != root ] && [ "$console_user" != loginwindow ] && [ -n "$console_user" ]; then
+    console_uid=$(/usr/bin/id -u "$console_user")
+    /bin/launchctl asuser "$console_uid" /usr/bin/sudo -H -u "$console_user" \
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+        -f "/Applications/PhValheim Client.app"
+fi
 SCRIPT
 chmod 755 "$staging/scripts/postinstall"
 pkgbuild --root "$staging/root" --scripts "$staging/scripts" \

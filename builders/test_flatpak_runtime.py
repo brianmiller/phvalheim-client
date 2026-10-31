@@ -650,8 +650,29 @@ def scenario_modded_launch(port, valheim_dir):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     try:
-        time.sleep(8)  # page load
-        screenshot("browser-before-click.png", env)
+        # Wait for the fixture's green link to be painted at the click target.
+        # A fixed eight-second sleep clicked a black screen on a busy build host.
+        # Keep the real mouse click below: readiness must not bypass URI handling.
+        ready = False
+        deadline = time.monotonic() + 90
+        converter = ["magick"] if shutil.which("magick") else ["convert"]
+        while time.monotonic() < deadline and browser.poll() is None:
+            rc, _ = sh(["xdotool", "search", "--onlyvisible", "--name",
+                        "^PhValheim launch link"], env=env, timeout=10)
+            if rc == 0:
+                shot = screenshot("browser-before-click.png", env)
+                if Path(shot).is_file():
+                    rc, pixel = sh(converter + [shot, "-format",
+                        "%[fx:p{640,400}.g>0.25&&p{640,400}.g>1.5*p{640,400}.r&&p{640,400}.g>1.5*p{640,400}.b]",
+                        "info:"], env=env, timeout=10)
+                    if rc == 0 and pixel.strip() == "1":
+                        ready = True
+                        break
+            time.sleep(1)
+        if not ready:
+            bad("browser fixture is ready for the real link click",
+                "visible green link at the click target", "browser did not paint the fixture")
+            return
 
         # A REAL click, not location.href. Chromium treats an external
         # protocol navigation without a user gesture differently -- it can
