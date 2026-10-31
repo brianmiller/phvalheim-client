@@ -35,20 +35,18 @@ Vanilla launches remain managed by Steam.
 
 The Vulkan layer opt-out follows the [Khronos troubleshooting guidance](https://github.khronos.org/Vulkan-Site/tutorial/latest/90_FAQ.html).
 
-## Prepared downloads
+## Downloads
 
-- Windows: signed `phvalheim-client-2.0.17-x86_64.msi`.
-- Linux: `phvalheim-client-2.0.17-universal-x86_64.tar.gz`.
-- Flatpak: `phvalheim-client-2.0.17-x86_64.flatpak`.
-- `SHA256SUMS` records the exact tested downloads. The MSI must not be rebuilt under the
-  same version: its Windows product identity has already been handed to testers.
+- Windows: `phvalheim-client-2.0.17-x86_64.msi`.
+- Linux: universal x86_64 tarball, Debian `.deb`, Fedora `.rpm`, and Flatpak.
+- macOS: universal Intel/Apple Silicon tarball and `.pkg`, plus `macinstall.sh`.
+- `SHA256SUMS` identifies the exact revision of every download.
 
-macOS, Debian, and RPM packages remain pending. The existing Windows artifact
-passed 75 verification checks, 24 executable smoke checks, and 36 MSI behavior checks.
-
-The Linux packages were revised on 2026-10-30 while retaining the prerelease version
-2.0.17. Download them again even if your installed client already reports 2.0.17;
-use the current SHA256SUMS to identify this revision. The signed Windows MSI is unchanged.
+These packages are revisions of the **2.0.17 prerelease**. Redownload the appropriate
+package even if your installed client already reports 2.0.17. The Windows revision
+explicitly supports upgrading the original 2.0.17 MSI, while preserving protection
+against newer versions and unrecognized same-version packages. The Mac `.pkg` uses
+the same universal client and URL handler as the tarball.
 
 Install or upgrade the downloaded Flatpak with:
 
@@ -67,7 +65,7 @@ Close the old game and launcher windows once before testing this Linux revision.
 with the same changed config, confirm the overlay-off notice, quit, and launch again.
 The launcher should close after the game exits and reject a second click while playing.
 
-## Validation of the revised Linux packages
+## Earlier Linux revision validation (2026-10-30)
 
 The rebuilt 2.0.17 packages passed 42 Flatpak package checks, 53 runtime/browser checks,
 and 33 native launch checks. Installing over the earlier 2.0.17 passed 16 checks, including
@@ -78,3 +76,34 @@ The unchanged launch implementation previously passed 22 process/lock/transport 
 config-policy26, launch-window14, sync-display25, and progress10 also passed. Those focused
 suites were not repeated for this version-only correction. Recording Steam/Valheim stubs
 are used for runtime tests; live Unity/GPU overlay compatibility remains unverified.
+
+## Full package refresh (2026-10-31)
+
+All seven package formats are now built and tested. The release remains a prerelease.
+Runtime source is unchanged from `7ae44e0`; packaging and test improvements are in
+[`e087519`](https://github.com/brianmiller/phvalheim-client/commit/e087519951ef7d0de34abac7f1d2213c2f2100da).
+The original `2.0.17` git tag is retained; use that source link for this revised package set.
+
+- Debian, RPM and Linux tarball: each passed 13 real install/upgrade/removal checks
+  from the published 2.0.16 package.
+- Flatpak: 42 package, 53 runtime/browser, 33 native launch checks, plus 16 checks
+  installing over the earlier 2.0.17 Flatpak, including active commit replacement.
+- Windows: 78 package checks, 24 executable smoke checks, and 36 Wine behavior checks.
+  Native Windows passed 14 original-to-revised 2.0.17 upgrade/repair/removal checks
+  and 12 full-wizard checks. The installed executable matched the candidate SHA256.
+  An old-package negative control failed specifically on that hash check.
+- macOS: both universal architectures checked; native Apple Silicon verified tarball
+  install, PKG-over-tarball, PKG reinstall, fresh PKG install, and URL activation.
+  Fresh PKG installation registers links in the desktop user's Launch Services database.
+
+Native installer evidence: [package validation run](https://github.com/brianmiller/phvalheim-client/actions/runs/41149946862).
+These are packaging/launcher checks; live Steam/Valheim gameplay remains unverified.
+
+For the macOS tarball, download it and `macinstall.sh` from this prerelease, then run:
+
+```sh
+PHVALHEIM_TARBALL=./phvalheim-client-2.0.17-macos-universal.tar.gz bash ./macinstall.sh install
+```
+
+Running `macinstall.sh` without that override installs the latest stable release.
+Alternatively, use the included universal `.pkg`.
