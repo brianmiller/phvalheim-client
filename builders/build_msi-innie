@@ -125,7 +125,16 @@ case "$stage" in
 	# NULL' failed" for every control and still exits 0, emitting an MSI with
 	# an empty UI. It does drag in the stock WixUI_Bmp_* binaries and CancelDlg
 	# as dead weight; harmless, and nothing we author references them.
-	( cd "$stagingDir" && wixl -a x64 --ext ui -D Version="$version" -o "$out" phvalheim-client.wxs ui-phvalheim.wxs ) || exit 1
+	# Explicit prerelease-only revision: retain version while migrating the known
+	# published ProductCode. Other same-version products are still blocked.
+	revisionArgs=()
+	if [ -n "${MSI_PRERELEASE_PREDECESSOR:-}" ]; then
+		if ! [[ "$MSI_PRERELEASE_PREDECESSOR" =~ ^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$ ]]; then
+			echo "ERROR: MSI_PRERELEASE_PREDECESSOR must be an uppercase braced GUID"; exit 1
+		fi
+		revisionArgs=(-D "PrereleasePredecessor=$MSI_PRERELEASE_PREDECESSOR")
+	fi
+	( cd "$stagingDir" && wixl -a x64 --ext ui -D Version="$version" "${revisionArgs[@]}" -o "$out" phvalheim-client.wxs ui-phvalheim.wxs ) || exit 1
 
 	if [ ! -s "$out" ]; then
 		echo "ERROR: wixl produced no output at $out"

@@ -1,0 +1,88 @@
+name: Verify prerelease package revision
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_release:
+        description: Draft release containing candidate.msi, original.msi and expected-exe.sha256
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RELEASE: ${{ inputs.candidate_release }}
+        shell: bash
+        run: gh release download "$CANDIDATE_RELEASE" -D candidates
+      - name: Original package must fail the new payload assertion
+        shell: pwsh
+        run: |
+          $expected = (Get-Content candidates/expected-exe.sha256).Trim()
+          & pwsh -File builders/verify_msi_upgrade.ps1 -NewMsi (Resolve-Path candidates/original.msi) -NewVersion 2.0.17 -ExpectedExeSha256 $expected -LogDir control-logs *> control.txt
+          if ($LASTEXITCODE -ne 1) { throw "Old payload did not fail" }
+          if (-not (Select-String -Path control.txt -SimpleMatch 'installed payload SHA256 differs from the candidate')) { throw "Control failed for the wrong reason" }
+          Get-Content control.txt
+          exit 0
+      - name: Original 2.0.17 to revised 2.0.17, repair and uninstall
+        shell: pwsh
+        run: |
+          $expected = (Get-Content candidates/expected-exe.sha256).Trim()
+          ./builders/verify_msi_upgrade.ps1 -OldMsi (Resolve-Path candidates/original.msi) -OldVersion 2.0.17 -NewMsi (Resolve-Path candidates/candidate.msi) -NewVersion 2.0.17 -ExpectedExeSha256 $expected
+      - name: Full wizard
+        shell: pwsh
+        run: ./builders/verify_msi_wizard.ps1 -Msi (Resolve-Path candidates/candidate.msi) -Version 2.0.17
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prerelease-windows-evidence
+          path: |
+            msi-logs/
+            control-logs/
+            control.txt
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build both universal formats
+        run: |
+          bash builders/build_macos-innie
+          bash builders/build_pkg-innie --package
+      - name: Install tarball and verify
+        env:
+          PHVALHEIM_TARBALL: builds/phvalheim-client-2.0.17-macos-universal.tar.gz
+        run: |
+          bash macinstall.sh install
+          bash builders/verify_macos.sh 2.0.17
+      - name: Install PKG over tarball, verify payload and URL activation
+        run: |
+          sudo installer -pkg builds/phvalheim-client-2.0.17-macos-universal.pkg -target /
+          cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
+          bash builders/verify_macos.sh 2.0.17
+          bash builders/verify_macos_gui.sh
+          sudo installer -pkg builds/phvalheim-client-2.0.17-macos-universal.pkg -target /
+          cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
+          bash builders/verify_macos.sh 2.0.17
+      - name: Fresh PKG install
+        run: |
+          bash macinstall.sh uninstall
+          sudo pkgutil --forget com.phospher.phvalheim-client
+          sudo installer -pkg builds/phvalheim-client-2.0.17-macos-universal.pkg -target /
+          cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
+          bash builders/verify_macos.sh 2.0.17
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prerelease-macos-packages
+          path: |
+            builds/phvalheim-client-2.0.17-macos-universal.tar.gz
+            builds/phvalheim-client-2.0.17-macos-universal.pkg
+          if-no-files-found: error

@@ -385,3 +385,19 @@ do not restore the file.
 Note the name collision: `phvalheim-client-installer.sh` is the **Linux tarball
 installer** and is entirely unrelated to the deleted `phvalheim-client-installer/`
 directory. Leave it alone.
+
+## Explicit prerelease revisions (2.0.17)
+
+A user-authorized rebuild of a prerelease may keep its public version. Save the
+original MSI first. Pass `MSI_PRERELEASE_PREDECESSOR` (the original MSI's braced,
+uppercase ProductCode) to `build_msi-innie --package`. This changes only the
+candidate: its same-version row removes the predecessor, and its launch condition
+permits exactly that ProductCode. Unknown same-version products and newer versions
+remain blocked. Ordinary builds retain the existing same-version refusal.
+
+Do not publish until `prerelease-packages.yml` verifies original-to-candidate
+installation on Windows, the exact installed executable SHA256, one ARP entry,
+repair/uninstall, and the full wizard. Its old-payload negative control must fail
+specifically on the SHA256 assertion. After publication, record the new identity
+with `verify_msi_identity.sh --record <version> --replace`, preserving the former
+identity in the ledger comments. Continue to refuse accidental repeat builds.

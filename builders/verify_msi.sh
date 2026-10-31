@@ -132,8 +132,16 @@ expectContains "RemoveExistingProducts is scheduled" "RemoveExistingProducts" "$
 # no matching LaunchCondition detects the conflict and installs anyway.
 launchConditions=$(msiexport LaunchCondition)
 expectContains "newer version is refused"      "NOT PHV_NEWER_FOUND"        "$launchConditions"
-expectContains "same version is refused"       "NOT PHV_SAME_VERSION_FOUND" "$launchConditions"
+expectContains "unrecognized same version is refused"       "NOT PHV_SAME_VERSION_FOUND" "$launchConditions"
 expectContains "the same-version message names the product" "already installed" "$launchConditions"
+predecessor=$(prop PHV_PRERELEASE_PREDECESSOR)
+if [ -n "$predecessor" ]; then
+    expect "prerelease migration is explicitly requested" "${MSI_PRERELEASE_PREDECESSOR:-}" "$predecessor"
+    expectContains "only the recorded predecessor is permitted" "NOT PHV_SAME_VERSION_FOUND OR PHV_SAME_VERSION_FOUND = \"$predecessor\"" "$launchConditions"
+    sameAttrs=$(printf '%s\n' "$upgrade" | awk -F'\t' '$7=="PHV_SAME_VERSION_FOUND" {print $5}')
+    expect "same-version predecessor is removed, with inclusive bounds" "769" "$sameAttrs"
+fi
+
 
 echo
 echo "-- payload --"

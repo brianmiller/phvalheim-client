@@ -20,6 +20,7 @@ param(
   [string]$OldVersion = "",
   [Parameter(Mandatory=$true)][string]$NewMsi,
   [Parameter(Mandatory=$true)][string]$NewVersion,
+  [string]$ExpectedExeSha256 = "",
   [string]$LogDir = "msi-logs"
 )
 
@@ -149,6 +150,12 @@ foreach ($r in $roots) {
 
 if ($exe) {
   Ok "the installed binary exists ($($exe.FullName), $([math]::Round($exe.Length/1MB,1)) MB)"
+  if ($ExpectedExeSha256) {
+    $actualHash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+    if ($actualHash -eq $ExpectedExeSha256) { Ok "installed payload matches the candidate SHA256" }
+    else { Bad "installed payload SHA256 differs from the candidate" "$actualHash" }
+  }
+
 
   # The stronger claim: it is THIS version, not the one we upgraded from. Without this the
   # check only proves some binary is present, which an upgrade that silently kept the old

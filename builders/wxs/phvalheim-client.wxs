@@ -35,6 +35,12 @@
              Comments="PhValheim Client"
              Manufacturer="Phospher" />
 
+    <?ifdef var.PrereleasePredecessor ?>
+    <!-- A reviewed prerelease revision may replace ONLY this recorded product.
+         Ordinary builds continue refusing different packages at the same version. -->
+    <Property Id="PHV_PRERELEASE_PREDECESSOR" Value="$(var.PrereleasePredecessor)" />
+    <?endif ?>
+
     <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
 
     <!-- ARP ("Add/Remove Programs") metadata, matching the .vdproj -->
@@ -73,9 +79,15 @@
         running package's own ProductCode; that case is maintenance mode and
         MaintenanceForm handles it.
       -->
+      <?ifdef var.PrereleasePredecessor ?>
+      <UpgradeVersion Minimum="$(var.Version)" IncludeMinimum="yes"
+                      Maximum="$(var.Version)" IncludeMaximum="yes"
+                      Property="PHV_SAME_VERSION_FOUND" MigrateFeatures="yes" />
+      <?else ?>
       <UpgradeVersion Minimum="$(var.Version)" IncludeMinimum="yes"
                       Maximum="$(var.Version)" IncludeMaximum="yes"
                       Property="PHV_SAME_VERSION_FOUND" OnlyDetect="yes" />
+      <?endif ?>
 
       <!-- Anything newer: detect only, refused by the LaunchCondition below. -->
       <UpgradeVersion Minimum="$(var.Version)" IncludeMinimum="no"
@@ -98,7 +110,7 @@
       both properties are set by the time these are evaluated.
     -->
     <Condition Message="A newer version of [ProductName] is already installed. Remove it first if you want to go back to this version.">NOT PHV_NEWER_FOUND</Condition>
-    <Condition Message="[ProductName] [ProductVersion] is already installed on this computer. There is nothing to do. To repair or remove it, use Apps &amp; features, or run the installer you originally installed it with.">NOT PHV_SAME_VERSION_FOUND</Condition>
+    <Condition Message="[ProductName] [ProductVersion] is already installed on this computer. There is nothing to do. To repair or remove it, use Apps &amp; features, or run the installer you originally installed it with.">NOT PHV_SAME_VERSION_FOUND<?ifdef var.PrereleasePredecessor ?> OR PHV_SAME_VERSION_FOUND = "$(var.PrereleasePredecessor)"<?endif ?></Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
 
