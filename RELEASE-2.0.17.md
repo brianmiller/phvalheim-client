@@ -1,4 +1,4 @@
-# PhValheim Client 2.0.17 — config preferences and Linux launch reliability prerelease
+# PhValheim Client 2.0.17 — config preferences and Linux launch reliability
 
 Supports PhValheim Server 2.60 config delivery. Personal config files survive both full mod
 updates and small settings updates. Overridable values fill missing settings only; enforced
@@ -12,7 +12,8 @@ Older servers retain the previous synchronization contract.
 
 Testing uses real archives, HTTP downloads and the shipped Syncer, with failure and recovery
 cases. The actual Syncer harness passed 26 checks, and six archive-to-client checks passed.
-Live Unity gameplay remains an operator test. This is a prerelease for testing.
+Live Unity gameplay remains an operator test. This is the official stable 2.0.17 release.
+The tested 2026-10-31 packages were promoted unchanged on 2026-11-02.
 
 ## Linux launch reliability
 
@@ -54,14 +55,14 @@ Install or upgrade the downloaded Flatpak with:
 flatpak install --user ./phvalheim-client-2.0.17-x86_64.flatpak
 ```
 
-Install this client before updating a test world to Server 2.60. Confirm personal settings
+Install this client before joining Server 2.60 worlds that use the new config policy. Confirm personal settings
 survive both a full mod update and a config-only update, then clear Overridable in the admin
 UI and confirm the operator's value returns before launch. A mod's own runtime synchronization
 can still override settings during play.
 
 The current launcher compares against stable releases when checking for updates.
 
-Close the old game and launcher windows once before testing this Linux revision. Launch
+Close the old game and launcher windows once before using this Linux revision. Launch
 with the same changed config, confirm the overlay-off notice, quit, and launch again.
 The launcher should close after the game exits and reject a second click while playing.
 
@@ -79,7 +80,7 @@ are used for runtime tests; live Unity/GPU overlay compatibility remains unverif
 
 ## Full package refresh (2026-10-31)
 
-All seven package formats are now built and tested. The release remains a prerelease.
+All seven package formats are built and tested. These exact packages are now the stable release.
 Runtime source is unchanged from `7ae44e0`; packaging and test improvements are in
 [`e087519`](https://github.com/brianmiller/phvalheim-client/commit/e087519951ef7d0de34abac7f1d2213c2f2100da).
 The original `2.0.17` git tag is retained; use that source link for this revised package set.
@@ -99,7 +100,7 @@ The original `2.0.17` git tag is retained; use that source link for this revised
 Native installer evidence: [package validation run](https://github.com/brianmiller/phvalheim-client/actions/runs/41149946862).
 These are packaging/launcher checks; live Steam/Valheim gameplay remains unverified.
 
-For the macOS tarball, download it and `macinstall.sh` from this prerelease, then run:
+For the macOS tarball, download it and `macinstall.sh` from this release, then run:
 
 ```sh
 PHVALHEIM_TARBALL=./phvalheim-client-2.0.17-macos-universal.tar.gz bash ./macinstall.sh install
