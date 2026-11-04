@@ -38,7 +38,7 @@ Do not re-derive what they already answer.
 ## Tests
 
 ```bash
-for t in dev_tools/test-*.sh; do bash "$t" || echo "FAIL $t"; done
+bash dev_tools/run-tests.sh
 ```
 
 CI (`.github/workflows/macos-verify.yml`) runs every one of them, builds the macOS package on a

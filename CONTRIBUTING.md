@@ -1,6 +1,6 @@
 # Contributing to PhValheim Client
 
-Thanks for helping. This is the only page you need to read to contribute. It is written for
+Thanks for helping. Start here to choose the setup and checks for your change. It is written for
 people and for AI coding assistants alike. If something here is wrong or missing, fixing this
 page is itself a welcome contribution.
 
@@ -31,8 +31,8 @@ and launches Valheim through BepInEx. `prompts/client-build.md` describes each s
 
 ## Set up
 
-You need the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0), `git`, Python 3,
-and Docker if you want to build an installable package.
+You need the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0), `git`, Python 3, Bash, PHP CLI, and
+Docker if you want to build an installable package.
 
 ```bash
 git clone git@github.com:<you>/phvalheim-client.git
@@ -59,8 +59,7 @@ you for a world. The README's **Usage** section shows how to hand it to the bina
 
 - **One change per pull request.**
 - **Do not bump `<Version>`** in the csproj. The maintainer does that when cutting a release.
-- **Remember one change ships through seven packages.** Build the package for your own OS and
-  install it to test. CI builds and verifies macOS for you; the Windows `.msi` and Flatpak build
+- **Remember one change ships through seven packages.** For package changes, use a disposable checkout and test on the target OS. Builders write into `builds/`; do not commit or upload those development outputs. CI builds and verifies macOS for you; the Windows `.msi` and Flatpak build
   on Linux with Docker.
 - **Never rebuild a published `.msi` version.** `builders/msi_rebuild_guard.sh` refuses, on
   purpose. If you need to understand why, `prompts/windows-msi-build.md` explains it.
@@ -71,16 +70,18 @@ you for a world. The README's **Usage** section shows how to hand it to the bina
 
 ## Test it
 
+For docs-only changes, verify links and any changed commands. No new runtime test or game install is required. For code changes, run the checks below and record unavailable checks explicitly.
+
 ```bash
-for t in dev_tools/test-*.sh; do bash "$t" || echo "FAIL $t"; done   # what CI runs
-bash builders/build_tgz-innie                                        # fastest real package
+bash dev_tools/run-tests.sh   # what CI runs
+dotnet run --project phvalheim-client.csproj -- --version
 ```
 
 The build gates run the smoke test automatically. It covers startup, the version banner and
 malformed URLs. **It does not reach the sync, download or launch logic.** If you changed those,
 run the client against a real server and say so in the PR. If you did not, say that instead.
 
-Add a test for your change as `dev_tools/test-<what-it-checks>.sh`:
+For behavior changes, add a test as `dev_tools/test-<what-it-checks>.sh`:
 
 - **It must be able to fail.** Break the code on purpose, watch the test go red, then fix it.
 - **Assert on the outcome**, the file written or the output printed, not on a summary line.
@@ -92,10 +93,12 @@ The PR template is the checklist. In short:
 
 - [ ] One change, described in plain words: what changes for a player.
 - [ ] `dotnet build` succeeds and every `dev_tools/test-*.sh` passes.
-- [ ] A test that fails without the change.
+- [ ] For behavior changes, a test that fails without the change. For docs-only changes, check links and commands; no new runtime test is required.
 - [ ] No version bump. Nothing under `builds/` touched.
 - [ ] No secrets, certificates, internal hostnames or IPs.
 - [ ] Which packages you installed and ran, and against which server. Or "none", plainly.
+
+Report suspected vulnerabilities privately using [SECURITY.md](SECURITY.md), before opening a public issue or PR.
 
 ## Rules that protect everyone
 

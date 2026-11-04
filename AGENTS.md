@@ -8,7 +8,7 @@ Cursor, Copilot or anything else.
 
 Three things that matter most:
 
-- One change per pull request, with a test under `dev_tools/` that fails without it.
-- `dotnet build` and every `dev_tools/test-*.sh` must pass before the PR is opened.
+- One change per pull request, with a regression test for behavior changes; docs-only changes need link and command checks.
+- For code changes, `dotnet build` and `bash dev_tools/run-tests.sh` must pass before the PR is opened.
 - Do not bump the version, touch `builds/`, create tags or publish packages. Releases are the
   maintainer's job.
