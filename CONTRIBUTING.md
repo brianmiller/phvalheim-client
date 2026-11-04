@@ -31,8 +31,11 @@ and launches Valheim through BepInEx. `prompts/client-build.md` describes each s
 
 ## Set up
 
-You need the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0), `git`, Python 3, Bash, PHP CLI, and
-Docker if you want to build an installable package.
+You need the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0), `git`, Python 3, Bash, PHP CLI, standard Linux process tools (`procps` and `util-linux`),
+and Docker for the full test suite and package builders. Several tests run .NET harnesses
+in Docker, so run `dev_tools/run-tests.sh` on the host with Docker available, not inside
+a bare SDK container. On Ubuntu, `sudo apt-get install git python3 php-cli procps util-linux`
+installs the non-.NET test prerequisites; install Docker separately.
 
 ```bash
 git clone git@github.com:<you>/phvalheim-client.git
