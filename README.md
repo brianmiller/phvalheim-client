@@ -349,4 +349,5 @@ With `CODESIGN_PFX` unset the build still succeeds and emits an unsigned `.msi`.
 
 ## Related
 
+- [Contributing](CONTRIBUTING.md) — how to build, test and open a pull request
 - [phvalheim-server](https://github.com/brianmiller/phvalheim-server) — The server side of PhValheim
