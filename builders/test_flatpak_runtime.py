@@ -834,7 +834,8 @@ def scenario_personal_config(port):
                          {'file':'personal.cfg','section':'UI','key':'Locked','value':'6'}]
     payload=base64.b64decode(launch_payload_b64(WORLD,port,False)).decode()+'?0??fixture-token?overlay=on'
     encoded=base64.b64encode((payload+'?playerConfig='+FakeServer.personal_token).encode()).decode()
-    clear_logs()
+    for log in (STEAM_LOG, VALHEIM_LOG):
+        if log.exists(): log.unlink()
     rc,out=sh(['flatpak','run',APP_ID,'phvalheim://?'+encoded],timeout=120)
     rec=wait_for_json(VALHEIM_LOG,timeout=10)
     eq('personal config launch reaches host game',True,rec is not None)
