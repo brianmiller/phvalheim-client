@@ -598,10 +598,10 @@ def assert_valheim_env(rec, valheim_dir):
              "BepInEx/core/BepInEx.Preloader.dll", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
     contains("DOORSTOP_TARGET_ASSEMBLY is under the world directory",
              f"PhValheim/worlds/{SRV_HOST}/{WORLD}", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
-    eq("default LD_PRELOAD contains doorstop only", "libdoorstop_x64.so", env.get("LD_PRELOAD"))
-    eq("default overlay game id is cleared", "", env.get("SteamOverlayGameId"))
-    eq("default Vulkan overlay enable flag is cleared", "0", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
-    eq("default Vulkan overlay is explicitly disabled", "1", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default LD_PRELOAD includes overlay", f"libdoorstop_x64.so:{OVERLAY_SO}", env.get("LD_PRELOAD"))
+    eq("default overlay game id is Valheim", "892970", env.get("SteamOverlayGameId"))
+    eq("default Vulkan overlay enable flag is set", "1", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default Vulkan overlay disable flag is cleared", "0", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
     eq("LD_LIBRARY_PATH is the game's doorstop_libs",
        str(Path(valheim_dir) / "doorstop_libs"), env.get("LD_LIBRARY_PATH"))
 

@@ -122,34 +122,28 @@ phvalheim-client            # or: flatpak run com.phvalheim.Client
 
 ### Steam overlay on Linux
 
-Client 2.0.17 leaves the overlay **off by default for direct modded Linux launches**.
-Earlier clients injected it automatically, outside Steam's normal game launch flow.
-A reported startup hang involved the overlay, so the client now requires explicit opt-in.
-This does not change Steam's global settings or vanilla launches through Steam.
+The development client enables the overlay by default for direct modded Linux launches
+when Steam's renderer library is available. An updated server can disable it globally or
+per world. This support is not in the originally published 2.0.17 binaries; the release
+target for the updated client is pending confirmation.
 
-To opt in (Shift+Tab may work, but overlay-related startup hangs can return):
+`PHVALHEIM_NO_OVERLAY=1` always disables the overlay, including when a server requests it.
+`PHVALHEIM_ENABLE_OVERLAY=1` remains compatible but is no longer required and cannot override
+an operator disable. For Flatpak, set the local opt-out with:
 
-```bash
-flatpak override --user --env=PHVALHEIM_ENABLE_OVERLAY=1 com.phvalheim.Client
+```sh
+flatpak override --user --env=PHVALHEIM_NO_OVERLAY=1 com.phvalheim.Client
 ```
 
-To return to the default:
+Remove it with `flatpak override --user --unset-env=PHVALHEIM_NO_OVERLAY com.phvalheim.Client`.
+Disabling removes Steam renderer entries from `LD_PRELOAD`, preserves Doorstop and other
+hooks, and disables Steam's implicit Vulkan layer. Enabling explicitly clears an inherited
+Vulkan disable flag.
 
-```bash
-flatpak override --user --unset-env=PHVALHEIM_ENABLE_OVERLAY com.phvalheim.Client
-```
-
-The existing `PHVALHEIM_NO_OVERLAY=1` opt-out still wins over opt-in. With the overlay
-off, the launcher removes inherited Steam renderer entries from the game's `LD_PRELOAD`,
-keeps BepInEx and other preload libraries, and disables the implicit Vulkan overlay layer.
-For the native Linux package, use the same environment variables when invoking the client.
-Steam's overlay checkbox alone does not control PhValheim's explicit opt-in.
-
-The launcher checks the host for Valheim before syncing and holds a per-user lock across
-sync, launch, and game monitoring. A duplicate click is rejected; it does not queue a
-relaunch. Quit Valheim before launching another world. Flatpak launch windows now observe
-the host game and close when it exits. If observation fails, the window explains that and
-closes after 30 seconds; it does not claim the game exited or kill it.
+This control affects modded Linux launches only. Windows, macOS and vanilla launches use
+Steam's own overlay settings. It is an optional troubleshooting tool for hangs or lockups;
+we have not established that the overlay caused the reported hang. Tests with recording
+Steam/game stubs verify launch settings, not real game or GPU behavior.
 
 ### Flatpak usage notes
 

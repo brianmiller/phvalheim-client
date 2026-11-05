@@ -204,22 +204,21 @@ namespace PhValheim.Launcher
                   string worldDir = Path.Combine(Platform.State.PhValheimServerRoot, Platform.State.WorldName);
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
                   string ld_library_path = doorstep_libs;
-                  // Direct launches do not have Steam's normal launch/overlay lifecycle.
-                  // A tester reported startup hangs with the overlay in the blocked stack.
-                  // Require explicit opt-in; the existing opt-out always wins.
+                  // Operator policy affects direct modded Linux launches. Steam controls
+                  // the overlay for Windows, macOS and vanilla launches.
                   const string valheimAppId = "892970";
                   string overlaySo = Path.Combine(steamDir, "ubuntu12_64", "gameoverlayrenderer.so");
                   bool overlayOptOut = Environment.GetEnvironmentVariable("PHVALHEIM_NO_OVERLAY") == "1";
-                  bool overlayRequested = Environment.GetEnvironmentVariable("PHVALHEIM_ENABLE_OVERLAY") == "1";
-                  bool overlayOn = overlayRequested && !overlayOptOut && File.Exists(overlaySo);
+                  bool overlayDisabled = Arguments.PhValheim.DisableSteamOverlay;
+                  bool overlayOn = !overlayDisabled && !overlayOptOut && File.Exists(overlaySo);
                   string ld_preload = LinuxOverlay.Preload(Environment.GetEnvironmentVariable("LD_PRELOAD"),
                       overlayOn ? overlaySo : null);
                   if (overlayOptOut)
                       Ui.Note("Steam overlay skipped: PHVALHEIM_NO_OVERLAY is set");
-                  else if (overlayRequested && !File.Exists(overlaySo))
+                  else if (overlayDisabled)
+                      Ui.Note("Steam overlay disabled by this world's operator settings.");
+                  else if (!File.Exists(overlaySo))
                       Ui.Note("Steam overlay skipped: " + overlaySo + " not found");
-                  else if (!overlayOn)
-                      Ui.Note("Steam overlay is off for this modded launch. Opt in with PHVALHEIM_ENABLE_OVERLAY=1.");
 
                   // The doorstop environment. Passing it as a dictionary rather
                   // than mutating psi.EnvironmentVariables is what lets the
@@ -242,6 +241,7 @@ namespace PhValheim.Launcher
                       doorstopEnv["SteamGameId"] = valheimAppId;
                       doorstopEnv["SteamOverlayGameId"] = valheimAppId;
                       doorstopEnv["ENABLE_VK_LAYER_VALVE_steam_overlay_1"] = "1";
+                      doorstopEnv["DISABLE_VK_LAYER_VALVE_steam_overlay_1"] = "0";
                   }
 
                   else

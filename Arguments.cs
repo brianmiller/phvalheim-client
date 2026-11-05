@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Reflection;
 
 namespace PhValheim.Arguments
@@ -23,6 +23,8 @@ namespace PhValheim.Arguments
         // Nullable: there is no payload at all for a "textures" run, or before parsing. Absent
         // is a real state here, not a missing value to be defaulted away.
         public static string? RawLaunchPayload { get; private set; }
+
+        public static bool DisableSteamOverlay { get; private set; }
 
         public static bool HaveLaunchPayload => !string.IsNullOrEmpty(RawLaunchPayload);
 
@@ -72,6 +74,10 @@ namespace PhValheim.Arguments
 
         public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost, ref string httpScheme, ref bool isVanilla)
         {
+
+            // Parsing can run more than once in tests or a future persistent launcher.
+            RawLaunchPayload = null;
+            DisableSteamOverlay = false;
 
             //all arguments missing, print usage and exit
             if (args.Length == 0)
@@ -160,6 +166,10 @@ namespace PhValheim.Arguments
                             // Only set for a launch. A "textures" run starts no game, so there
                             // is nothing to hand a payload to.
                             RawLaunchPayload = rawLaunchPayload;
+                            // Field 10 remains the Companion token, even when empty.
+                            // Old servers omit field 11; overlay is enabled by default.
+                            DisableSteamOverlay = argumentsPassed.Length > 11
+                                && argumentsPassed[11] == "overlay=off";
 
                             return true;
                         }                     
