@@ -785,6 +785,33 @@ def scenario_launch_lifecycle(port):
                 first.wait(timeout=10)
 
 
+def scenario_operator_overlay(port):
+    print("\n-- operator overlay policy across the Flatpak host boundary --")
+    for policy, local, enabled in [('off', [], False), ('on', [], True),
+            ('on', ['--env=PHVALHEIM_NO_OVERLAY=1'], False),
+            ('off', ['--env=PHVALHEIM_ENABLE_OVERLAY=1'], False)]:
+        clear_logs()
+        payload = base64.b64decode(launch_payload_b64(WORLD, port, False)).decode()
+        payload += '?0??fixture-token?overlay=' + policy
+        encoded = base64.b64encode(payload.encode()).decode()
+        rc, out = sh(['flatpak', 'run', '--env=PHVALHEIM_NO_OVERLAY=0',
+                      '--env=PHVALHEIM_ENABLE_OVERLAY=0', *local,
+                      APP_ID, 'phvalheim://?' + encoded], timeout=120)
+        label = 'operator ' + policy + (' with ' + local[0] if local else '')
+        rec = wait_for_json(VALHEIM_LOG, timeout=10)
+        if rec is None:
+            bad(label + ' launches the host game', 'recorded host launch', out[-500:])
+            continue
+        ok(label + ' launches the host game')
+        env = rec['env']
+        eq(label + ' preload', f'libdoorstop_x64.so:{OVERLAY_SO}' if enabled
+           else 'libdoorstop_x64.so', env.get('LD_PRELOAD'))
+        eq(label + ' overlay game id', '892970' if enabled else '', env.get('SteamOverlayGameId'))
+        eq(label + ' Vulkan enable', '1' if enabled else '0', env.get('ENABLE_VK_LAYER_VALVE_steam_overlay_1'))
+        eq(label + ' Vulkan disable', '0' if enabled else '1', env.get('DISABLE_VK_LAYER_VALVE_steam_overlay_1'))
+        contains(label + ' preserves companion payload', encoded, ' '.join(rec['argv']))
+
+
 def scenario_uninstall():
     print("\n-- uninstall --")
     rc, out = sh(f"flatpak uninstall {SCOPE} --noninteractive {APP_ID}", timeout=300)
@@ -868,6 +895,7 @@ def main():
         run(scenario_modded_launch, port, valheim_dir)
         time.sleep(7)
         run(scenario_launch_lifecycle, port)
+        run(scenario_operator_overlay, port)
         run(scenario_uninstall)
     finally:
         srv.shutdown()
