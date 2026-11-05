@@ -6,6 +6,10 @@ The Steam overlay is enabled by default for direct modded Linux launches when St
 
 Windows, macOS and vanilla launches continue to use Steam's own overlay settings. Disabling the overlay is an optional troubleshooting step, not proof that it caused a hang.
 
+The updated draft also applies personal mod settings saved in the server's themed **View mods** panel. Choices belong to one Steam account and world and apply at the next launch. Only published, operator-overridable keys are accepted; operator-controlled values remain enforced. **Use published default** saves the suggested value; **Use local config** stops applying a web choice and keeps its last local value. Older servers and ordinary local configuration continue to work.
+
+Personal-setting links expire after one hour. If the client cannot retrieve your choices, reopen the world page and launch again. The read credential is scoped to your account and world and is not forwarded to the game.
+
 Install the downloaded bundle:
 
 ```sh

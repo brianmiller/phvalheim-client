@@ -538,7 +538,12 @@ namespace PhValheim.Syncer
             }
 
             Ui.Done("ready");
-            try { ConfigPolicy.Enforce(localWorldDir); }
+            try
+            {
+                var personal = PlayerConfig.Fetch(phvalheimURL, worldName, Arguments.PhValheim.PlayerConfigToken);
+                ConfigPolicy.Enforce(localWorldDir, personal);
+                if (personal?.Count > 0) Ui.Note("Your personal mod settings have been applied.");
+            }
             catch (Exception e)
             {
                 Ui.Error("Could not apply this world's mod settings. Your existing files were kept.", e.Message);
