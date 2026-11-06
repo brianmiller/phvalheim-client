@@ -26,4 +26,6 @@ flatpak install --user ./phvalheim-client-2.0.18-x86_64.flatpak
 
 This command also upgrades an existing bundle installation. The Flatpak contains the same code as the previously verified personal-settings draft; existing users of that revision do not need to reinstall.
 
-Validation uses an isolated Linux environment with recording Steam and Valheim stubs. It checks real Flatpak installation, browser/URI launch, synchronization and the environment passed to the host game. Live Valheim/GPU behavior, the cause of any hang, SteamOS, Bazzite and Flatpak Steam are not established by these checks.
+Validation covers native Windows upgrades from 2.0.12 through 2.0.17, exact installed payload, repair/uninstall and the full wizard; native Apple Silicon tarball and PKG upgrades from 2.0.17, PKG reinstall/fresh install and browser URL activation; Linux package upgrades from 2.0.17; and Flatpak installation, browser launch, synchronization and personal configuration. Linux launch tests use recording Steam and Valheim stubs.
+
+Live Valheim/GPU behavior, the cause of any hang, Intel Mac execution, SteamOS, Bazzite and Flatpak Steam are not established by these checks. Both macOS architectures are included and their signatures checked. The macOS payload uses ad-hoc signing; it is not Apple-notarized. The Windows MSI uses the project's self-signed certificate.

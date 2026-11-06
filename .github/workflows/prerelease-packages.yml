@@ -115,6 +115,6 @@ jobs:
         with:
           name: prerelease-macos-packages
           path: |
-            builds/phvalheim-client-*-macos-universal.tar.gz
-            builds/phvalheim-client-*-macos-universal.pkg
+            builds/phvalheim-client-${{ env.PHV_VERSION }}-macos-universal.tar.gz
+            builds/phvalheim-client-${{ env.PHV_VERSION }}-macos-universal.pkg
           if-no-files-found: error
