@@ -1,0 +1,16 @@
+using System.Diagnostics;
+using PhValheim.Sandbox;
+const string disable = "DISABLE_VK_LAYER_VALVE_steam_overlay_1";
+Environment.SetEnvironmentVariable(disable, "1");
+Environment.SetEnvironmentVariable("PHV_UNRELATED", "preserved");
+foreach (bool remove in new[] {false, true}) {
+    var command = Flatpak.HostCommand("/usr/bin/env", unsetEnv: remove ? new[] {disable} : null);
+    command.RedirectStandardOutput = true;
+    using var process = Process.Start(command)!;
+    string output = process.StandardOutput.ReadToEnd(); process.WaitForExit();
+    if (process.ExitCode != 0 || output.Contains(disable + "=") == remove || !output.Contains("PHV_UNRELATED=preserved"))
+        throw new Exception("Host environment removal failed: remove=" + remove);
+    Console.WriteLine("PASS real host child environment, remove=" + remove);
+}
+if (Environment.GetEnvironmentVariable(disable) != "1") throw new Exception("parent was mutated");
+Console.WriteLine("PASS parent environment unchanged");

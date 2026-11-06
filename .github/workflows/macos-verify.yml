@@ -189,6 +189,9 @@ jobs:
   # each old version separately. fail-fast off: if 2.0.12 is broken, we still want to
   # know whether 2.0.14 is.
   msi-upgrade:
+    # Candidate releases may still be drafts during package validation.
+    permissions:
+      contents: write
     name: Upgrade ${{ matrix.from }} → current
     runs-on: windows-latest
     timeout-minutes: 25
@@ -247,6 +250,9 @@ jobs:
   # leg FIRST: a /qf install with nobody clicking must stall with nothing installed. If that
   # leg ever passes by installing, the clicking leg below proves nothing and the job says so.
   msi-wizard:
+    # Candidate releases may still be drafts during package validation.
+    permissions:
+      contents: write
     name: Full wizard (/qf), clicked
     runs-on: windows-latest
     timeout-minutes: 30
@@ -573,6 +579,9 @@ jobs:
   # the clean install must pass. Like msi-upgrade, it needs the current release to exist,
   # so on the push that bumps the version it is red until the release is published.
   macos-upgrade:
+    # Candidate releases may still be drafts during package validation.
+    permissions:
+      contents: write
     name: macOS upgrade ${{ matrix.from }} → current
     runs-on: macos-15
     timeout-minutes: 20

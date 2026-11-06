@@ -70,7 +70,8 @@ namespace PhValheim.Sandbox
         public static ProcessStartInfo HostCommand(string exe,
                                                    IEnumerable<string>? args = null,
                                                    IDictionary<string, string>? env = null,
-                                                   string? workingDirectory = null)
+                                                   string? workingDirectory = null,
+                                                   IEnumerable<string>? unsetEnv = null)
         {
             ProcessStartInfo psi;
 
@@ -85,6 +86,8 @@ namespace PhValheim.Sandbox
                 {
                     foreach (var kv in env) psi.EnvironmentVariables[kv.Key] = kv.Value;
                 }
+                if (unsetEnv != null)
+                    foreach (string key in unsetEnv) psi.Environment.Remove(key);
                 if (!string.IsNullOrEmpty(workingDirectory)) psi.WorkingDirectory = workingDirectory;
                 psi.UseShellExecute = false;
                 return psi;
@@ -106,6 +109,9 @@ namespace PhValheim.Sandbox
             {
                 foreach (var kv in env) psi.ArgumentList.Add("--env=" + kv.Key + "=" + kv.Value);
             }
+
+            if (unsetEnv != null)
+                foreach (string key in unsetEnv) psi.ArgumentList.Add("--unset-env=" + key);
 
             // End of options. flatpak-spawn parses with GOption, which permutes
             // arguments, so without this a game argument like "-console" is

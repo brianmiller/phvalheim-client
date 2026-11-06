@@ -3,51 +3,69 @@ on:
   workflow_dispatch:
     inputs:
       candidate_release:
-        description: Draft release containing candidate.msi, original.msi and expected-exe.sha256
+        description: Draft release containing the candidate MSI (matching the checkout version)
+        type: string
+        required: true
+      expected_exe_sha256:
+        description: SHA256 of the candidate Windows executable
         type: string
         required: true
 permissions:
   contents: read
 jobs:
   windows:
-    # GitHub requires repository write access to read unpublished draft assets.
+    # GitHub requires repository write access to download unpublished draft assets.
     permissions:
       contents: write
     runs-on: windows-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        from: ['2.0.12', '2.0.13', '2.0.14', '2.0.15', '2.0.16', '2.0.17']
     steps:
       - uses: actions/checkout@v4
-      - name: Download candidates
+      - name: Read candidate version
+        id: version
+        shell: bash
+        run: echo "value=$(grep -oP '(?<=<Version>)[^<]+' phvalheim-client.csproj)" >> "$GITHUB_OUTPUT"
+      - name: Download candidate and predecessor
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RELEASE: ${{ inputs.candidate_release }}
+          OLD_VERSION: ${{ matrix.from }}
         shell: bash
-        run: gh release download "$CANDIDATE_RELEASE" -D candidates
-      - name: Original package must fail the new payload assertion
+        run: |
+          gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
+          gh release download "$OLD_VERSION" -p '*x86_64.msi' -D old
+      - name: Upgrade, exact payload, repair and uninstall
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
+          NEW_VERSION: ${{ steps.version.outputs.value }}
+          OLD_VERSION: ${{ matrix.from }}
         shell: pwsh
         run: |
-          $expected = (Get-Content candidates/expected-exe.sha256).Trim()
-          & pwsh -File builders/verify_msi_upgrade.ps1 -NewMsi (Resolve-Path candidates/original.msi) -NewVersion 2.0.17 -ExpectedExeSha256 $expected -LogDir control-logs *> control.txt
-          if ($LASTEXITCODE -ne 1) { throw "Old payload did not fail" }
-          if (-not (Select-String -Path control.txt -SimpleMatch 'installed payload SHA256 differs from the candidate')) { throw "Control failed for the wrong reason" }
-          Get-Content control.txt
-          exit 0
-      - name: Original 2.0.17 to revised 2.0.17, repair and uninstall
-        shell: pwsh
+          if ($env:EXPECTED_SHA -notmatch '^[a-fA-F0-9]{64}$') { throw 'Expected executable SHA256 is required' }
+          $old = (Get-ChildItem old -Filter '*.msi').FullName
+          $new = (Get-ChildItem candidate -Filter '*.msi').FullName
+          ./builders/verify_msi_upgrade.ps1 -OldMsi $old -OldVersion $env:OLD_VERSION -NewMsi $new -NewVersion $env:NEW_VERSION -ExpectedExeSha256 $env:EXPECTED_SHA
+      - name: Full wizard negative control and install
+        if: matrix.from == '2.0.17'
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.value }}
+        shell: powershell
         run: |
-          $expected = (Get-Content candidates/expected-exe.sha256).Trim()
-          ./builders/verify_msi_upgrade.ps1 -OldMsi (Resolve-Path candidates/original.msi) -OldVersion 2.0.17 -NewMsi (Resolve-Path candidates/candidate.msi) -NewVersion 2.0.17 -ExpectedExeSha256 $expected
-      - name: Full wizard
-        shell: pwsh
-        run: ./builders/verify_msi_wizard.ps1 -Msi (Resolve-Path candidates/candidate.msi) -Version 2.0.17
+          $msi = (Get-ChildItem candidate -Filter '*.msi').FullName
+          ./builders/verify_msi_wizard.ps1 -Msi $msi -Version $env:NEW_VERSION -NoClickControl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./builders/verify_msi_wizard.ps1 -Msi $msi -Version $env:NEW_VERSION
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: prerelease-windows-evidence
+          name: draft-windows-evidence-${{ matrix.from }}
           path: |
             msi-logs/
-            control-logs/
-            control.txt
+            screens/
   macos:
     runs-on: macos-15
     timeout-minutes: 25
@@ -56,36 +74,47 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
+      - name: Read candidate version
+        run: echo "PHV_VERSION=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' phvalheim-client.csproj | head -1)" >> "$GITHUB_ENV"
       - name: Build both universal formats
         run: |
           bash builders/build_macos-innie
           bash builders/build_pkg-innie --package
-      - name: Install tarball and verify
+      - name: Install stable predecessor
         env:
-          PHVALHEIM_TARBALL: builds/phvalheim-client-2.0.17-macos-universal.tar.gz
+          GH_TOKEN: ${{ github.token }}
         run: |
-          bash macinstall.sh install
+          gh release download 2.0.17 -p '*macos-universal.tar.gz' -p macinstall.sh -D old
+          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.17-macos-universal.tar.gz" bash old/macinstall.sh install
           bash builders/verify_macos.sh 2.0.17
-      - name: Install PKG over tarball, verify payload and URL activation
+      - name: Upgrade tarball and verify
         run: |
-          sudo installer -pkg builds/phvalheim-client-2.0.17-macos-universal.pkg -target /
+          PHVALHEIM_TARBALL="$PWD/builds/phvalheim-client-$PHV_VERSION-macos-universal.tar.gz" bash macinstall.sh install
           cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
-          bash builders/verify_macos.sh 2.0.17
+          bash builders/verify_macos.sh "$PHV_VERSION"
           bash builders/verify_macos_gui.sh
-          sudo installer -pkg builds/phvalheim-client-2.0.17-macos-universal.pkg -target /
-          cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
-          bash builders/verify_macos.sh 2.0.17
-      - name: Fresh PKG install
+      - name: PKG upgrade from stable and reinstall
+        run: |
+          bash macinstall.sh uninstall
+          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.17-macos-universal.tar.gz" bash old/macinstall.sh install
+          for attempt in 1 2; do
+            sudo installer -pkg "builds/phvalheim-client-$PHV_VERSION-macos-universal.pkg" -target /
+            cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
+            bash builders/verify_macos.sh "$PHV_VERSION"
+          done
+          bash builders/verify_macos_gui.sh
+      - name: Fresh PKG installation
         run: |
           bash macinstall.sh uninstall
           sudo pkgutil --forget com.phospher.phvalheim-client
-          sudo installer -pkg builds/phvalheim-client-2.0.17-macos-universal.pkg -target /
+          sudo installer -pkg "builds/phvalheim-client-$PHV_VERSION-macos-universal.pkg" -target /
           cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
-          bash builders/verify_macos.sh 2.0.17
+          bash builders/verify_macos.sh "$PHV_VERSION"
+          bash builders/verify_macos_gui.sh
       - uses: actions/upload-artifact@v4
         with:
           name: prerelease-macos-packages
           path: |
-            builds/phvalheim-client-2.0.17-macos-universal.tar.gz
-            builds/phvalheim-client-2.0.17-macos-universal.pkg
+            builds/phvalheim-client-${{ env.PHV_VERSION }}-macos-universal.tar.gz
+            builds/phvalheim-client-${{ env.PHV_VERSION }}-macos-universal.pkg
           if-no-files-found: error

@@ -174,7 +174,10 @@ no error message.
 - **Direct modded launches default to overlay off as of 2.0.17.** This applies to
   both native and Flatpak Steam. Explicit `PHVALHEIM_ENABLE_OVERLAY=1` opts in;
   `PHVALHEIM_NO_OVERLAY=1` always wins. See [overlay controls](../README.md#steam-overlay-on-linux).
-  Live overlay compatibility with Flatpak Steam remains untested.
+  The 2.0.18 draft changes the default to enabled and adds operator policy controls.
+  A follow-up fix under review removes the Vulkan disable variable when enabling;
+  setting it to `0` still disables the layer. Live Bazzite/GPU overlay compatibility
+  remains unverified.
 - **Game monitoring checks the host process list**, including when this launcher is
   sandboxed. Duplicate launches share a lock in `~/.config/PhValheim`; an existing
   game blocks sync and launch. If the host cannot be inspected, launch is refused.

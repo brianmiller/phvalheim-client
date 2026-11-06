@@ -241,7 +241,8 @@ namespace PhValheim.Launcher
                       doorstopEnv["SteamGameId"] = valheimAppId;
                       doorstopEnv["SteamOverlayGameId"] = valheimAppId;
                       doorstopEnv["ENABLE_VK_LAYER_VALVE_steam_overlay_1"] = "1";
-                      doorstopEnv["DISABLE_VK_LAYER_VALVE_steam_overlay_1"] = "0";
+                      // Vulkan disables an implicit layer when this variable exists,
+                      // even if its value is "0". Unset it in the game's environment below.
                   }
 
                   else
@@ -284,6 +285,9 @@ namespace PhValheim.Launcher
                       foreach (var kv in doorstopEnv)
                           fpArgs.Add("--env=" + kv.Key + "=" + kv.Value);
 
+                      if (overlayOn)
+                          fpArgs.Add("--unset-env=DISABLE_VK_LAYER_VALVE_steam_overlay_1");
+
                       // BepInEx and the mod payload live in our own directory,
                       // which Steam's sandbox has no reason to be able to see.
                       // Granted per-run, so nothing about the user's Steam
@@ -313,7 +317,8 @@ namespace PhValheim.Launcher
                           setsid,
                           nativeArgs.ToArray(),
                           doorstopEnv,
-                          valheimDir);
+                          valheimDir,
+                          unsetEnv: overlayOn ? new[] { "DISABLE_VK_LAYER_VALVE_steam_overlay_1" } : null);
                   }
 
                   startInfo.CreateNoWindow = false;

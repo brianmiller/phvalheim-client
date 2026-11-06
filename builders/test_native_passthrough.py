@@ -128,7 +128,7 @@ def main():
         chk("default LD_PRELOAD includes overlay",
             env.get("LD_PRELOAD") == f"libdoorstop_x64.so:{T.OVERLAY_SO}", env.get("LD_PRELOAD"))
         chk("default overlay game id is Valheim", env.get("SteamOverlayGameId") == "892970", env.get("SteamOverlayGameId"))
-        chk("default Vulkan overlay is enabled", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1") == "0", env)
+        chk("default Vulkan overlay is enabled", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1") is None, env)
         chk("native launcher observes game exit", "Valheim has closed" in out, out[-500:])
         chk("LD_LIBRARY_PATH is the game's doorstop_libs",
             env.get("LD_LIBRARY_PATH") == str(Path(valheim_dir) / "doorstop_libs"),
@@ -186,8 +186,9 @@ def main():
                 f"rc={rc} stdout={out[-400:]!r} stderr={err[:400]!r}")
             return rec, out
 
-        rec, out = modded_launch("explicit overlay opt-in", {"PHVALHEIM_ENABLE_OVERLAY": "1"})
+        rec, out = modded_launch("explicit overlay opt-in with inherited disable", {"PHVALHEIM_ENABLE_OVERLAY": "1", "DISABLE_VK_LAYER_VALVE_steam_overlay_1": "1"})
         if rec:
+            chk("enabled overlay unsets inherited disable", "DISABLE_VK_LAYER_VALVE_steam_overlay_1" not in rec["env"], rec["env"])
             chk("opt-in restores renderer after doorstop", rec["env"].get("LD_PRELOAD") == f"libdoorstop_x64.so:{T.OVERLAY_SO}", rec["env"])
             chk("opt-in enables Vulkan overlay", rec["env"].get("ENABLE_VK_LAYER_VALVE_steam_overlay_1") == "1", rec["env"])
             chk("opt-in names Valheim", rec["env"].get("SteamOverlayGameId") == T.VALHEIM_APP_ID, rec["env"])
@@ -199,7 +200,7 @@ def main():
             if rec:
                 expected = f"libdoorstop_x64.so:{T.OVERLAY_SO}" if enabled else 'libdoorstop_x64.so'
                 chk('operator/local precedence preload', rec['env'].get('LD_PRELOAD') == expected, rec['env'])
-                chk('operator/local precedence Vulkan', rec['env'].get('DISABLE_VK_LAYER_VALVE_steam_overlay_1') == ('0' if enabled else '1'), rec['env'])
+                chk('operator/local precedence Vulkan', rec['env'].get('DISABLE_VK_LAYER_VALVE_steam_overlay_1') == (None if enabled else '1'), rec['env'])
 
         print("\n-- control: no overlay library on disk --")
         T.OVERLAY_SO.unlink()
