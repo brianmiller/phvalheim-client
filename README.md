@@ -122,10 +122,9 @@ phvalheim-client            # or: flatpak run com.phvalheim.Client
 
 ### Steam overlay on Linux
 
-The 2.0.18 prerelease client enables the overlay by default for direct modded Linux launches
+Client 2.0.18 enables the overlay by default for direct modded Linux launches
 when Steam's renderer library is available. An updated server can disable it globally or
-per world. Overlay controls require Client 2.0.18 or newer. Version 2.0.18 is
-available as a [prerelease](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.18) for Windows, Linux and macOS testing; 2.0.17 remains stable.
+per world. Overlay controls require Client 2.0.18 or newer and PhValheim Server 2.62 or newer.
 
 `PHVALHEIM_NO_OVERLAY=1` always disables the overlay, including when a server requests it.
 `PHVALHEIM_ENABLE_OVERLAY=1` remains compatible but is no longer required and cannot override

@@ -1,8 +1,8 @@
 # PhValheim Client 2.0.18 — overlay controls and personal settings
 
-Prerelease builds for Windows, Linux and macOS. Version 2.0.17 remains the latest stable release.
+Stable release for Windows, Linux and macOS, alongside PhValheim Server 2.62.
 
-The Steam overlay is enabled by default for direct modded Linux launches when Steam's renderer is available. The server development UI can disable it globally or override it per world. Preferences take effect on the next client launch. The player's `PHVALHEIM_NO_OVERLAY=1` always wins; the older `PHVALHEIM_ENABLE_OVERLAY=1` is no longer necessary and cannot override an operator disable.
+The Steam overlay is enabled by default for direct modded Linux launches when Steam's renderer is available. PhValheim Server 2.62 can disable it globally or override it per world. Preferences take effect on the next client launch. The player's `PHVALHEIM_NO_OVERLAY=1` always wins; the older `PHVALHEIM_ENABLE_OVERLAY=1` is no longer necessary and cannot override an operator disable.
 
 Windows, macOS and vanilla launches continue to use Steam's own overlay settings. Disabling the overlay is an optional troubleshooting step, not proof that it caused a hang.
 
@@ -24,7 +24,7 @@ Install the downloaded Flatpak bundle:
 flatpak install --user --reinstall ./phvalheim-client-2.0.18-x86_64.flatpak
 ```
 
-**Linux packages updated November 6:** redownload/reinstall earlier 2.0.18 candidates. Flatpak, DEB, RPM and tarball now fix the enabled Vulkan overlay being disabled by an environment variable set to `0`; enabling removes the variable entirely. Operator-off and `PHVALHEIM_NO_OVERLAY=1` still disable it. The already-tested Windows and macOS packages are unchanged; this follow-up affects direct modded Linux launches.
+**Linux packages updated November 6:** if you installed a 2.0.18 candidate before then, download and install it again. Flatpak, DEB, RPM and tarball now fix the enabled Vulkan overlay being disabled by an environment variable set to `0`; enabling removes the variable entirely. Operator-off and `PHVALHEIM_NO_OVERLAY=1` still disable it. The already-tested Windows and macOS packages are unchanged; this follow-up affects direct modded Linux launches.
 
 Brian confirmed the overlay toggle works on Bazzite in Desktop Mode using the updated Flatpak. The Flatpak passed 42 package checks and 85 browser/runtime checks; native launch checks and real Vulkan-loader tests verify environment handling. The rebuilt DEB, RPM and tarball each passed 13 real upgrade/removal checks from the published 2.0.17 packages. Recording Steam/game fixtures do not establish every graphics-driver or Steam packaging combination.
 
@@ -32,4 +32,4 @@ Validation covers native Windows upgrades from 2.0.12 through 2.0.17, exact inst
 
 Beyond the reported Bazzite Desktop overlay confirmation, broad live Valheim/GPU behavior, the cause of any hang, Intel Mac execution, SteamOS and Flatpak Steam are not established by these checks. Both macOS architectures are included and their signatures checked. The macOS payload uses ad-hoc signing; it is not Apple-notarized. The Windows MSI uses the project's self-signed certificate.
 
-Package source: Linux runtime [b25eccb](https://github.com/brianmiller/phvalheim-client/commit/b25eccb), tested Flatpak [8f67065](https://github.com/brianmiller/phvalheim-client/commit/8f6706568dd6974a3c4ab5949b55017d5f7d2b68), and rebuilt native Linux packages [512f50f](https://github.com/brianmiller/phvalheim-client/commit/512f50f3929e7bab6795bee057e401b7e49190ea). Unchanged Windows/macOS package source: [0d95b03](https://github.com/brianmiller/phvalheim-client/commit/0d95b03c673fde7a639a162f323f4f61c6091729). The feature and overlay PRs are merged; this release remains a prerelease.
+Package source: Linux runtime [b25eccb](https://github.com/brianmiller/phvalheim-client/commit/b25eccb), tested Flatpak [8f67065](https://github.com/brianmiller/phvalheim-client/commit/8f6706568dd6974a3c4ab5949b55017d5f7d2b68), and rebuilt native Linux packages [512f50f](https://github.com/brianmiller/phvalheim-client/commit/512f50f3929e7bab6795bee057e401b7e49190ea). Unchanged Windows/macOS package source: [0d95b03](https://github.com/brianmiller/phvalheim-client/commit/0d95b03c673fde7a639a162f323f4f61c6091729).
