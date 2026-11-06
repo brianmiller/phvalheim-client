@@ -49,6 +49,7 @@ try:
     (root/'files/bin/steam').write_text('#!/bin/sh\nexit 0\n')
     (root/'files/bin/steam').chmod(0o755)
     (root/'metadata').write_text('[Application]\nname=com.valvesoftware.Steam\nruntime=org.freedesktop.Sdk/x86_64/25.08\ncommand=steam\n[Context]\nshared=network;ipc;\nfilesystems=home;\n[Environment]\nDISABLE_VK_LAYER_VALVE_steam_overlay_1=1\n')
+    command(['flatpak', 'build-finish', str(root)])
     command(['flatpak', 'build-export', '/tmp/phv-steam-repo', str(root)])
     command(['flatpak', 'remote-add', '--system', '--no-gpg-verify', 'phv-steam-test', '/tmp/phv-steam-repo'])
     command(['flatpak', 'install', '--system', '--noninteractive', 'phv-steam-test', 'com.valvesoftware.Steam'])
