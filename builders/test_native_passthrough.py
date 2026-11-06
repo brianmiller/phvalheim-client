@@ -21,6 +21,7 @@ usage: test_native_passthrough.py <path-to-linux-x64-binary>
 """
 
 import os
+import base64
 import re
 import subprocess
 import sys
@@ -124,10 +125,10 @@ def main():
         chk("DOORSTOP_TARGET_ASSEMBLY points at the synced preloader",
             "BepInEx.Preloader.dll" in env.get("DOORSTOP_TARGET_ASSEMBLY", ""),
             env.get("DOORSTOP_TARGET_ASSEMBLY"))
-        chk("default LD_PRELOAD contains doorstop only",
-            env.get("LD_PRELOAD") == "libdoorstop_x64.so", env.get("LD_PRELOAD"))
-        chk("default overlay game id is cleared", env.get("SteamOverlayGameId") == "", env.get("SteamOverlayGameId"))
-        chk("default Vulkan overlay is disabled", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1") == "1", env)
+        chk("default LD_PRELOAD includes overlay",
+            env.get("LD_PRELOAD") == f"libdoorstop_x64.so:{T.OVERLAY_SO}", env.get("LD_PRELOAD"))
+        chk("default overlay game id is Valheim", env.get("SteamOverlayGameId") == "892970", env.get("SteamOverlayGameId"))
+        chk("default Vulkan overlay is enabled", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1") is None, env)
         chk("native launcher observes game exit", "Valheim has closed" in out, out[-500:])
         chk("LD_LIBRARY_PATH is the game's doorstop_libs",
             env.get("LD_LIBRARY_PATH") == str(Path(valheim_dir) / "doorstop_libs"),
@@ -173,19 +174,33 @@ def main():
         # launch and the game would start anyway -- the worst kind of warning), and the
         # opt-out must work without a release. Each control re-launches the same modded
         # world; the payload is already synced, so only the launch runs again.
-        def modded_launch(label, extra_env=None):
+        def modded_launch(label, extra_env=None, operator=None):
             T.clear_logs()
-            rc, out, err = run(exe, T.launch_url(T.WORLD, port, vanilla=False), extra_env)
+            url = T.launch_url(T.WORLD, port, vanilla=False)
+            if operator is not None:
+                payload = base64.b64decode(url.split('?')[1]).decode() + '?0??fixture-token?overlay=' + operator
+                url = 'phvalheim://?' + base64.b64encode(payload.encode()).decode()
+            rc, out, err = run(exe, url, extra_env)
             rec = T.wait_for_json(T.VALHEIM_LOG, timeout=90)
             chk(f"{label}: Valheim was executed on the host", rec is not None,
                 f"rc={rc} stdout={out[-400:]!r} stderr={err[:400]!r}")
             return rec, out
 
-        rec, out = modded_launch("explicit overlay opt-in", {"PHVALHEIM_ENABLE_OVERLAY": "1"})
+        rec, out = modded_launch("explicit overlay opt-in with inherited disable", {"PHVALHEIM_ENABLE_OVERLAY": "1", "DISABLE_VK_LAYER_VALVE_steam_overlay_1": "1"})
         if rec:
+            chk("enabled overlay unsets inherited disable", "DISABLE_VK_LAYER_VALVE_steam_overlay_1" not in rec["env"], rec["env"])
             chk("opt-in restores renderer after doorstop", rec["env"].get("LD_PRELOAD") == f"libdoorstop_x64.so:{T.OVERLAY_SO}", rec["env"])
             chk("opt-in enables Vulkan overlay", rec["env"].get("ENABLE_VK_LAYER_VALVE_steam_overlay_1") == "1", rec["env"])
             chk("opt-in names Valheim", rec["env"].get("SteamOverlayGameId") == T.VALHEIM_APP_ID, rec["env"])
+
+        for policy, local, enabled in [('off', {}, False), ('on', {}, True),
+                ('on', {'PHVALHEIM_NO_OVERLAY': '1'}, False),
+                ('off', {'PHVALHEIM_ENABLE_OVERLAY': '1'}, False)]:
+            rec, out = modded_launch('operator ' + policy, local, policy)
+            if rec:
+                expected = f"libdoorstop_x64.so:{T.OVERLAY_SO}" if enabled else 'libdoorstop_x64.so'
+                chk('operator/local precedence preload', rec['env'].get('LD_PRELOAD') == expected, rec['env'])
+                chk('operator/local precedence Vulkan', rec['env'].get('DISABLE_VK_LAYER_VALVE_steam_overlay_1') == (None if enabled else '1'), rec['env'])
 
         print("\n-- control: no overlay library on disk --")
         T.OVERLAY_SO.unlink()

@@ -26,3 +26,4 @@
 # payload SHA256, repair, uninstall and full wizard passed (run 41149946862).
 # Keep this new identity/file; another rebuild needs a separately verified migration.
 2.0.17	{C3969E40-12FC-451D-88E8-8F6245182C2A}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
+2.0.18	{A8509F29-F81B-4CC2-97EB-8825146BAE71}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}

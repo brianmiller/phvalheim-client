@@ -10,6 +10,7 @@ namespace PhValheim.Platform {
         public static string WorldName="test", ValheimDir="", PhValheimDir="", PhValheimServerRoot="", PhValheimServerWorld="";
     }
 }
+namespace PhValheim.Arguments { public static class PhValheim { public static string? PlayerConfigToken = null; } }
 class Tests {
     static int passed;
     static string root=Path.Combine(Path.GetTempPath(),"phv-policy-"+Guid.NewGuid().ToString("N"));
@@ -57,6 +58,22 @@ class Tests {
             Put(cfg,text.Replace("Limit = 10","Limit = 999").Replace("Weight = true","Weight = personal"));
             ConfigPolicy.Enforce(world);
             Check(File.ReadAllText(cfg).Contains("Limit = 10") && File.ReadAllText(cfg).Contains("Weight = personal"),"unchanged launch reapplies only enforced values");
+            ConfigPolicy.Enforce(world, new() {
+                new() { File="test.cfg", Section="UI", Key="Weight", Value="browser" },
+                new() { File="test.cfg", Section="UI", Key="Limit", Value="200" },
+                new() { File="../escape.cfg", Section="UI", Key="Weight", Value="escape" },
+                new() { File="test.cfg", Section="UI", Key="Unknown", Value="bad" }
+            });
+            Check(File.ReadAllText(cfg).Contains("Weight = browser") && File.ReadAllText(cfg).Contains("Limit = 10")
+                && !File.ReadAllText(cfg).Contains("Unknown"), "personal choices apply only to published overridable keys");
+            Check(!File.Exists(Path.Combine(world,"BepInEx/escape.cfg")), "personal paths cannot escape the published file allowlist");
+            string unchanged=File.ReadAllText(cfg); bool invalidPersonal=false;
+            try { ConfigPolicy.Enforce(world,new() { new() { File="test.cfg",Section="UI",Key="Weight",Value="bad\nInjected = 1" } }); }
+            catch { invalidPersonal=true; }
+            Check(invalidPersonal && File.ReadAllText(cfg)==unchanged,"invalid personal config rolls back atomically");
+            ConfigPolicy.Enforce(world,new());
+            Check(File.ReadAllText(cfg)==unchanged,"using local config preserves the last local value");
+            Put(cfg,File.ReadAllText(cfg).Replace("Weight = browser","Weight = personal"));
             string second=Archive(Policy(Rule("Weight","updated-default"),Rule("Limit","20",false),Rule("Added","yes")),"not-installed-by-config-only");
             ConfigPolicy.InstallArchive(second,world,false);
             Check(File.ReadAllText(cfg).Contains("Weight = personal") && File.ReadAllText(cfg).Contains("Limit = 20"),"config-only update preserves player choice and changes enforced value");

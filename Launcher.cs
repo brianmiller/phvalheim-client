@@ -204,22 +204,21 @@ namespace PhValheim.Launcher
                   string worldDir = Path.Combine(Platform.State.PhValheimServerRoot, Platform.State.WorldName);
                   string doorstep_libs = Path.Combine(valheimDir, "doorstop_libs");
                   string ld_library_path = doorstep_libs;
-                  // Direct launches do not have Steam's normal launch/overlay lifecycle.
-                  // A tester reported startup hangs with the overlay in the blocked stack.
-                  // Require explicit opt-in; the existing opt-out always wins.
+                  // Operator policy affects direct modded Linux launches. Steam controls
+                  // the overlay for Windows, macOS and vanilla launches.
                   const string valheimAppId = "892970";
                   string overlaySo = Path.Combine(steamDir, "ubuntu12_64", "gameoverlayrenderer.so");
                   bool overlayOptOut = Environment.GetEnvironmentVariable("PHVALHEIM_NO_OVERLAY") == "1";
-                  bool overlayRequested = Environment.GetEnvironmentVariable("PHVALHEIM_ENABLE_OVERLAY") == "1";
-                  bool overlayOn = overlayRequested && !overlayOptOut && File.Exists(overlaySo);
+                  bool overlayDisabled = Arguments.PhValheim.DisableSteamOverlay;
+                  bool overlayOn = !overlayDisabled && !overlayOptOut && File.Exists(overlaySo);
                   string ld_preload = LinuxOverlay.Preload(Environment.GetEnvironmentVariable("LD_PRELOAD"),
                       overlayOn ? overlaySo : null);
                   if (overlayOptOut)
                       Ui.Note("Steam overlay skipped: PHVALHEIM_NO_OVERLAY is set");
-                  else if (overlayRequested && !File.Exists(overlaySo))
+                  else if (overlayDisabled)
+                      Ui.Note("Steam overlay disabled by this world's operator settings.");
+                  else if (!File.Exists(overlaySo))
                       Ui.Note("Steam overlay skipped: " + overlaySo + " not found");
-                  else if (!overlayOn)
-                      Ui.Note("Steam overlay is off for this modded launch. Opt in with PHVALHEIM_ENABLE_OVERLAY=1.");
 
                   // The doorstop environment. Passing it as a dictionary rather
                   // than mutating psi.EnvironmentVariables is what lets the
@@ -242,6 +241,8 @@ namespace PhValheim.Launcher
                       doorstopEnv["SteamGameId"] = valheimAppId;
                       doorstopEnv["SteamOverlayGameId"] = valheimAppId;
                       doorstopEnv["ENABLE_VK_LAYER_VALVE_steam_overlay_1"] = "1";
+                      // Vulkan disables an implicit layer when this variable exists,
+                      // even if its value is "0". Unset it in the game's environment below.
                   }
 
                   else
@@ -284,6 +285,9 @@ namespace PhValheim.Launcher
                       foreach (var kv in doorstopEnv)
                           fpArgs.Add("--env=" + kv.Key + "=" + kv.Value);
 
+                      if (overlayOn)
+                          fpArgs.Add("--unset-env=DISABLE_VK_LAYER_VALVE_steam_overlay_1");
+
                       // BepInEx and the mod payload live in our own directory,
                       // which Steam's sandbox has no reason to be able to see.
                       // Granted per-run, so nothing about the user's Steam
@@ -313,7 +317,8 @@ namespace PhValheim.Launcher
                           setsid,
                           nativeArgs.ToArray(),
                           doorstopEnv,
-                          valheimDir);
+                          valheimDir,
+                          unsetEnv: overlayOn ? new[] { "DISABLE_VK_LAYER_VALVE_steam_overlay_1" } : null);
                   }
 
                   startInfo.CreateNoWindow = false;

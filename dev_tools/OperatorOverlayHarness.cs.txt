@@ -1,0 +1,37 @@
+using System.Text;
+using Parser = PhValheim.Arguments.PhValheim;
+int count = 0;
+void Check(bool ok, string label) { if (!ok) throw new Exception(label); count++; }
+bool Parse(string raw) {
+ string[] args = {"phvalheim://?" + Convert.ToBase64String(Encoding.UTF8.GetBytes(raw))};
+ string[] fields = Array.Empty<string>();
+ string cmd="",world="",password="",host="",port="",textures="",server="",scheme="";
+ bool vanilla=false;
+ bool ok=Parser.argHandler(ref args,ref fields,ref cmd,ref world,ref password,ref host,ref port,ref textures,ref server,ref scheme,ref vanilla);
+ if (ok && cmd=="launch") {
+  Check(world=="Midgard" && password=="secret" && host=="game.example" && port=="2456", "base fields preserved");
+  Check(Encoding.UTF8.GetString(Convert.FromBase64String(Parser.RawLaunchPayload!))==string.Join("?",raw.Split('?').Take(12)),"Companion payload excludes private capability");
+ }
+ return ok;
+}
+const string prefix="launch?Midgard?secret?game.example?2456?web.example?https?0?1?123456";
+foreach (string token in new[]{"", "fixture-token"}) {
+ foreach (string policy in new[]{"off","on","invalid",""}) {
+  Check(Parse(prefix+"?"+token+"?overlay="+policy), "parse extended payload");
+  Check(Parser.DisableSteamOverlay==(policy=="off"), "only explicit operator off disables");
+ }
+}
+Check(Parse(prefix+"?token?overlay=off"),"set off before legacy parse");
+Check(Parse(prefix),"legacy payload accepted");
+Check(!Parser.DisableSteamOverlay,"legacy payload defaults enabled, clears preceding policy");
+Check(Parse(prefix+"?token?overlay=off"),"set off before invalid parse");
+Check(!Parse("launch?broken"),"invalid payload rejected");
+Check(!Parser.DisableSteamOverlay && !Parser.HaveLaunchPayload,"invalid parse cannot retain policy or capability");
+string personal="76561198000000001.1800000000."+new string('a',64);
+Check(Parse(prefix+"?token?overlay=on?playerConfig="+personal),"personal token parsed");
+Check(Parser.PlayerConfigToken==personal,"personal capability retained by launcher");
+Check(!Parser.Redact(prefix+"?token?overlay=on?playerConfig="+personal).Contains(personal),"personal capability redacted");
+Check(Parse(prefix),"old server still launches");
+Check(Parser.PlayerConfigToken==null,"old launch clears preceding personal capability");
+Check(!Parse(prefix+"?token?overlay=on?playerConfig=bad"),"invalid personal credential rejected");
+Console.WriteLine($"{count} operator overlay parser checks passed");

@@ -202,7 +202,7 @@ internal static class ConfigPolicy
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
     }
 
-    internal static void Enforce(string world)
+    internal static void Enforce(string world, List<PlayerConfig.Entry>? personal = null)
     {
         string directory = Path.Combine(world, "BepInEx", "config");
         var policy = Read(directory);
@@ -217,6 +217,19 @@ internal static class ConfigPolicy
                 if (File.Exists(Path.Combine(directory, name)))
                     File.Copy(Path.Combine(directory, name), Path.Combine(stage, name));
             Apply(stage, policy, null);
+            if (personal != null)
+                foreach (var e in personal)
+                {
+                    // The local published policy is the final authority, even if the response is stale.
+                    var file = policy.Files.FirstOrDefault(f => f.File == e.File);
+                    var rule = file?.Entries.FirstOrDefault(r => r.Section == e.Section && r.Key == e.Key);
+                    if (rule == null || !rule.Overridable) continue;
+                    if (e.Value == null || e.Value.Length > 4096 || e.Value.IndexOfAny(new[] { '\r', '\n', '\0' }) >= 0)
+                        throw new InvalidDataException("Invalid personal setting.");
+                    string path = Path.Combine(stage, file!.File);
+                    string text = File.Exists(path) ? File.ReadAllText(path) : "";
+                    File.WriteAllText(path, Edit(text, e.Section, e.Key, e.Value));
+                }
             Commit(stage, directory);
         }
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }

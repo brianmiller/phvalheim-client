@@ -254,6 +254,9 @@ def build_config_zip(path):
 class FakeServer(http.server.BaseHTTPRequestHandler):
     requests = []
     zip_bytes = b""
+    personal = None
+    personal_token = "76561198000000001.1800000000." + "a" * 64
+    personal_headers = []
     config_bytes = None
     page = b""
 
@@ -269,6 +272,11 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         type(self).requests.append(self.path)
+        if self.path.startswith('/api.php?mode=getPlayerConfig&'):
+            type(self).personal_headers.append(self.headers.get('X-PhValheim-Player-Config'))
+            if self.headers.get('X-PhValheim-Player-Config') != self.personal_token:
+                self.send_error(401);return
+            self._send(json.dumps({'version':1,'entries':self.personal or []}).encode(), 'application/json');return
         # Every checksum here is computed from the bytes this server actually
         # serves. It used to answer getMD5 with a hardcoded
         # 0123456789abcdef... that no real zip could ever hash to.
@@ -598,10 +606,10 @@ def assert_valheim_env(rec, valheim_dir):
              "BepInEx/core/BepInEx.Preloader.dll", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
     contains("DOORSTOP_TARGET_ASSEMBLY is under the world directory",
              f"PhValheim/worlds/{SRV_HOST}/{WORLD}", env.get("DOORSTOP_TARGET_ASSEMBLY", ""))
-    eq("default LD_PRELOAD contains doorstop only", "libdoorstop_x64.so", env.get("LD_PRELOAD"))
-    eq("default overlay game id is cleared", "", env.get("SteamOverlayGameId"))
-    eq("default Vulkan overlay enable flag is cleared", "0", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
-    eq("default Vulkan overlay is explicitly disabled", "1", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default LD_PRELOAD includes overlay", f"libdoorstop_x64.so:{OVERLAY_SO}", env.get("LD_PRELOAD"))
+    eq("default overlay game id is Valheim", "892970", env.get("SteamOverlayGameId"))
+    eq("default Vulkan overlay enable flag is set", "1", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default Vulkan overlay disable flag is cleared", None, env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
     eq("LD_LIBRARY_PATH is the game's doorstop_libs",
        str(Path(valheim_dir) / "doorstop_libs"), env.get("LD_LIBRARY_PATH"))
 
@@ -785,6 +793,65 @@ def scenario_launch_lifecycle(port):
                 first.wait(timeout=10)
 
 
+def scenario_operator_overlay(port):
+    print("\n-- operator overlay policy across the Flatpak host boundary --")
+    for policy, local, enabled in [('off', [], False), ('on', [], True),
+            ('on', ['--env=PHVALHEIM_NO_OVERLAY=1'], False),
+            ('off', ['--env=PHVALHEIM_ENABLE_OVERLAY=1'], False)]:
+        clear_logs()
+        payload = base64.b64decode(launch_payload_b64(WORLD, port, False)).decode()
+        payload += '?0??fixture-token?overlay=' + policy
+        encoded = base64.b64encode(payload.encode()).decode()
+        rc, out = sh(['flatpak', 'run', '--env=PHVALHEIM_NO_OVERLAY=0',
+                      '--env=PHVALHEIM_ENABLE_OVERLAY=0', *local,
+                      APP_ID, 'phvalheim://?' + encoded], timeout=120)
+        label = 'operator ' + policy + (' with ' + local[0] if local else '')
+        rec = wait_for_json(VALHEIM_LOG, timeout=10)
+        if rec is None:
+            bad(label + ' launches the host game', 'recorded host launch', out[-500:])
+            continue
+        ok(label + ' launches the host game')
+        env = rec['env']
+        eq(label + ' preload', f'libdoorstop_x64.so:{OVERLAY_SO}' if enabled
+           else 'libdoorstop_x64.so', env.get('LD_PRELOAD'))
+        eq(label + ' overlay game id', '892970' if enabled else '', env.get('SteamOverlayGameId'))
+        eq(label + ' Vulkan enable', '1' if enabled else '0', env.get('ENABLE_VK_LAYER_VALVE_steam_overlay_1'))
+        eq(label + ' Vulkan disable', None if enabled else '1', env.get('DISABLE_VK_LAYER_VALVE_steam_overlay_1'))
+        contains(label + ' preserves companion payload', encoded, ' '.join(rec['argv']))
+
+
+def scenario_personal_config(port):
+    print("\n-- personal settings on an unchanged launch --")
+    world_root = HOME / ".config" / "PhValheim" / "worlds" / SRV_HOST / WORLD / WORLD
+    cfg = world_root / 'BepInEx' / 'config'
+    cfg.mkdir(parents=True,exist_ok=True)
+    policy={'version':1,'minClientVersion':'2.0.17','managedFiles':[], 'files':[{'file':'personal.cfg','entries':[
+        {'section':'UI','key':'Scale','value':'1','overridable':True},
+        {'section':'UI','key':'Locked','value':'2','overridable':False}]}]}
+    (cfg/'.phvalheim-policy.json').write_text(json.dumps(policy))
+    (cfg/'personal.cfg').write_text('[UI]\nScale = 3\nLocked = 999\nOther = keep\n')
+    FakeServer.personal=[{'file':'personal.cfg','section':'UI','key':'Scale','value':'5'},
+                         {'file':'personal.cfg','section':'UI','key':'Locked','value':'6'}]
+    payload=base64.b64decode(launch_payload_b64(WORLD,port,False)).decode()+'?0??fixture-token?overlay=on'
+    encoded=base64.b64encode((payload+'?playerConfig='+FakeServer.personal_token).encode()).decode()
+    for log in (STEAM_LOG, VALHEIM_LOG):
+        if log.exists(): log.unlink()
+    rc,out=sh(['flatpak','run',APP_ID,'phvalheim://?'+encoded],timeout=120)
+    rec=wait_for_json(VALHEIM_LOG,timeout=10)
+    eq('personal config launch reaches host game',True,rec is not None)
+    text=(cfg/'personal.cfg').read_text()
+    contains('personal choice applied on unchanged launch','Scale = 5',text)
+    contains('operator locked value wins','Locked = 2',text)
+    contains('unrelated local value kept','Other = keep',text)
+    eq('personal request authenticates with scoped header',FakeServer.personal_token,FakeServer.personal_headers[-1] if FakeServer.personal_headers else None)
+    if rec:
+        argv=' '.join(rec['argv'])
+        absent('personal capability not passed to game',encoded,argv)
+        contains('Companion gets only connection fields',base64.b64encode(payload.encode()).decode(),argv)
+    absent('personal token not printed',FakeServer.personal_token,out)
+    FakeServer.personal=None
+
+
 def scenario_uninstall():
     print("\n-- uninstall --")
     rc, out = sh(f"flatpak uninstall {SCOPE} --noninteractive {APP_ID}", timeout=300)
@@ -868,6 +935,8 @@ def main():
         run(scenario_modded_launch, port, valheim_dir)
         time.sleep(7)
         run(scenario_launch_lifecycle, port)
+        run(scenario_operator_overlay, port)
+        run(scenario_personal_config, port)
         run(scenario_uninstall)
     finally:
         srv.shutdown()

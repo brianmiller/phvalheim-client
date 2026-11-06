@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Reflection;
 
 namespace PhValheim.Arguments
@@ -24,6 +24,9 @@ namespace PhValheim.Arguments
         // is a real state here, not a missing value to be defaulted away.
         public static string? RawLaunchPayload { get; private set; }
 
+        public static bool DisableSteamOverlay { get; private set; }
+        public static string? PlayerConfigToken { get; private set; }
+
         public static bool HaveLaunchPayload => !string.IsNullOrEmpty(RawLaunchPayload);
 
         /// <summary>
@@ -45,6 +48,7 @@ namespace PhValheim.Arguments
 
             string[] parts = launchString.Split('?');
             if (parts.Length > 2 && parts[2].Length > 0) { parts[2] = "<password>"; }
+            if (parts.Length > 12) parts[12] = "<player-config>";
             return string.Join("?", parts);
         }
 
@@ -72,6 +76,11 @@ namespace PhValheim.Arguments
 
         public static bool argHandler(ref string[] args, ref string[] argumentsPassed, ref string command, ref string worldName, ref string worldPassword, ref string worldHost, ref string worldPort, ref string texturePack, ref string phvalheimHost, ref string httpScheme, ref bool isVanilla)
         {
+
+            // Parsing can run more than once in tests or a future persistent launcher.
+            RawLaunchPayload = null;
+            DisableSteamOverlay = false;
+            PlayerConfigToken = null;
 
             //all arguments missing, print usage and exit
             if (args.Length == 0)
@@ -159,7 +168,22 @@ namespace PhValheim.Arguments
 
                             // Only set for a launch. A "textures" run starts no game, so there
                             // is nothing to hand a payload to.
-                            RawLaunchPayload = rawLaunchPayload;
+                            PlayerConfigToken = argumentsPassed.Length > 12 && argumentsPassed[12].StartsWith("playerConfig=")
+                                ? argumentsPassed[12][13..] : null;
+                            if (PlayerConfigToken != null && !System.Text.RegularExpressions.Regex.IsMatch(PlayerConfigToken,
+                                @"^\d{17}\.\d{10}\.[a-f0-9]{64}$"))
+                            {
+                                Ui.Error("Invalid personal-settings link. Reopen the world page and launch again.");
+                                return false;
+                            }
+                            // The game and Companion never need a player's personal-settings capability.
+                            RawLaunchPayload = argumentsPassed.Length > 12
+                                ? Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("?", argumentsPassed.Take(12))))
+                                : rawLaunchPayload;
+                            // Field 10 remains the Companion token, even when empty.
+                            // Old servers omit field 11; overlay is enabled by default.
+                            DisableSteamOverlay = argumentsPassed.Length > 11
+                                && argumentsPassed[11] == "overlay=off";
 
                             return true;
                         }                     
