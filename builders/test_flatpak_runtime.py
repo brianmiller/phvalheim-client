@@ -609,7 +609,7 @@ def assert_valheim_env(rec, valheim_dir):
     eq("default LD_PRELOAD includes overlay", f"libdoorstop_x64.so:{OVERLAY_SO}", env.get("LD_PRELOAD"))
     eq("default overlay game id is Valheim", "892970", env.get("SteamOverlayGameId"))
     eq("default Vulkan overlay enable flag is set", "1", env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1"))
-    eq("default Vulkan overlay disable flag is cleared", "0", env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
+    eq("default Vulkan overlay disable flag is cleared", None, env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1"))
     eq("LD_LIBRARY_PATH is the game's doorstop_libs",
        str(Path(valheim_dir) / "doorstop_libs"), env.get("LD_LIBRARY_PATH"))
 
@@ -816,7 +816,7 @@ def scenario_operator_overlay(port):
            else 'libdoorstop_x64.so', env.get('LD_PRELOAD'))
         eq(label + ' overlay game id', '892970' if enabled else '', env.get('SteamOverlayGameId'))
         eq(label + ' Vulkan enable', '1' if enabled else '0', env.get('ENABLE_VK_LAYER_VALVE_steam_overlay_1'))
-        eq(label + ' Vulkan disable', '0' if enabled else '1', env.get('DISABLE_VK_LAYER_VALVE_steam_overlay_1'))
+        eq(label + ' Vulkan disable', None if enabled else '1', env.get('DISABLE_VK_LAYER_VALVE_steam_overlay_1'))
         contains(label + ' preserves companion payload', encoded, ' '.join(rec['argv']))
 
 

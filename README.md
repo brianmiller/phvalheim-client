@@ -138,7 +138,9 @@ flatpak override --user --env=PHVALHEIM_NO_OVERLAY=1 com.phvalheim.Client
 Remove it with `flatpak override --user --unset-env=PHVALHEIM_NO_OVERLAY com.phvalheim.Client`.
 Disabling removes Steam renderer entries from `LD_PRELOAD`, preserves Doorstop and other
 hooks, and disables Steam's implicit Vulkan layer. Enabling explicitly clears an inherited
-Vulkan disable flag.
+Vulkan disable flag by removing the variable entirely. Setting it to `0` still disables
+the layer. The follow-up fix for that bug is under review; older 2.0.18 draft builds
+contain the incorrect `0` assignment.
 
 This control affects modded Linux launches only. Windows, macOS and vanilla launches use
 Steam's own overlay settings. It is an optional troubleshooting tool for hangs or lockups;
