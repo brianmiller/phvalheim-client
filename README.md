@@ -122,10 +122,10 @@ phvalheim-client            # or: flatpak run com.phvalheim.Client
 
 ### Steam overlay on Linux
 
-The 2.0.18 draft client enables the overlay by default for direct modded Linux launches
+The 2.0.18 prerelease client enables the overlay by default for direct modded Linux launches
 when Steam's renderer library is available. An updated server can disable it globally or
 per world. Overlay controls require Client 2.0.18 or newer. Version 2.0.18 is
-currently a draft for Windows, Linux and macOS testing; it is not a public stable release.
+available as a [prerelease](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.18) for Windows, Linux and macOS testing; 2.0.17 remains stable.
 
 `PHVALHEIM_NO_OVERLAY=1` always disables the overlay, including when a server requests it.
 `PHVALHEIM_ENABLE_OVERLAY=1` remains compatible but is no longer required and cannot override
@@ -139,9 +139,10 @@ Remove it with `flatpak override --user --unset-env=PHVALHEIM_NO_OVERLAY com.phv
 Disabling removes Steam renderer entries from `LD_PRELOAD`, preserves Doorstop and other
 hooks, and disables Steam's implicit Vulkan layer. Enabling explicitly clears an inherited
 Vulkan disable flag by removing the variable entirely. Setting it to `0` still disables
-the layer. The follow-up fix for that bug is under review; older 2.0.18 draft builds
-contain the incorrect `0` assignment.
+the layer. The November 6 Linux packages contain this fix; redownload/reinstall older 2.0.18
+draft packages that contain the incorrect `0` assignment.
 
+Brian confirmed the updated Flatpak overlay toggle on Bazzite Desktop Mode.
 This control affects modded Linux launches only. Windows, macOS and vanilla launches use
 Steam's own overlay settings. It is an optional troubleshooting tool for hangs or lockups;
 we have not established that the overlay caused the reported hang. Tests with recording
