@@ -1,5 +1,3 @@
-# PhValheim Client 2.0.19 (prerelease)
-
 **2.0.19 is a prerelease for testing**, for Windows, Linux (DEB, RPM, TGZ, Flatpak) and macOS.
 It changes how the Windows client writes PhValheim's loader, config and backend files when
 they are Hidden, the problem behind [issue #25](https://github.com/brianmiller/phvalheim-client/issues/25)
