@@ -168,7 +168,7 @@ namespace PhValheim.Syncer
         {
             try
             {
-                File.WriteAllText(path, "worldMd5=" + worldMd5 + "\nmodsMd5=" + modsMd5
+                ManagedFile.WriteText(path, "worldMd5=" + worldMd5 + "\nmodsMd5=" + modsMd5
                                       + "\nconfigMd5=" + configMd5 + "\n");
             }
             catch (Exception e)

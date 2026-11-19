@@ -1,0 +1,68 @@
+name: Windows managed writes (every file Hidden)
+# Issue #25 at its widest, on real Windows with the real client: every file the client made or will
+# touch is Hidden. The executable built from this commit must relaunch and update a world with no
+# error; the published 2.0.19 build must be denied on the Hidden config files (the test can fail).
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Build the executable from this commit (the MSI builder's publish flags)
+        id: build
+        shell: pwsh
+        run: |
+          dotnet publish phvalheim-client.csproj -c Windows-Release -r win-x64 -p:PublishSingleFile=true -p:PublishTrimmed=false -p:PostBuildEvent= --self-contained true
+          if ($LASTEXITCODE -ne 0) { throw "publish failed" }
+          $exe = Resolve-Path bin/Windows-Release/net9.0/win-x64/publish/phvalheim-client.exe
+          "exe=$exe" >> $env:GITHUB_OUTPUT
+          "sha=$((Get-FileHash $exe -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+      - name: Extract the published 2.0.19 executable (negative control)
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release download 2.0.19 -p 'phvalheim-client-2.0.19-x86_64.msi' -D published
+          $msi = Resolve-Path published/phvalheim-client-2.0.19-x86_64.msi
+          $target = Join-Path $env:RUNNER_TEMP "published-$([guid]::NewGuid())"
+          New-Item -ItemType Directory -Path $target | Out-Null
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$msi`"", '/qn', "TARGETDIR=`"$target`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "administrative extraction failed (exit $($process.ExitCode))" }
+          $exe = @(Get-ChildItem $target -Filter 'phvalheim-client.exe' -Recurse -File)
+          if ($exe.Count -ne 1) { throw "Expected one phvalheim-client.exe; found $($exe.Count)" }
+          "exe=$($exe[0].FullName)" >> $env:GITHUB_OUTPUT
+          "sha=$((Get-FileHash $exe[0].FullName -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+      - name: Published 2.0.19 is denied on Hidden config files
+        env:
+          EXE: ${{ steps.published.outputs.exe }}
+          SHA: ${{ steps.published.outputs.sha }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence -Force | Out-Null
+          python builders/test_windows_hidden.py --client "$env:EXE" --expected-sha "$env:SHA" --expect-config-denial --evidence-dir evidence/published 2>&1 | Tee-Object -FilePath evidence/published-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "The negative control did not behave as expected (exit $LASTEXITCODE)" }
+      - name: This commit relaunches and updates with every file Hidden
+        env:
+          EXE: ${{ steps.build.outputs.exe }}
+          SHA: ${{ steps.build.outputs.sha }}
+        shell: pwsh
+        run: |
+          python builders/test_windows_hidden.py --client "$env:EXE" --expected-sha "$env:SHA" --evidence-dir evidence/candidate 2>&1 | Tee-Object -FilePath evidence/candidate-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "Every-file-Hidden verification failed (exit $LASTEXITCODE)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-managed-writes-evidence
+          path: evidence/

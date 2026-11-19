@@ -1,7 +1,38 @@
+using System.Text;
+
 namespace PhValheim;
 
+// Every file the client writes into its own folders and the game's goes through here, so the
+// rules are the same for all of them. On Windows a plain overwrite (File.WriteAllText, File.Copy
+// over an existing file) is refused with access denied when the existing file is Hidden or
+// System; these replace it in place instead, keeping its attributes, and still refuse ReadOnly.
+// Elsewhere they are the plain calls.
 internal static class ManagedFile
 {
+    /// <summary>File.WriteAllText (UTF-8, no byte-order mark), Hidden-safe on Windows.</summary>
+    internal static void WriteText(string destination, string text)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            File.WriteAllText(destination, text);
+            return;
+        }
+        byte[] bytes = new UTF8Encoding(false).GetBytes(text);
+        Write(destination, stream => stream.Write(bytes, 0, bytes.Length));
+    }
+
+    /// <summary>File.Copy(source, destination, overwrite: true), Hidden-safe on Windows.</summary>
+    internal static void Copy(string source, string destination)
+    {
+        if (!OperatingSystem.IsWindows() || !File.Exists(destination))
+        {
+            File.Copy(source, destination, true);
+            return;
+        }
+        using var input = File.OpenRead(source);
+        Write(destination, stream => input.CopyTo(stream));
+    }
+
     // The caller holds the user launch lock to serialize app-managed writers.
     // Path checks cannot protect against external changes between check and use.
     // Flush and ReplaceFile recovery do not provide a power-loss guarantee.

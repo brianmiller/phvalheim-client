@@ -127,7 +127,7 @@ internal static class ConfigPolicy
             if (name == ManifestName || SystemFiles.Contains(name)) continue;
             string dst = Path.Combine(target, name);
             if ((attrs & FileAttributes.Directory) != 0) CopyPersonal(path, dst);
-            else File.Copy(path, dst, true);
+            else ManagedFile.Copy(path, dst);
         }
     }
 
@@ -219,7 +219,7 @@ internal static class ConfigPolicy
                         && next.Entries.Any(r => r.Section == rule.Section && r.Key == rule.Key && !r.Overridable);
                     if (!remains) text = Edit(text, rule.Section, rule.Key, null, removeIfValue: rule.Value);
                 }
-                File.WriteAllText(path, text);
+                ManagedFile.WriteText(path, text);
             }
         }
         foreach (var f in policy.Files)
@@ -227,7 +227,7 @@ internal static class ConfigPolicy
             string path = Path.Combine(directory, f.File);
             string text = File.Exists(path) ? File.ReadAllText(path) : "";
             foreach (var r in f.Entries) text = Edit(text, r.Section, r.Key, r.Value, onlyMissing: r.Overridable);
-            File.WriteAllText(path, text);
+            ManagedFile.WriteText(path, text);
         }
     }
 
@@ -293,7 +293,7 @@ internal static class ConfigPolicy
             CopyPersonal(directory, stage);
             foreach (string name in SystemFiles.Append(ManifestName))
                 if (File.Exists(Path.Combine(directory, name)))
-                    File.Copy(Path.Combine(directory, name), Path.Combine(stage, name));
+                    ManagedFile.Copy(Path.Combine(directory, name), Path.Combine(stage, name));
             Apply(stage, policy, null);
             if (personal != null)
                 foreach (var e in personal)
@@ -306,7 +306,7 @@ internal static class ConfigPolicy
                         throw new InvalidDataException("Invalid personal setting.");
                     string path = Path.Combine(stage, file!.File);
                     string text = File.Exists(path) ? File.ReadAllText(path) : "";
-                    File.WriteAllText(path, Edit(text, e.Section, e.Key, e.Value));
+                    ManagedFile.WriteText(path, Edit(text, e.Section, e.Key, e.Value));
                 }
             Commit(stage, directory);
         }

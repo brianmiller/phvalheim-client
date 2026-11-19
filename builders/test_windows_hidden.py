@@ -41,6 +41,7 @@ LOADER = {
     "doorstop_config.ini": b"[UnityDoorstop]\r\nenabled=true\r\n",
 }
 FOREIGN = ("libdoorstop_x64.so", "libdoorstop_x86.so", "libdoorstop.dylib")
+POLICY = ".phvalheim-policy.json"
 
 
 def require(condition, message):
@@ -312,13 +313,25 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def make_archive():
+def policy(revision):
+    # A world config policy, so every launch runs ConfigPolicy.Enforce (stage, edit, commit): the
+    # writes a Hidden config file used to break. "managed" is the server's; "personal" the player's.
+    return json.dumps({
+        "version": 1, "minClientVersion": "2.0.17", "managedFiles": [],
+        "files": [{"file": "fixture.cfg", "entries": [
+            {"section": "Fixture", "key": "managed", "value": f"rev{revision}", "overridable": False},
+            {"section": "Fixture", "key": "personal", "value": "default", "overridable": True}]}],
+    }).encode()
+
+
+def make_archive(revision=1):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in LOADER.items():
             archive.writestr(name, content)
         archive.writestr("BepInEx/core/BepInEx.Preloader.dll", b"fixture preloader, never executed\n")
-        archive.writestr("BepInEx/config/fixture.cfg", b"fixture=true\n")
+        archive.writestr("BepInEx/config/fixture.cfg", f"[Fixture]\nmanaged = rev{revision}\npersonal = default\n".encode())
+        archive.writestr("BepInEx/config/" + POLICY, policy(revision))
         # Original clients clone this directory. Keep it empty so baseline failure
         # identifies a required Hidden-only file, not a foreign ReadOnly file.
         archive.writestr("doorstop_libs/", b"")
@@ -466,6 +479,10 @@ def exercise(args, root, evidence, attrs, env, executable):
                     require(after[name] == before[name], "ReadOnly case changed unrelated file: " + name)
             finally:
                 attrs.set(dll, attrs.get(dll) & ~READONLY)
+
+            if not args.baseline:
+                every_file_hidden(args, attrs, report, evidence, run_case, server, cache, game, env,
+                                  cached_world, targets, correct_targets, payload, preloader, check_launch)
             report["passed"] = True
     finally:
         save_json(evidence / "results.json", report)
@@ -474,11 +491,83 @@ def exercise(args, root, evidence, attrs, env, executable):
         thread.join(timeout=5)
 
 
+def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, game, env,
+                      cached_world, targets, correct_targets, payload, preloader, check_launch):
+    """Issue #25 at its widest: every file the client made or will touch is Hidden (none ReadOnly).
+
+    Two runs: a relaunch (config policy enforced on Hidden config files, the sync record, the logs)
+    and a world update (download over a Hidden cached archive, install, settings, sync record).
+    Both must launch with no ERROR, apply the server's settings, keep the player's, and leave the
+    files Hidden. With --expect-config-denial (a build from before this fix) the relaunch must fail
+    with an access denial while applying the world's settings: the test can fail.
+    """
+    config = cached_world / "BepInEx" / "config" / "fixture.cfg"
+    manifest = cached_world / "BepInEx" / "config" / POLICY
+
+    def hide_everything(label):
+        hidden = []
+        for base in (cache, game, Path(env["APPDATA"]) / "PhValheim" / "logs"):
+            for directory, _, files in os.walk(base):
+                for filename in files:
+                    path = Path(directory) / filename
+                    value = attrs.get(path)
+                    if path.parent.name == "doorstop_libs" or value & READONLY:
+                        continue  # the foreign ReadOnly fixtures stay as they are
+                    attrs.set(path, (value & ~NORMAL) | HIDDEN)
+                    hidden.append(str(path))
+        require(str(config) in hidden and str(manifest) in hidden, "Config files were not part of the Hidden set.")
+        report["cases"].setdefault(label, {})["hidden_before"] = len(hidden)
+        return hidden
+
+    def config_text():
+        return config.read_text(encoding="utf-8")
+
+    attrs.seed(config, b"[Fixture]\nmanaged = tampered\npersonal = mine\n", 0)
+    hide_everything("all-hidden")
+    output, record = run_case("all-hidden")
+    if args.expect_config_denial:
+        require("ERROR" in output, "A build without the fix should have failed on Hidden config files.")
+        require(re.search(r"UnauthorizedAccessException|access.{0,30}denied|0x80070005", output, re.I),
+                "Expected an access denial on a Hidden config file.")
+        require("mod settings" in output, "The failure was not in applying the world's settings.")
+        require(not record.exists(), "A failed settings pass must not launch the game.")
+        report["cases"]["all-hidden"]["config_denied"] = True
+        return
+    require("ERROR" not in output, "Every-file-Hidden relaunch reported ERROR; see all-hidden-stdout.txt.")
+    check_launch(record, payload, preloader)
+    correct_targets()
+    text = config_text()
+    require("managed = rev1" in text, "The server's setting was not enforced on a Hidden config file.")
+    require("personal = mine" in text, "The player's own setting was not kept.")
+    for path in (config, manifest, *targets.values()):
+        require(attrs.get(path) & HIDDEN, "Hidden was lost from " + str(path))
+
+    server.archive = make_archive(2)
+    server.md5 = hashlib.md5(server.archive).hexdigest()
+    hide_everything("all-hidden-update")
+    output, record = run_case("all-hidden-update")
+    require("ERROR" not in output, "Every-file-Hidden world update reported ERROR; see all-hidden-update-stdout.txt.")
+    require(any(urlsplit(p).path.endswith(".zip") for p in report["cases"]["all-hidden-update"]["requests"]),
+            "The world update did not download the new archive.")
+    require((cache / (cache.name + ".zip")).read_bytes() == server.archive,
+            "The Hidden cached archive was not replaced by the new one.")
+    check_launch(record, payload, preloader)
+    correct_targets()
+    text = config_text()
+    require("managed = rev2" in text, "The updated world's setting was not applied.")
+    require("personal = mine" in text, "The player's own setting was lost in the update.")
+    for path in targets.values():
+        require(attrs.get(path) & HIDDEN, "Hidden was lost from " + str(path))
+    report["cases"]["all-hidden-update"]["passed"] = True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--client", type=Path, required=True)
     parser.add_argument("--expected-sha", required=True, help="SHA256 of the exact extracted/installed EXE")
     parser.add_argument("--baseline", action="store_true", help="Require original 2.0.19 Hidden denial")
+    parser.add_argument("--expect-config-denial", action="store_true",
+                        help="A build from before the every-file fix: require the Hidden config pass to be denied")
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--timeout", type=int, default=175, help="Client timeout in seconds (default 175)")
     args = parser.parse_args()
@@ -528,7 +617,8 @@ def main():
                         path = Path(directory) / filename
                         attrs.set(path, attrs.get(path) & ~(HIDDEN | READONLY))
         print("PASS: " + ("published baseline denied Hidden writes" if args.baseline
-                          else "Hidden loader/backend replacements and Steam handoff")
+                          else "older build denied on Hidden config files, as expected" if args.expect_config_denial
+                          else "Hidden loader/backend replacements, every-file-Hidden relaunch and update, and Steam handoff")
               + "; ReadOnly control passed. No real game was run.")
         return 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
