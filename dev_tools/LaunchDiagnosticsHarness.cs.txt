@@ -1,0 +1,594 @@
+using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using PhValheim;
+
+namespace PhValheim.Platform
+{
+    public static class State
+    {
+        public static string WorldName = "test", ValheimDir = "", PhValheimDir = "",
+            PhValheimServerRoot = "", PhValheimServerWorld = "";
+    }
+}
+namespace PhValheim.Arguments
+{
+    public static class PhValheim { public static string? PlayerConfigToken = null; }
+}
+
+class Tests
+{
+    static int passed, failed;
+    static readonly string work = Path.GetFullPath(Environment.GetEnvironmentVariable("PHV_TEST_ROOT")!);
+    static readonly string root = Path.GetFullPath(Path.Combine(work, "fixtures-" + Guid.NewGuid().ToString("N")));
+    static readonly string logRoot = Path.Combine(root, "diagnostics");
+    static readonly TextWriter report = Console.Out;
+    static readonly StringBuilder captured = new();
+    const BindingFlags methods = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+    const string credential = "fixture-only-credential-7b29";
+    static readonly Func<string, DiskSpace.Measurement> enough = p => new(Path.GetPathRoot(p), 100_000_000);
+    static readonly Func<string, DiskSpace.Measurement> unknown = p => new(null, null, "fixture unknown measurement");
+
+    static void Check(bool ok, string name, Outcome? outcome = null, string? details = null)
+    {
+        report.WriteLine((ok ? "PASS: " : "FAIL: ") + name);
+        if (ok) passed++; else failed++;
+        if (!ok && details != null) FixtureDetail("observations", details);
+        if (!ok && outcome != null)
+        {
+            FixtureDetail("value", JsonSerializer.Serialize(outcome.Value));
+            FixtureDetail("exception", outcome.Error?.ToString() ?? "<none>");
+            if (outcome.Error is DiskSpace.InsufficientDiskSpaceException space)
+                FixtureDetail("space", JsonSerializer.Serialize(space.Assessment));
+            FixtureDetail("output", outcome.Output);
+            FixtureDetail("log", outcome.Log);
+        }
+    }
+    static void FixtureDetail(string label, string text)
+    {
+        string safe = DiagnosticLog.Redact(text.Replace(credential, "[REDACTED]"));
+        if (safe.Length > 4096) safe = safe[..2048] + "\n[truncated]\n" + safe[^2048..];
+        report.WriteLine("FIXTURE " + label + ": " + JsonSerializer.Serialize(safe));
+    }
+    static void Put(string path, string value)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, value);
+    }
+    static string Log() => File.ReadAllText(Path.Combine(logRoot, "logs", "phvalheim-client.log"));
+    static string Flat(string text) => Regex.Replace(text, @"\s+", "");
+    static bool Has(string text, string value) => Flat(text).Contains(Flat(value), StringComparison.Ordinal);
+    static object? Invoke(Type type, string name, object?[] values, Func<string, DiskSpace.Measurement>? measure = null)
+    {
+        var method = type.GetMethods(methods).Where(m => m.Name == name)
+            .Where(m => m.GetParameters().Length == values.Length ||
+                (m.GetParameters().Length == values.Length + 1 &&
+                 m.GetParameters()[^1].ParameterType == typeof(Func<string, DiskSpace.Measurement>)))
+            .OrderByDescending(m => m.GetParameters().Length).First();
+        var args = method.GetParameters().Length == values.Length ? values : values.Concat(new object?[] { measure }).ToArray();
+        try { return method.Invoke(null, args); }
+        catch (TargetInvocationException ex) { throw ex.InnerException!; }
+    }
+    sealed record Outcome(object? Value, Exception? Error, string Output, string Log);
+    static Outcome Capture(Func<object?> action)
+    {
+        int offset = Log().Length;
+        using var output = new StringWriter();
+        Console.SetOut(output); Console.SetError(output);
+        object? value = null; Exception? error = null;
+        try { value = action(); } catch (Exception ex) { error = ex; }
+        finally { Console.SetOut(report); Console.SetError(report); }
+        captured.Append(output);
+        return new(value, error, output.ToString(), Log()[offset..]);
+    }
+    static void Run(string name, Action action)
+    {
+        try { action(); }
+        catch (Exception ex)
+        {
+            Check(false, name + "_HARNESS_EXCEPTION_" + ex.GetType().Name);
+            FixtureDetail("exception", ex.ToString());
+        }
+    }
+    static void ErrorEvidence(Outcome outcome, string prefix, string path, string type)
+    {
+        Check(Has(outcome.Output, path) && outcome.Output.Contains(type), prefix + "_OUTPUT_PATH_AND_TYPE", outcome);
+        Check(outcome.Log.Contains(path) && outcome.Log.Contains(type) && outcome.Log.Contains("HResult=0x")
+            && outcome.Log.Contains("   at "), prefix + "_FULL_EXCEPTION_LOGGED", outcome);
+        Check(Regex.Matches(outcome.Output, "Diagnostic log:").Count == 1, prefix + "_ONE_SUPPORT_LINE", outcome);
+        Check(!outcome.Output.Contains(credential) && !outcome.Log.Contains(credential)
+            && outcome.Output.Contains("ERROR:"), prefix + "_CREDENTIAL_ABSENT_ERROR_PRESENT", outcome);
+    }
+    static Exception Denied(string path)
+    {
+        try { File.WriteAllText(path, "must not overwrite directory"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ex; }
+        throw new Exception("Directory-as-file fixture did not deny the write.");
+    }
+    static Exception DeniedCopy(string source, string target)
+    {
+        try { File.Copy(source, target, true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ex; }
+        throw new Exception("Directory-as-file fixture did not deny the copy.");
+    }
+    static void Backend()
+    {
+        string legacyRoot = OperatingSystem.IsWindows()
+            ? Environment.ExpandEnvironmentVariables(@"%appdata%\PhValheim\worlds")
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "/.config/PhValheim/worlds";
+        string isolatedWorldParent = work;
+        string phvalheimHostNoPort = Path.GetRelativePath(legacyRoot, isolatedWorldParent);
+        const string worldName = "test";
+        string world = Path.Combine(isolatedWorldParent, worldName, worldName);
+        string target = Path.Combine(world, "BepInEx", "phvalheim.backend");
+        string oldBepInExRoot = OperatingSystem.IsWindows()
+            ? Environment.ExpandEnvironmentVariables(@"%appdata%\PhValheim\worlds\" + phvalheimHostNoPort
+                + "\\" + worldName + "\\" + worldName + @"\BepInEx\")
+            : legacyRoot + "/" + phvalheimHostNoPort + "/" + worldName + "/" + worldName + "/BepInEx/";
+        string oldTarget = Environment.ExpandEnvironmentVariables(oldBepInExRoot + "phvalheim.backend");
+        string normalizedOldTarget = Path.GetFullPath(oldTarget);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (Path.IsPathRooted(phvalheimHostNoPort)
+            || !normalizedOldTarget.Equals(Path.GetFullPath(target), comparison)
+            || !normalizedOldTarget.StartsWith(Path.TrimEndingDirectorySeparator(isolatedWorldParent)
+                + Path.DirectorySeparatorChar, comparison))
+            throw new Exception("Refusing a legacy backend target outside the isolated fixture.");
+        Check(true, "BACKEND_LEGACY_TARGET_EQUALS_ISOLATED_FIXTURE");
+        PhValheim.Platform.State.PhValheimServerWorld = world;
+        Directory.CreateDirectory(target);
+        Exception stimulus = Denied(target);
+        Check(stimulus is IOException or UnauthorizedAccessException, "BACKEND_ACTUAL_DENIED_WRITE_" + stimulus.GetType().Name);
+        var result = Capture(() => PhValheim.Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, "http://localhost/" + credential));
+        Check(result.Error == null && result.Value is false, "BACKEND_RETURNS_FALSE_WITHOUT_THROW", result);
+        ErrorEvidence(result, "BACKEND", target, stimulus.GetType().Name);
+        Check(Directory.Exists(target), "BACKEND_COLLISION_DIRECTORY_PRESERVED");
+        if (OperatingSystem.IsWindows())
+            Check(result.Log.Contains("Owner SID:") && result.Log.Contains("ACL:"), "BACKEND_WINDOWS_OWNER_ACL_EVIDENCE");
+        Directory.Move(target, target + ".collision");
+        var success = Capture(() => PhValheim.Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, "http://localhost/control"));
+        Check(success.Value is true && File.ReadAllText(target) == "http://localhost/control", "BACKEND_SUCCESS_CONTROL");
+    }
+    static void Copy()
+    {
+        string source = Path.Combine(root, "copy-source"), destination = Path.Combine(root, "copy-target");
+        Put(Path.Combine(source, "nested", "loader.so"), "loader-control");
+        string target = Path.Combine(destination, "nested", "loader.so");
+        Directory.CreateDirectory(target);
+        Exception stimulus = Denied(target);
+        Check(stimulus is IOException or UnauthorizedAccessException, "COPY_ACTUAL_DENIED_WRITE_" + stimulus.GetType().Name);
+        var result = Capture(() => Invoke(typeof(PhValheim.Tooling.PhValheim), "CloneDirectory", new object?[] { source, destination }, enough));
+        Check(result.Error is IOException or UnauthorizedAccessException, "COPY_PROPAGATES_ACCESS_FAILURE");
+        Check(result.Error?.Data["PhValheim.Path"] as string == target, "COPY_EXACT_NESTED_TARGET_METADATA");
+        Check(result.Log.Contains(target) && result.Log.Contains("HResult=0x") && result.Log.Contains("   at "), "COPY_EXACT_NESTED_TARGET_LOGGED");
+        Directory.Move(target, target + ".collision");
+        var success = Capture(() => Invoke(typeof(PhValheim.Tooling.PhValheim), "CloneDirectory", new object?[] { source, destination }, enough));
+        Check(success.Error == null && File.ReadAllText(target) == "loader-control", "COPY_SUCCESS_CONTROL");
+    }
+    static string Policy() => JsonSerializer.Serialize(new { version = 1, minClientVersion = "2.0.17",
+        files = new[] { new { file = "test.cfg", entries = new[] {
+            new { section = "UI", key = "Limit", value = "10", overridable = false } } } },
+        managedFiles = new[] { "BepInEx.cfg", "ZeroBandwidth.CustomSeed.cfg", "quick_connect_servers.cfg" } });
+    static string Archive()
+    {
+        string source = Path.Combine(root, "archive-source");
+        Put(Path.Combine(source, "BepInEx", "config", ConfigPolicy.ManifestName), Policy());
+        Put(Path.Combine(source, "BepInEx", "plugins", "test.dll"), new string('x', 32_768));
+        Put(Path.Combine(source, "doorstop_libs", "nested", "loader.so"), "loader-control");
+        Put(Path.Combine(source, "doorstop_config.ini"), "loader-ini");
+        Put(Path.Combine(source, "winhttp.dll"), "windows-loader");
+        string archive = source + ".zip";
+        ZipFile.CreateFromDirectory(source, archive);
+        return archive;
+    }
+    static void Sync(Server server)
+    {
+        string world = Path.Combine(root, "sync", "test"), game = Path.Combine(root, "game");
+        PhValheim.Platform.State.WorldName = "test";
+        PhValheim.Platform.State.PhValheimServerWorld = world;
+        PhValheim.Platform.State.PhValheimServerRoot = Path.GetDirectoryName(world)!;
+        PhValheim.Platform.State.PhValheimDir = Path.Combine(root, "legacy");
+        PhValheim.Platform.State.ValheimDir = game;
+        Directory.CreateDirectory(Path.GetDirectoryName(world)!);
+        string source = Path.Combine(root, "sync-copy-source", "loader.so");
+        Put(source, "loader-control");
+        string target = Path.Combine(game, "doorstop_libs", "nested", "loader.so");
+        Directory.CreateDirectory(target);
+        Exception stimulus = DeniedCopy(source, target);
+        Check(stimulus is IOException or UnauthorizedAccessException, "SYNC_ACTUAL_DENIED_COPY_" + stimulus.GetType().Name);
+        var result = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
+        Check(result.Error == null && result.Value is false && server.ZipRequests > 0
+            && File.Exists(Path.Combine(world, "doorstop_config.ini")), "SYNC_REAL_HTTP_AND_COPY_FAILURE", result);
+        ErrorEvidence(result, "SYNC", target, stimulus.GetType().Name);
+        Check(!result.Output.Contains("usually antivirus", StringComparison.OrdinalIgnoreCase)
+            && result.Output.Contains("ERROR:"), "SYNC_NO_UNSUPPORTED_ANTIVIRUS_BLAME", result);
+        Directory.Move(target, target + ".collision");
+        int prior = server.ZipRequests;
+        var success = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
+        Check(success.Error == null && success.Value is true && File.ReadAllText(target) == "loader-control"
+            && File.ReadAllText(Path.Combine(game, "doorstop_config.ini")) == "loader-ini", "SYNC_SUCCESS_CONTROL", success);
+        Check(server.ZipRequests == prior && prior > 0, "SYNC_CACHED_NO_DOWNLOAD_CONTROL", success);
+    }
+    public static void RemoveCopiedLoader(string path)
+    {
+        path = Path.GetFullPath(path);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, comparison))
+            throw new Exception("Removal fixture escaped its root.");
+        if (!File.Exists(path)) throw new Exception("Removal fixture requires a successful copy.");
+        File.Move(path, path + ".removed-by-fixture");
+    }
+    static void MissingAfterCopy(Server server)
+    {
+        string world = Path.Combine(root, "missing-sync", "test"), game = Path.Combine(root, "missing-game");
+        PhValheim.Platform.State.WorldName = "test";
+        PhValheim.Platform.State.PhValheimServerWorld = world;
+        PhValheim.Platform.State.PhValheimServerRoot = Path.GetDirectoryName(world)!;
+        PhValheim.Platform.State.PhValheimDir = Path.Combine(root, "missing-legacy");
+        PhValheim.Platform.State.ValheimDir = game;
+        Directory.CreateDirectory(Path.GetDirectoryName(world)!); Directory.CreateDirectory(game);
+        string target = Path.Combine(game, "doorstop_config.ini");
+        var result = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
+        Check(result.Error == null && result.Value is false, "SYNC_MISSING_AFTER_COPY_RETURNS_FALSE", result);
+        Check(File.Exists(target + ".removed-by-fixture") && File.ReadAllText(target + ".removed-by-fixture") == "loader-ini"
+            && !File.Exists(target), "SYNC_MISSING_ACTUAL_COPY_AND_REMOVAL_CONTROL", result);
+        Check(Has(result.Output, target) && result.Output.Contains("missing on verification")
+            && !result.Output.Contains("could not install the mod loader"), "SYNC_MISSING_DISTINCT_FROM_COPY_THROW", result);
+        Check(result.Log.Contains(target) && result.Log.Contains("File.Exists returned false")
+            && result.Output.Contains("cause is unknown"), "SYNC_MISSING_EVIDENCE_WITHOUT_CAUSE_CLAIM", result);
+        Check(Regex.Matches(result.Output, "Diagnostic log:").Count == 1, "SYNC_MISSING_ONE_SUPPORT_LINE", result);
+    }
+    static void Downloads(Server server)
+    {
+        string folder = Path.Combine(root, "downloads"); Directory.CreateDirectory(folder);
+        string target = Path.Combine(folder, "cached.zip");
+        Func<string, string, Func<string, DiskSpace.Measurement>, Outcome> download = (route, label, measure) =>
+            Capture(() => Invoke(typeof(PhValheim.Downloader.PhValheim), "Go",
+                new object?[] { new Uri(server.Url + "/" + route + "?token=" + credential), target, label }, measure));
+        Put(target, "cached-control");
+        int measured = 0; bool partialSeen = false;
+        var low = download("known", "low", p => {
+            measured++; partialSeen |= Directory.GetFiles(folder, "*.partial").Length != 0;
+            return new(Path.GetPathRoot(p), 0);
+        });
+        string lowDetails = JsonSerializer.Serialize(new { measured, partialSeen, availableBytes = 0 });
+        Check(low.Error == null && low.Value is false, "DOWNLOAD_LOW_RETURNS_FALSE", low, lowDetails);
+        Check(measured > 0 && !partialSeen && File.ReadAllText(target) == "cached-control"
+            && Directory.GetFiles(folder, "*.partial").Length == 0, "DOWNLOAD_LOW_PREFLIGHT_PRESERVES_CACHE_NO_PARTIAL", low, lowDetails);
+        Check(low.Log.Contains("required additional bytes:") && low.Log.Contains("available bytes: 0"), "DOWNLOAD_LOW_SPACE_EVIDENCE", low, lowDetails);
+        Check(Regex.Matches(low.Output, "Diagnostic log:").Count == 1, "DOWNLOAD_LOW_ONE_SUPPORT_LINE", low, lowDetails);
+        var ok = download("known", "known", enough);
+        Check(ok.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_KNOWN_SUCCESS_CONTROL", ok);
+        Put(target, "cached-control"); measured = 0;
+        var chunked = download("unknown", "unknown-length", p => { measured++; return enough(p); });
+        string chunkedDetails = JsonSerializer.Serialize(new { measured });
+        Check(chunked.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_UNKNOWN_LENGTH_SUCCESS", chunked, chunkedDetails);
+        Check(measured >= 2 && chunked.Log.Contains("required additional bytes: unknown"), "DOWNLOAD_UNKNOWN_LENGTH_MEASURED", chunked, chunkedDetails);
+        var unmeasured = download("known", "unknown-space", unknown);
+        Check(unmeasured.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_UNKNOWN_SPACE_PASSES", unmeasured);
+        foreach (string route in new[] { "truncated", "httpfail" })
+        {
+            Put(target, "cached-control");
+            var result = download(route, route, enough);
+            string label = "DOWNLOAD_" + route.ToUpperInvariant();
+            Check(result.Error == null && result.Value is false, label + "_RETURNS_FALSE", result);
+            Check(File.ReadAllText(target) == "cached-control" && Directory.GetFiles(folder, "*.partial").Length == 0,
+                label + "_CACHE_INTACT_NO_PARTIAL", result);
+            Check(result.Log.Contains(target) && result.Log.Contains("HResult=0x"), label + "_FAILURE_LOGGED", result);
+            Check(Regex.Matches(result.Output, "Diagnostic log:").Count == 1, label + "_ONE_SUPPORT_LINE", result);
+            Check(!result.Output.Contains(credential) && !result.Log.Contains(credential)
+                && result.Output.Contains("ERROR:"), label + "_REDACTION_CONTROL", result);
+        }
+        Check(server.Routes.Contains("known") && server.Routes.Contains("unknown")
+            && server.Routes.Contains("truncated") && server.Routes.Contains("httpfail"), "DOWNLOAD_HTTP_STIMULI_OBSERVED",
+            details: JsonSerializer.Serialize(new { routes = server.Routes.ToArray() }));
+    }
+    static void Policies(string archive)
+    {
+        string world = Path.Combine(root, "policy", "world"), config = Path.Combine(world, "BepInEx", "config");
+        string personal = new string('p', 4096);
+        Put(Path.Combine(config, "personal.cfg"), personal);
+        Put(Path.Combine(world, "previous.dll"), "previous-control");
+        var archiveInfo = Capture(() => {
+            using var zip = ZipFile.OpenRead(archive);
+            return zip.Entries.Sum(e => e.Length);
+        });
+        if (archiveInfo.Error != null) throw archiveInfo.Error;
+        long zipBytes = (long)archiveInfo.Value!;
+        Check(zipBytes > new FileInfo(archive).Length, "ARCHIVE_COMPRESSED_FIXTURE_CONTROL", archiveInfo,
+            JsonSerializer.Serialize(new { zipBytes, compressedBytes = new FileInfo(archive).Length }));
+        int measured = 0; bool stageSeen = false;
+        string? measuredPath = null;
+        DiskSpace.Measurement? measurement = null;
+        string StageDetails(Outcome estimate, long injectedAvailableBytes) => JsonSerializer.Serialize(new {
+            measured, stageSeen, measuredPath, measurement, injectedAvailableBytes,
+            rawRequiredBytes = estimate.Value, rawEstimateError = estimate.Error?.ToString()
+        });
+        var archiveEstimate = Capture(() => Invoke(typeof(ConfigPolicy), "ArchiveStageBytes", new object?[] { archive, config }));
+        Func<string, DiskSpace.Measurement> low = p => {
+            measured++;
+            measuredPath = p;
+            stageSeen |= Directory.GetDirectories(Path.GetDirectoryName(world)!, ".phvalheim-stage-*").Length != 0;
+            return measurement = new(Path.GetPathRoot(p), zipBytes + personal.Length - 1);
+        };
+        var rejected = Capture(() => Invoke(typeof(ConfigPolicy), "InstallArchive", new object?[] { archive, world, true }, low));
+        string archiveDetails = StageDetails(archiveEstimate, zipBytes + personal.Length - 1);
+        Check(rejected.Error is DiskSpace.InsufficientDiskSpaceException, "ARCHIVE_LOW_REJECTS", rejected, archiveDetails);
+        Check(measured > 0 && rejected.Log.Contains("required additional bytes: " + (zipBytes + personal.Length)), "ARCHIVE_COUNTS_PERSONAL_BYTES", rejected, archiveDetails);
+        Check(!stageSeen && Directory.GetDirectories(Path.GetDirectoryName(world)!, ".phvalheim-stage-*").Length == 0
+            && File.Exists(Path.Combine(world, "previous.dll")) && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal,
+            "ARCHIVE_LOW_BEFORE_STAGE_PREVIOUS_INTACT", rejected, archiveDetails);
+        var installed = Capture(() => Invoke(typeof(ConfigPolicy), "InstallArchive", new object?[] { archive, world, true }, unknown));
+        Check(installed.Error == null && File.Exists(Path.Combine(world, "BepInEx", "plugins", "test.dll"))
+            && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ARCHIVE_UNKNOWN_SPACE_SUCCESS_CONTROL", installed);
+        string cfg = Path.Combine(config, "test.cfg"); Put(cfg, "[UI]\nLimit = 999\n");
+        measured = 0; stageSeen = false;
+        measuredPath = null; measurement = null;
+        var configEstimate = Capture(() => Invoke(typeof(ConfigPolicy), "StagedConfigBytes", new object?[] { config, true }));
+        var enforced = Capture(() => Invoke(typeof(ConfigPolicy), "Enforce", new object?[] { world, null }, p => {
+            measured++;
+            measuredPath = p;
+            stageSeen |= Directory.GetDirectories(Path.GetDirectoryName(config)!, "config.apply-*").Length != 0;
+            return measurement = new(Path.GetPathRoot(p), 0);
+        }));
+        string enforceDetails = StageDetails(configEstimate, 0);
+        Check(enforced.Error is DiskSpace.InsufficientDiskSpaceException, "ENFORCE_LOW_REJECTS", enforced, enforceDetails);
+        Check(measured > 0 && !stageSeen && File.ReadAllText(cfg).Contains("999")
+            && Directory.GetDirectories(Path.GetDirectoryName(config)!, "config.apply-*").Length == 0, "ENFORCE_LOW_BEFORE_STAGE_PREVIOUS_INTACT", enforced, enforceDetails);
+        var applied = Capture(() => Invoke(typeof(ConfigPolicy), "Enforce", new object?[] { world, null }, unknown));
+        Check(applied.Error == null && File.ReadAllText(cfg).Contains("Limit = 10")
+            && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ENFORCE_UNKNOWN_SPACE_SUCCESS_CONTROL", applied);
+    }
+    static void PoliciesUnderSymlinkedAncestor(string archive)
+    {
+        string actual = Path.Combine(root, "policy-ancestor-actual"), link = Path.Combine(root, "policy-ancestor-link");
+        Directory.CreateDirectory(actual);
+        Directory.CreateSymbolicLink(link, actual);
+        Put(Path.Combine(link, "write-control"), "ancestor-write-through");
+        Check((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0
+            && File.ReadAllText(Path.Combine(actual, "write-control")) == "ancestor-write-through",
+            "ANCESTOR_REAL_SYMLINK_WRITE_THROUGH_CONTROL");
+        long zipBytes;
+        using (var zip = ZipFile.OpenRead(archive)) zipBytes = zip.Entries.Sum(e => e.Length);
+
+        foreach (bool install in new[] { true, false })
+        {
+            string operation = install ? "archive" : "enforce", prefix = "ANCESTOR_" + operation.ToUpperInvariant();
+            string world = Path.Combine(link, operation, "world"), config = Path.Combine(world, "BepInEx", "config");
+            var files = new Dictionary<string, string> {
+                [Path.Combine("nested", "personal.cfg")] = new string('p', 4096) + "雪",
+                ["test.cfg"] = "[UI]\nLimit = 999\n",
+                [ConfigPolicy.ManifestName] = Policy(),
+                ["BepInEx.cfg"] = "managed-loader-control",
+                ["ZeroBandwidth.CustomSeed.cfg"] = "managed-seed-control",
+                ["quick_connect_servers.cfg"] = "managed-connect-control"
+            };
+            void Seed()
+            {
+                foreach (var file in files) Put(Path.Combine(config, file.Key), file.Value);
+                Put(Path.Combine(world, "previous.dll"), "previous-control");
+            }
+            string[] Snapshot() => Directory.GetFiles(world, "*", SearchOption.AllDirectories)
+                .Select(p => Path.GetRelativePath(world, p) + ":" + Convert.ToBase64String(File.ReadAllBytes(p)))
+                .OrderBy(p => p, StringComparer.Ordinal).ToArray();
+            Seed();
+            string[] before = Snapshot();
+            long personalBytes = Encoding.UTF8.GetByteCount(files[Path.Combine("nested", "personal.cfg")])
+                + Encoding.UTF8.GetByteCount(files["test.cfg"]);
+            long required = install ? zipBytes + personalBytes : files.Values.Sum(v => (long)Encoding.UTF8.GetByteCount(v));
+            string stageParent = install ? Path.GetDirectoryName(world)! : Path.GetDirectoryName(config)!;
+            string stagePattern = install ? ".phvalheim-stage-*" : "config.apply-*";
+            string physicalParent = install ? Path.Combine(actual, operation) : Path.Combine(actual, operation, "world", "BepInEx");
+            // Resolve only the expected location (including macOS /var); operations retain the explicit link.
+            string expectedPath = (string)Invoke(typeof(DiskSpace), "ResolveUnixPath", new object?[] { physicalParent })!;
+            int measured = 0; bool stageSeen = false;
+            string? measuredPath = null;
+            DiskSpace.Measurement Measure(string path, long available)
+            {
+                measured++; measuredPath = path;
+                stageSeen |= Directory.GetDirectories(stageParent, stagePattern).Length != 0;
+                return new(Path.GetPathRoot(path), available);
+            }
+            Outcome Execute(Func<string, DiskSpace.Measurement> measure) => Capture(() => install
+                ? Invoke(typeof(ConfigPolicy), "InstallArchive", new object?[] { archive, world, true }, measure)
+                : Invoke(typeof(ConfigPolicy), "Enforce", new object?[] { world, null }, measure));
+            var estimate = Capture(() => install
+                ? Invoke(typeof(ConfigPolicy), "ArchiveStageBytes", new object?[] { archive, config })
+                : Invoke(typeof(ConfigPolicy), "StagedConfigBytes", new object?[] { config, true }));
+            var rejected = Execute(p => Measure(p, required - 1));
+            bool previousIntact = before.SequenceEqual(Snapshot());
+            int remainingStages = Directory.GetDirectories(stageParent, stagePattern).Length;
+            string details = JsonSerializer.Serialize(new {
+                world, config, link, expectedPath, measuredPath, measured, stageSeen, zipBytes, personalBytes,
+                previousIntact, remainingStages, requiredBytes = required, injectedAvailableBytes = required - 1,
+                rawRequiredBytes = estimate.Value, rawEstimateError = estimate.Error?.ToString()
+            });
+            Check(measured == 1 && measuredPath == expectedPath, prefix + "_MEASURES_RESOLVED_DESTINATION", rejected, details);
+            Check(estimate.Error == null && estimate.Value is long bytes && bytes == required
+                && rejected.Log.Contains("required additional bytes: " + required + ";"),
+                prefix + "_EXACT_REQUIRED_BYTES", rejected, details);
+            Check(rejected.Error is DiskSpace.InsufficientDiskSpaceException space
+                && space.Assessment.RequiredBytes == required && space.Assessment.Space.AvailableBytes == required - 1,
+                prefix + "_LOW_REJECTS", rejected, details);
+            Check(!stageSeen && remainingStages == 0 && previousIntact,
+                prefix + "_LOW_BEFORE_STAGE_PREVIOUS_INTACT", rejected, details);
+
+            Seed();
+            measured = 0; measuredPath = null; stageSeen = false;
+            var success = Execute(p => Measure(p, required));
+            Check(success.Error == null && measured == 1 && measuredPath == expectedPath && !stageSeen
+                && File.ReadAllText(Path.Combine(config, "test.cfg")).Contains("Limit = 10")
+                && File.ReadAllText(Path.Combine(config, "nested", "personal.cfg")) == files[Path.Combine("nested", "personal.cfg")]
+                && (install ? File.Exists(Path.Combine(world, "BepInEx", "plugins", "test.dll"))
+                    && !File.Exists(Path.Combine(world, "previous.dll"))
+                    : File.ReadAllText(Path.Combine(config, "BepInEx.cfg")) == files["BepInEx.cfg"]
+                        && File.ReadAllText(Path.Combine(world, "previous.dll")) == "previous-control")
+                && Directory.GetDirectories(stageParent, stagePattern).Length == 0,
+                prefix + "_SUFFICIENT_SPACE_SUCCESS_CONTROL", success);
+        }
+
+        string protectedSource = Path.Combine(actual, "protected-config"), sourceLink = Path.Combine(actual, "config-link");
+        Put(Path.Combine(protectedSource, "personal.cfg"), "protected-personal-control");
+        Directory.CreateSymbolicLink(sourceLink, protectedSource);
+        Check((File.GetAttributes(sourceLink) & FileAttributes.ReparsePoint) != 0
+            && File.ReadAllText(Path.Combine(sourceLink, "personal.cfg")) == "protected-personal-control",
+            "ANCESTOR_CONFIG_SOURCE_REAL_SYMLINK_CONTROL");
+        foreach (bool includeManaged in new[] { false, true })
+        {
+            var sourceEstimate = Capture(() => Invoke(typeof(ConfigPolicy), "StagedConfigBytes", new object?[] { sourceLink, includeManaged }));
+            Check(sourceEstimate.Error is IOException && sourceEstimate.Error.Message.EndsWith(sourceLink, StringComparison.Ordinal),
+                "ANCESTOR_CONFIG_SOURCE_SYMLINK_REJECTED_" + (includeManaged ? "ENFORCE" : "ARCHIVE"), sourceEstimate);
+        }
+        foreach (bool directory in new[] { false, true })
+        {
+            string source = Path.Combine(actual, directory ? "nested-directory-source" : "nested-file-source");
+            string nestedLink = Path.Combine(source, "nested", "linked-personal");
+            Directory.CreateDirectory(Path.GetDirectoryName(nestedLink)!);
+            if (directory) Directory.CreateSymbolicLink(nestedLink, protectedSource);
+            else File.CreateSymbolicLink(nestedLink, Path.Combine(protectedSource, "personal.cfg"));
+            string prefix = "ANCESTOR_NESTED_" + (directory ? "DIRECTORY" : "FILE");
+            Check((File.GetAttributes(nestedLink) & FileAttributes.ReparsePoint) != 0
+                && File.ReadAllText(directory ? Path.Combine(nestedLink, "personal.cfg") : nestedLink) == "protected-personal-control",
+                prefix + "_REAL_SYMLINK_CONTROL");
+            var estimate = Capture(() => Invoke(typeof(ConfigPolicy), "PersonalBytes", new object?[] { source }));
+            Check(estimate.Error is IOException && estimate.Error.Message.EndsWith(nestedLink, StringComparison.Ordinal),
+                prefix + "_SYMLINK_ESTIMATE_REJECTED", estimate);
+            var copy = Capture(() => Invoke(typeof(ConfigPolicy), "CopyPersonal", new object?[] { source, source + "-copy" }));
+            Check(copy.Error is IOException && copy.Error.Message.EndsWith(nestedLink, StringComparison.Ordinal)
+                && File.ReadAllText(Path.Combine(protectedSource, "personal.cfg")) == "protected-personal-control",
+                prefix + "_SYMLINK_COPY_REJECTED", copy);
+        }
+    }
+    static void UiErrors()
+    {
+        var result = Capture(() => {
+            Ui.Error("fixture-error-control " + credential, DiagnosticLog.SupportLine);
+            Ui.Error("second-error-control " + credential);
+            return null;
+        });
+        Check(Regex.Matches(result.Output, "ERROR:").Count == 2
+            && Regex.Matches(result.Output, "Diagnostic log:").Count == 2, "UI_ONE_SUPPORT_LINE_PER_ERROR");
+        Check(result.Log.Contains("fixture-error-control") && result.Log.Contains("second-error-control")
+            && Regex.Matches(result.Log, "Diagnostic log:").Count == 2, "UI_LOG_ONE_SUPPORT_LINE_PER_ERROR");
+        Check(!result.Output.Contains(credential) && !result.Log.Contains(credential)
+            && result.Output.Contains("fixture-error-control") && result.Log.Contains("second-error-control")
+            && result.Output.Contains("[REDACTED]"), "UI_CREDENTIALS_REDACTED_BOTH_SINKS");
+    }
+    static int Main(string[] args)
+    {
+        if (args.FirstOrDefault() == "inject-missing-copy")
+        {
+            string text = File.ReadAllText(args[1]);
+            const string anchor = "if (!File.Exists(Path.Combine(valheimDir, \"doorstop_config.ini\")))";
+            if (text.Split(anchor).Length != 2) throw new Exception("Expected one post-copy verification branch.");
+            File.WriteAllText(args[1], text.Replace(anchor,
+                "Tests.RemoveCopiedLoader(Path.Combine(valheimDir, \"doorstop_config.ini\"));\n            " + anchor));
+            report.WriteLine("FIXTURE: move the actually copied loader immediately before verification in disposable snapshot");
+            return 0;
+        }
+        if (args.FirstOrDefault() == "mutate-staging")
+        {
+            string text = File.ReadAllText(args[1]);
+            var pattern = new Regex(@"EnsureStageSpace\(stage,\s*\(\) => (?:ArchiveStageBytes|StagedConfigBytes)\([^;]+?measure\);");
+            if (pattern.Matches(text).Count != 2) throw new Exception("Expected exactly two live staging preflight calls.");
+            File.WriteAllText(args[1], pattern.Replace(text, ";"));
+            report.WriteLine("MUTATION: removed both live staging preflight calls in disposable snapshot");
+            return 0;
+        }
+        using var deadline = new Timer(_ => { report.WriteLine("FAIL: HARNESS_DEADLINE"); Environment.Exit(124); }, null, 45_000, Timeout.Infinite);
+        Directory.CreateDirectory(logRoot);
+        DiagnosticLog.Initialize(Array.Empty<string>(), logRoot);
+        DiagnosticLog.RegisterSecret(credential);
+        foreach (var pair in new (string, object)[] {
+            ("DiagnosticSink", (Action<string, string>)DiagnosticLog.Write),
+            ("DiagnosticSupportLine", (Func<string>)(() => DiagnosticLog.SupportLine)),
+            ("DiagnosticRedactor", (Func<string, string>)DiagnosticLog.Redact) })
+            typeof(Ui).GetProperty(pair.Item1, methods)?.SetValue(null, pair.Item2);
+        bool policyOnly = args.FirstOrDefault() == "policy-only", missingOnly = args.FirstOrDefault() == "missing-only";
+        if (!policyOnly && !missingOnly)
+        {
+            Run("BACKEND", Backend);
+            Run("COPY", Copy);
+        }
+        string archive = Archive();
+        if (!policyOnly)
+        {
+            using var server = new Server(archive);
+            if (missingOnly) Run("SYNC_MISSING", () => MissingAfterCopy(server));
+            else
+            {
+                Run("SYNC", () => Sync(server));
+                Run("DOWNLOAD", () => Downloads(server));
+                Run("UI", UiErrors);
+            }
+        }
+        if (!missingOnly) Run("POLICY", () => Policies(archive));
+        if (!missingOnly && (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
+            Run("POLICY_ANCESTOR", () => PoliciesUnderSymlinkedAncestor(archive));
+        if (!policyOnly && !missingOnly)
+        {
+            Check(!captured.ToString().Contains(credential) && captured.ToString().Contains("[REDACTED]"), "CREDENTIALS_NEVER_LEAK_TO_CONSOLE");
+            Check(!Log().Contains(credential) && Log().Contains("[REDACTED]"), "CREDENTIALS_NEVER_LEAK_TO_LOG");
+        }
+        Check(Log().Contains("Begin") || Log().Contains("run", StringComparison.OrdinalIgnoreCase), "DIAGNOSTIC_LOG_POSITIVE_CONTROL");
+        report.WriteLine($"LAUNCH DIAGNOSTICS: {passed} passed, {failed} failed ({args.FirstOrDefault() ?? "current"}; {System.Runtime.InteropServices.RuntimeInformation.OSDescription})");
+        report.WriteLine("LIMITS: no CFA/antivirus simulation, no production/game launch, no slow inactivity timeout test. Missing-after-copy uses an explicit disposable-source removal hook.");
+        return failed == 0 ? 0 : 1;
+    }
+
+    // Raw loopback HTTP permits a deterministic short body and unknown Content-Length without URL ACL setup.
+    sealed class Server : IDisposable
+    {
+        public const string Payload = "real-http-payload-control";
+        readonly TcpListener listener = new(IPAddress.Loopback, 0);
+        readonly CancellationTokenSource stop = new();
+        readonly Task serving;
+        readonly byte[] archive;
+        readonly string md5;
+        public readonly HashSet<string> Routes = new();
+        public int ZipRequests;
+        public string Url { get; }
+        public Server(string path)
+        {
+            archive = File.ReadAllBytes(path); md5 = PhValheim.Tooling.PhValheim.getMD5(path);
+            listener.Start(); Url = "http://127.0.0.1:" + ((IPEndPoint)listener.LocalEndpoint).Port;
+            serving = Task.Run(Serve);
+        }
+        async Task Serve()
+        {
+            try
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    using var client = await listener.AcceptTcpClientAsync(stop.Token);
+                    using var stream = client.GetStream();
+                    using var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true);
+                    string request = await reader.ReadLineAsync(stop.Token) ?? "";
+                    while (!string.IsNullOrEmpty(await reader.ReadLineAsync(stop.Token))) { }
+                    string route = request.Split(' ')[1].Split('?')[0].TrimStart('/');
+                    lock (Routes) Routes.Add(route);
+                    byte[] body = Encoding.UTF8.GetBytes(Payload);
+                    string status = "200 OK", length;
+                    if (route.EndsWith(".zip")) { Interlocked.Increment(ref ZipRequests); body = archive; }
+                    else if (route == "api.php") body = Encoding.UTF8.GetBytes("world=" + md5 + "\nmods=fixture-mods\nconfig=" + md5 + "\n");
+                    else if (route == "httpfail") { status = "503 Service Unavailable"; body = Encoding.UTF8.GetBytes("fixture-http-failure"); }
+                    length = route == "unknown" ? "" : "Content-Length: " + (body.Length + (route == "truncated" ? 100 : 0)) + "\r\n";
+                    byte[] header = Encoding.ASCII.GetBytes("HTTP/1.1 " + status + "\r\n" + length + "Connection: close\r\n\r\n");
+                    try { await stream.WriteAsync(header, stop.Token); await stream.WriteAsync(body, stop.Token); }
+                    catch (IOException) { }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (SocketException) when (stop.IsCancellationRequested) { }
+        }
+        public void Dispose()
+        {
+            stop.Cancel(); listener.Stop();
+            if (!serving.Wait(TimeSpan.FromSeconds(2))) throw new Exception("HTTP fixture failed to stop.");
+            stop.Dispose();
+        }
+    }
+}

@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using System.Runtime.InteropServices;
-using Microsoft.Win32;
+﻿using System.Text;
 
 namespace PhValheim.Prep
 {
@@ -25,12 +23,8 @@ namespace PhValheim.Prep
                 }
                 catch (Exception e)
                 {
-                    // Named the directory and the reason. The old message said neither, so a
-                    // permissions problem and a full disk produced the same unactionable line.
-                    Ui.Fail("failed");
-                    Ui.Error("PhValheim could not create its " + desc + " folder.", e.Message,
-                             inputDir);
-                    return false;
+                    return ReportFailure(inputDir, e, "create directory",
+                        "PhValheim could not create its " + desc + " folder.", directory: true);
                 }
 
             }
@@ -67,42 +61,74 @@ namespace PhValheim.Prep
         // write backenfile to bepinex directory. phvalheim-companion uses this file to send "Player" scene data to phvalheim-server's backend (e.g., world progression (boss heads hung at spawn point)
         public static bool WriteBackendFile(string worldName, string phvalheimHostNoPort, string phvalheimURL)
         {
-            string bepInExRoot = "";
-            string backendFile;
+            return WriteBackendFile(Path.Combine(Platform.State.PhValheimServerWorld,
+                "BepInEx", "phvalheim.backend"), phvalheimURL);
+        }
 
-            OSPlatform osPlatform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? OSPlatform.Windows : OSPlatform.Linux;
-
-            if (osPlatform == OSPlatform.Windows)
+        internal static bool WriteBackendFile(string backendFile, string phvalheimURL)
+        {
+            var encoding = new UTF8Encoding(false, true);
+            long? requiredBytes = null;
+            try
             {
-                bepInExRoot = Environment.ExpandEnvironmentVariables("%appdata%\\PhValheim\\worlds\\" + phvalheimHostNoPort + "\\" + worldName + "\\" + worldName + "\\BepInEx\\");
+                requiredBytes = encoding.GetByteCount(phvalheimURL);
+                var assessment = DiskSpace.EnsureAvailable(backendFile, requiredBytes,
+                    "write phvalheim.backend");
+                DiagnosticLog.Write("backend preflight", assessment.Message);
+            }
+            catch (Exception e)
+            {
+                if (e is DiskSpace.InsufficientDiskSpaceException insufficient)
+                    DiagnosticLog.Write("backend preflight", insufficient.Assessment.Message);
+                return ReportFailure(backendFile, e, "check disk space for phvalheim.backend",
+                    "PhValheim could not prepare to write phvalheim.backend.", requiredBytes: requiredBytes);
             }
 
-            else if (osPlatform == OSPlatform.Linux)
-            {
-                bepInExRoot = $"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/.config/PhValheim/worlds/" + phvalheimHostNoPort + "/" + worldName + "/" + worldName + "/BepInEx/";
-            }
-
-            else
-            {
-                Ui.Error("This operating system is not supported.");
-                return false;
-            }
-
-            // set bepinex root directory
-            backendFile = Environment.ExpandEnvironmentVariables(bepInExRoot + "phvalheim.backend" );
-            
-            // ensure the bepinex directory exists
-            if (!Directory.Exists(bepInExRoot))
+            string bepInExRoot = Path.GetDirectoryName(backendFile)!;
+            try
             {
                 Directory.CreateDirectory(bepInExRoot);
             }
-
-            // write new backend file
-            using (StreamWriter outputFile = new StreamWriter(backendFile))
+            catch (Exception e)
             {
+                return ReportFailure(bepInExRoot, e, "create directory",
+                    "PhValheim could not create the BepInEx folder for phvalheim.backend.", directory: true);
+            }
+
+            try
+            {
+                using var outputFile = new StreamWriter(backendFile, false, encoding);
                 outputFile.Write(phvalheimURL);
             }
+            catch (Exception e)
+            {
+                return ReportFailure(backendFile, e, "create file",
+                    "PhValheim could not write phvalheim.backend.", requiredBytes: requiredBytes);
+            }
             return true;
+        }
+
+        private static bool ReportFailure(string path, Exception error, string operation,
+            string message, bool directory = false, long? requiredBytes = null)
+        {
+            DiagnosticLog.Failure(operation + ": " + path, error);
+            string evidence = FileAccessDiagnostics.Describe(path, error, operation);
+            // The shared helper assumes a file target; an observed directory is not a collision here.
+            if (directory)
+                evidence = evidence.Replace("Possible reason: an existing directory occupies the expected file path."
+                    + Environment.NewLine, "");
+            DiagnosticLog.Write(operation, evidence);
+            DiagnosticLog.Write(operation + " disk snapshot",
+                DiskSpace.Assess(DiskSpace.Inspect(path), requiredBytes, operation).Message);
+            Ui.Fail("failed");
+            Ui.Error(message, new[] { DiagnosticLog.Redact(error.GetType().Name + ": " + error.Message),
+                    DiagnosticLog.Redact(path) }
+                .Concat(evidence.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.TrimEnd('\r'))
+                    .Where(line => line.StartsWith("Possible reason:", StringComparison.Ordinal)
+                        || line.StartsWith("A protected-folder rule may be involved.", StringComparison.Ordinal)))
+                .ToArray());
+            return false;
         }
     }
 }

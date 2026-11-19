@@ -94,6 +94,32 @@ namespace PhValheim.Syncer
             return state;
         }
 
+        private static string[] FileFailureDetails(Exception error, string destination, string operation,
+                                                   Func<string, DiskSpace.Measurement>? measure)
+        {
+            string path = error.Data["PhValheim.Path"] as string
+                ?? (error as DiskSpace.InsufficientDiskSpaceException)?.Assessment.Space.DestinationPath
+                ?? destination;
+            operation = error.Data["PhValheim.Operation"] as string ?? operation;
+            DiagnosticLog.Failure(operation + "; path: '" + path + "'", error);
+            string access = FileAccessDiagnostics.Describe(path, error, operation);
+            DiagnosticLog.Write("sync file access", access);
+            long? required = (error as DiskSpace.InsufficientDiskSpaceException)?.Assessment.RequiredBytes;
+            var space = DiskSpace.Assess(DiskSpace.Inspect(path, measure), required, operation);
+            DiagnosticLog.Write("sync disk space after failure", space.Message);
+            string diskHint = space.Space.AvailableBytes is long available
+                ? "Disk space observed after failure: " + available + " bytes available on '"
+                    + space.Space.VolumePath + "'; required additional space is unknown."
+                : "Available disk space could not be determined for this path.";
+            return new[] { operation + " at '" + path + "': " + error.GetType().Name + ": " + error.Message }
+                .Concat(error is DiskSpace.InsufficientDiskSpaceException ? Array.Empty<string>() : new[] { diskHint })
+                .Concat(access.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.TrimEnd('\r'))
+                    .Where(line => line.StartsWith("Possible reason:", StringComparison.Ordinal)
+                        || line.StartsWith("A protected-folder rule may be involved.", StringComparison.Ordinal)))
+                .ToArray();
+        }
+
         // The local record of what we last successfully synced.
         //
         // This exists to avoid re-hashing the payload on every single launch. The payload is
@@ -105,7 +131,7 @@ namespace PhValheim.Syncer
         // rebuilt and ours has not, so copying the server's value in would be a false claim
         // about our own file -- and that value is what the integrity check compares against.
         private static void ReadSyncRecord(string path, out string worldMd5, out string modsMd5,
-                                           out string configMd5)
+                                           out string configMd5, Func<string, DiskSpace.Measurement>? measure)
         {
             worldMd5 = "";
             modsMd5 = "";
@@ -126,8 +152,9 @@ namespace PhValheim.Syncer
                     else if (key == "configMd5") { configMd5 = val; }
                 }
             }
-            catch
+            catch (Exception e)
             {
+                FileFailureDetails(e, path, "read sync record", measure);
                 // Missing or unreadable. All stay "", which the caller treats as "I know
                 // nothing" -- it hashes the payload instead. Never as "I am up to date".
                 worldMd5 = "";
@@ -137,7 +164,7 @@ namespace PhValheim.Syncer
         }
 
         private static void WriteSyncRecord(string path, string worldMd5, string modsMd5,
-                                            string configMd5)
+                                            string configMd5, Func<string, DiskSpace.Measurement>? measure)
         {
             try
             {
@@ -146,6 +173,7 @@ namespace PhValheim.Syncer
             }
             catch (Exception e)
             {
+                FileFailureDetails(e, path, "write sync record", measure);
                 // Explicitly not fatal. Losing this file costs one hash of the payload on the
                 // next launch -- the very cost it exists to avoid -- and nothing on disk is
                 // wrong. Failing a successful sync over it would be worse than being slow once.
@@ -156,7 +184,9 @@ namespace PhValheim.Syncer
             }
         }
 
-        public static bool Sync(string phvalheimURL)
+        public static bool Sync(string phvalheimURL) => Sync(phvalheimURL, null);
+
+        internal static bool Sync(string phvalheimURL, Func<string, DiskSpace.Measurement>? measure = null)
         {
             string worldName = Platform.State.WorldName;
             string valheimDir = Platform.State.ValheimDir;
@@ -211,7 +241,7 @@ namespace PhValheim.Syncer
             string localWorldMD5;
             string localModsMD5;
             string localConfigMD5;
-            ReadSyncRecord(syncRecordFile, out localWorldMD5, out localModsMD5, out localConfigMD5);
+            ReadSyncRecord(syncRecordFile, out localWorldMD5, out localModsMD5, out localConfigMD5, measure);
 
             // Captured BEFORE the hash below overwrites localWorldMD5, so "I had no record" is
             // still answerable afterwards. Without it, an install that is already current never
@@ -309,7 +339,8 @@ namespace PhValheim.Syncer
                 Ui.Done(canCompareMods ? "the mod list changed" : "needs the full download");
                 Ui.Blank();
 
-                Downloader.PhValheim.Go(remoteWorldFile, localWorldFile, worldName);
+                if (!Downloader.PhValheim.Go(remoteWorldFile, localWorldFile, worldName, measure))
+                    return false;
 
                 // Verify what we just downloaded, BEFORE recording it as good.
                 //
@@ -342,7 +373,8 @@ namespace PhValheim.Syncer
                     // payload. The extracted world directory is deliberately untouched: the
                     // player keeps a working, if outdated, install instead of a broken one.
                     try { File.Delete(localWorldFile); } catch { }
-                    try { File.Delete(syncRecordFile); } catch { }
+                    try { File.Delete(syncRecordFile); }
+                    catch (Exception e) { FileFailureDetails(e, syncRecordFile, "delete sync record", measure); }
                     return false;
                 }
 
@@ -392,13 +424,16 @@ namespace PhValheim.Syncer
 
                 try
                 {
-                    ConfigPolicy.InstallArchive(localWorldFile, localWorldDir, full: true);
+                    ConfigPolicy.InstallArchive(localWorldFile, localWorldDir, full: true, measure: measure);
                 }
                 catch (Exception e)
                 {
+                    DiagnosticLog.Write("install world archive", "Archive: '" + localWorldFile
+                        + "'; destination: '" + localWorldDir + "'.");
+                    string[] details = FileFailureDetails(e, localWorldDir, "install world archive", measure);
                     Ui.Fail("failed");
                     Ui.Error("The update could not be installed. Your existing world files were kept.",
-                             e.Message, "Resolve the problem and launch again to retry.");
+                             details.Append("Resolve the problem and launch again to retry.").ToArray());
 
                     // Installation is staged; the previous world remains intact on failure.
                     return false;
@@ -407,7 +442,7 @@ namespace PhValheim.Syncer
                 // Recorded as what we HOLD, not what the server has. After a download those are
                 // the same thing; after re-extracting our own payload they are not, and the
                 // config check below is what then fetches the difference.
-                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5);
+                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5, measure);
             }
 
             // Does the config we now hold match the server's? Asked AFTER the payload step,
@@ -442,7 +477,8 @@ namespace PhValheim.Syncer
             {
                 Ui.Step("Mod settings");
 
-                Downloader.PhValheim.Go(remoteConfigFile, localConfigFile, worldName);
+                if (!Downloader.PhValheim.Go(remoteConfigFile, localConfigFile, worldName, measure))
+                    return false;
 
                 string gotConfigMD5;
                 try
@@ -468,23 +504,28 @@ namespace PhValheim.Syncer
 
                 try
                 {
-                    ConfigPolicy.InstallArchive(localConfigFile, localWorldDir, full: false);
+                    ConfigPolicy.InstallArchive(localConfigFile, localWorldDir, full: false, measure: measure);
                 }
                 catch (Exception e)
                 {
+                    string configDir = Path.Combine(localWorldDir, "BepInEx", "config");
+                    DiagnosticLog.Write("install settings archive", "Archive: '" + localConfigFile
+                        + "'; destination: '" + configDir + "'.");
+                    string[] details = FileFailureDetails(e, configDir, "install settings archive", measure);
                     // The staged settings were not applied; stop rather than launch stale enforcement. Unlike
                     // a failed download, which leaves the old config intact. Clear the record
                     // so the next launch re-syncs from scratch rather than trusting a tree we
                     // half-rewrote.
                     Ui.Warn("kept yours");
-                Ui.Warning("The updated mod settings could not be applied, so the ones you already have are being kept.",
-                           e.Message);
-                    try { File.Delete(syncRecordFile); } catch { }
+                    Ui.Warning("The updated mod settings could not be applied, so the ones you already have are being kept.",
+                               details);
+                    try { File.Delete(syncRecordFile); }
+                    catch (Exception recordError) { FileFailureDetails(recordError, syncRecordFile, "delete sync record", measure); }
                     return false;
                 }
 
                 Ui.Done("updated");
-                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, remote.ConfigMd5);
+                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, remote.ConfigMd5, measure);
             }
             else if (!hadRecord
                      || localModsMD5 != remote.ModsMd5
@@ -498,7 +539,7 @@ namespace PhValheim.Syncer
                 // up a mod identity WITHOUT a download. Our payload matched the server's byte
                 // for byte to get here, so the server's mod identity is a true statement about
                 // our copy -- and from here on a config edit costs 80 KB instead of 573 MB.
-                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5);
+                WriteSyncRecord(syncRecordFile, heldWorldMD5, remote.ModsMd5, heldConfigMD5, measure);
             }
 
             // ---- doorstop into the Valheim directory -----------------------------------
@@ -507,33 +548,45 @@ namespace PhValheim.Syncer
             // the variable it tested was never read. Copying four small files is cheap and
             // being certain they match the payload is worth more than skipping them.
             Ui.Step("Mod loader");
+            string loaderDestination = Path.Combine(valheimDir, "doorstop_libs");
             try
             {
-                Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir, "doorstop_libs"), Path.Combine(valheimDir, "doorstop_libs"));
-                File.Copy(Path.Combine(localWorldDir, "doorstop_config.ini"), Path.Combine(valheimDir, "doorstop_config.ini"), true);
+                Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir, "doorstop_libs"), loaderDestination, measure);
+                loaderDestination = Path.Combine(valheimDir, "doorstop_config.ini");
+                Tooling.PhValheim.CopyFile(Path.Combine(localWorldDir, "doorstop_config.ini"), loaderDestination, measure);
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                 {
-                    File.Copy(Path.Combine(localWorldDir, "winhttp.dll"), Path.Combine(valheimDir, "winhttp.dll"), true);
+                    loaderDestination = Path.Combine(valheimDir, "winhttp.dll");
+                    Tooling.PhValheim.CopyFile(Path.Combine(localWorldDir, "winhttp.dll"), loaderDestination, measure);
                 }
             }
-            catch
+            catch (Exception e)
             {
                 // Named distinctly from the check below. Both printed the SAME sentence, so
                 // "the copy threw" and "the copy claimed to work and the file is not there"
                 // were indistinguishable in a bug report -- and they have different causes.
+                string[] details = FileFailureDetails(e, loaderDestination, "copy mod loader", measure);
                 Ui.Fail("failed");
                 Ui.Error("PhValheim could not install the mod loader into your Valheim folder.",
-                         "This is usually antivirus, or Valheim being open already.",
-                         "Close Valheim and Steam, then launch again.");
+                         details);
                 return false;
             }
 
             if (!File.Exists(Path.Combine(valheimDir, "doorstop_config.ini")))
             {
+                string path = Path.Combine(valheimDir, "doorstop_config.ini");
+                DiagnosticLog.Write("verify mod loader", "Copied file missing on verification: '" + path
+                    + "'. File.Exists returned false; the cause is unknown.");
+                DiagnosticLog.Write("mod loader verification file access",
+                    FileAccessDiagnostics.Describe(path, null, "verify copied file"));
+                DiagnosticLog.Write("mod loader verification disk space",
+                    DiskSpace.Assess(DiskSpace.Inspect(path, measure), null, "verify copied file").Message);
                 Ui.Fail("failed");
-                Ui.Error("The mod loader was copied into your Valheim folder but is not there now.",
-                         "Something is removing it -- antivirus quarantine is the usual cause.",
-                         "Allow your Valheim folder in your antivirus, then launch again.");
+                Ui.Error("The copied mod loader file is missing on verification: '" + path + "'.",
+                         "The cause is unknown. Check that the path exists and is accessible."
+                         + (OperatingSystem.IsWindows()
+                            ? " Check Windows Security protection history for a possible recorded block or removal."
+                            : ""));
                 return false;
             }
 
@@ -541,12 +594,14 @@ namespace PhValheim.Syncer
             try
             {
                 var personal = PlayerConfig.Fetch(phvalheimURL, worldName, Arguments.PhValheim.PlayerConfigToken);
-                ConfigPolicy.Enforce(localWorldDir, personal);
+                ConfigPolicy.Enforce(localWorldDir, personal, measure);
                 if (personal?.Count > 0) Ui.Note("Your personal mod settings have been applied.");
             }
             catch (Exception e)
             {
-                Ui.Error("Could not apply this world's mod settings. Your existing files were kept.", e.Message);
+                string[] details = FileFailureDetails(e, Path.Combine(localWorldDir, "BepInEx", "config"),
+                    "apply world settings", measure);
+                Ui.Error("Could not apply this world's mod settings. Your existing files were kept.", details);
                 return false;
             }
 

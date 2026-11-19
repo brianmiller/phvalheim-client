@@ -1,0 +1,497 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection;
+using System.Text;
+using PhValheim;
+
+class Tests
+{
+    const int FileLimit = 1024 * 1024;
+    const string FileName = "phvalheim-client.log";
+    const string Password = "FixturePassword_7ac9 !+/%";
+    const string Companion = "FixtureCompanion_f82c+/%";
+    const string Player = "FixturePlayerConfig_139e+/%";
+    const string Ordinary = "ordinary-user-Ada /tmp/ordinary-world/Valheim";
+    static int passed;
+    static int failed;
+    static readonly string Root = Path.Combine(Path.GetTempPath(), "phv-diagnostics-" + Guid.NewGuid().ToString("N"));
+
+    static void Check(bool condition, string name)
+    {
+        if (!condition) throw new AssertionFailure(name);
+        Console.WriteLine("PASS: " + name);
+        passed++;
+    }
+
+    static int Main(string[] args)
+    {
+        try
+        {
+            Directory.CreateDirectory(Root);
+            if (args.Length > 0)
+            {
+                switch (args[0])
+                {
+                    case "mutate": Mutate(args[1], args[2]); break;
+                    case "check-low": LowSpace(); break;
+                    case "check-redact": LogSecrets("uri", Root); break;
+                    case "log-secrets": LogSecrets(args[1], args[2]); break;
+                    case "log-fallback": LogFallback(args[1]); break;
+                    case "log-blocked": LogBlocked(args[1]); break;
+                    case "log-run": LogRun(args[1], args[2]); break;
+                    case "log-size": LogSize(args[1]); break;
+                    case "log-concurrent": LogConcurrent(args[1]); break;
+                    default: throw new AssertionFailure("unknown harness mode");
+                }
+            }
+            else
+            {
+                Check(OperatingSystem.IsLinux() && Environment.Version.Major == 9, "Linux .NET 9 runtime");
+                Case(FileAccess);
+                Case(Space);
+                Case(LowSpace);
+                string secretRoot = Fresh("secrets");
+                foreach (string shape in new[] { "uri", "uri-escaped", "launch", "launch-equals" })
+                    Case(() => Child("log-secrets", shape, secretRoot));
+                Case(() => Child("log-secrets", "uri-fallback", Fresh("fallback-secrets")));
+                Case(() => Child("log-fallback", Fresh("fallback")));
+                Case(() => Child("log-blocked", Fresh("blocked")));
+                Case(RunRotation);
+                Case(() => Child("log-size", Fresh("size")));
+                Case(() => Child("log-concurrent", Fresh("concurrent")));
+            }
+            Console.WriteLine($"RESULT: {passed} assertions passed, {failed} cases failed in process {Environment.ProcessId}");
+            return failed == 0 ? 0 : 1;
+        }
+        catch (AssertionFailure error) { Console.Error.WriteLine("FAIL: " + error.Message); return 1; }
+        catch (Exception error)
+        {
+            // Exception messages can contain the deliberately supplied credentials.
+            Console.Error.WriteLine("UNEXPECTED: " + error.GetType().FullName);
+            return 2;
+        }
+    }
+
+    static void Case(Action test)
+    {
+        try { test(); }
+        catch (AssertionFailure error) { Console.Error.WriteLine("FAIL: " + error.Message); failed++; }
+        catch (Exception error) { Console.Error.WriteLine("UNEXPECTED: " + error.GetType().FullName); failed++; }
+    }
+
+    static string Fresh(string name)
+    {
+        string path = Path.Combine(Root, name + "-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    static Exception? Stimulus(Action action)
+    {
+        try { action(); return null; }
+        catch (Exception error) { return error; }
+    }
+
+    static void FileAccess()
+    {
+        string root = Fresh("access");
+        string collision = Path.Combine(root, "expected-file");
+        Directory.CreateDirectory(collision);
+        Exception? denied = Stimulus(() => File.WriteAllText(collision, "actual write"));
+        Check(denied is UnauthorizedAccessException, "directory-as-file write actually throws UnauthorizedAccessException");
+        string report = FileAccessDiagnostics.Describe(collision, denied, "write fixture backend file");
+        Check(report.Contains(collision) && report.Contains("write fixture backend file")
+            && report.Contains(typeof(UnauthorizedAccessException).FullName!)
+            && report.Contains("0x" + denied!.HResult.ToString("X8")), "denied-write report retains exact path operation type and HResult");
+        Check(report.Contains("existing directory occupies the expected file path"), "directory collision explanation");
+        Check(report.Contains("Parent probe create: succeeded") && report.Contains("Parent probe write: succeeded")
+            && report.Contains("Parent probe delete: succeeded"), "real parent probe creates writes and deletes");
+        Check(Directory.GetFileSystemEntries(root).SequenceEqual(new[] { collision }), "probe leaves only the pre-existing collision fixture");
+        Check(report.Contains("Windows owner/ACL: not applicable") && !report.Contains("A protected-folder rule may be involved"),
+            "Linux denied-write stimulus does not imply Windows protected-folder blocking");
+
+        string readOnly = Path.Combine(root, "read-only-file");
+        File.WriteAllText(readOnly, "before");
+        File.SetAttributes(readOnly, File.GetAttributes(readOnly) | FileAttributes.ReadOnly);
+        Check((File.GetAttributes(readOnly) & FileAttributes.ReadOnly) != 0, "read-only attribute is actually set");
+        Exception? readOnlyError = Stimulus(() => File.WriteAllText(readOnly, "after"));
+        Console.WriteLine("OBSERVED: read-only write " + (readOnlyError?.GetType().Name ?? "succeeded") + " on this runtime/user");
+        report = FileAccessDiagnostics.Describe(readOnly, readOnlyError, "overwrite read-only fixture");
+        Check(report.Contains(readOnly) && report.Contains("read-only=True") && report.Contains("observed read-only attribute"),
+            "read-only report uses observed attributes without assuming root is denied");
+        Check(readOnlyError != null || File.ReadAllText(readOnly) == "after", "successful read-only stimulus really changed the fixture");
+
+        string missing = Path.Combine(root, "missing-parent", "child");
+        Exception? missingError = Stimulus(() => File.WriteAllText(missing, "write"));
+        Check(missingError is DirectoryNotFoundException, "missing-parent write actually fails");
+        report = FileAccessDiagnostics.Describe(missing, missingError, "create missing-parent file");
+        Check(report.Contains(missing) && report.Contains("Nearest observed existing parent directory: " + root)
+            && report.Contains("not found") && report.Contains("not attempted"), "missing-parent report identifies nearest existing directory");
+
+        string parentFile = Path.Combine(root, "parent-is-file");
+        File.WriteAllText(parentFile, "parent sentinel");
+        string beneathFile = Path.Combine(parentFile, "child");
+        Exception? parentError = Stimulus(() => File.WriteAllText(beneathFile, "write"));
+        Check(parentError is IOException, "file-as-parent write actually fails");
+        report = FileAccessDiagnostics.Describe(beneathFile, parentError, "create beneath file");
+        Check(report.Contains("Ancestor is not a directory: " + parentFile)
+            && report.Contains(beneathFile) && File.ReadAllText(parentFile) == "parent sentinel", "file-as-parent report preserves blocking file");
+
+        foreach (string? path in new string?[] { null, "", Path.Combine(root, "bad\0name"), Path.Combine(root, new string('x', 5000)) })
+        {
+            Exception? actual = Stimulus(() => File.WriteAllText(path!, "hostile path stimulus"));
+            Check(actual != null, "invalid-path write actually fails");
+            report = FileAccessDiagnostics.Describe(path, actual, "hostile-path operation");
+            Check(report.Length > 0 && report.Contains("hostile-path operation") && report.Contains(actual!.GetType().FullName!),
+                "invalid-path diagnostics never throw and retain actual exception");
+        }
+        var hostile = new ThrowingMessage();
+        Check(Stimulus(() => _ = hostile.Message) is InvalidOperationException, "hostile Message getter actually throws");
+        report = FileAccessDiagnostics.Describe(collision, hostile, "hostile exception");
+        Check(report.Contains(nameof(ThrowingMessage)) && report.Contains("unknown message") && report.Contains("0x81234567"),
+            "throwing Message diagnostics retain type and HResult");
+        Check(FileAccessDiagnostics.Describe(null, null, null).Contains("none supplied"), "null diagnostic inputs never throw");
+    }
+
+    record Observation(long Available, string Identity);
+
+    static Observation Observe(string path)
+    {
+        var result = Run("stat", "-f", "-c", "%a %S %i", path);
+        Check(result.Code == 0, "independent stat filesystem observation succeeds");
+        string[] fields = result.Out.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return new(checked(long.Parse(fields[0], CultureInfo.InvariantCulture) * long.Parse(fields[1], CultureInfo.InvariantCulture)), fields[2]);
+    }
+
+    static DiskSpace.Inspection Measured(string destination, string existing, string volume)
+    {
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            Observation before = Observe(existing);
+            var space = DiskSpace.Inspect(destination);
+            Observation after = Observe(existing);
+            if (before.Available != after.Available) continue;
+            Check(space.AvailableBytes == before.Available, "Inspect available bytes exactly match stable independent stat observation");
+            Check(space.ExistingPath == existing && space.VolumePath == volume && space.DestinationPath == destination,
+                "Inspect retains destination and resolves actual existing path and mount");
+            return space;
+        }
+        throw new AssertionFailure("filesystem observation never stabilized; no guessed tolerance");
+    }
+
+    static void Space()
+    {
+        string root = Fresh("space");
+        Measured(Path.Combine(root, "missing", "destination"), root, "/tmp");
+        string second = Path.Combine("/dev/shm", "phv-diagnostics-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(second);
+        Check(Observe(root).Identity != Observe(second).Identity, "tmp and shm are actually separate filesystems");
+        Measured(Path.Combine(second, "missing", "destination"), second, "/dev/shm");
+        string link = Path.Combine(root, "routed");
+        Directory.CreateSymbolicLink(link, second);
+        string throughLink = Path.Combine(link, "write-control");
+        File.WriteAllText(throughLink, "symlink destination sentinel");
+        Check(File.ReadAllText(Path.Combine(second, "write-control")) == "symlink destination sentinel", "symlink write actually reaches alternate filesystem");
+        Measured(Path.Combine(link, "new", "destination"), second, "/dev/shm");
+        Measured(throughLink, Path.Combine(second, "write-control"), "/dev/shm");
+
+        foreach (var measurement in new[] {
+            new DiskSpace.Measurement(null, null, "unknown sentinel"),
+            new DiskSpace.Measurement("fixture-volume", null),
+            new DiskSpace.Measurement("fixture-volume", -1),
+            new DiskSpace.Measurement(null, 0),
+            new DiskSpace.Measurement("fixture-volume", 0, "failed measurement sentinel") })
+        {
+            int calls = 0;
+            var result = DiskSpace.EnsureAvailable(root, long.MaxValue, "unknown measurement", path =>
+            {
+                calls++;
+                Check(path == root, "injected measurement receives actual existing path");
+                return measurement;
+            });
+            Check(calls == 1 && result.Space.AvailableBytes == null && result.Status == DiskSpace.Availability.Unknown
+                && result.Message.Contains("unknown"), "unknown measurement is never classified as full and never throws");
+        }
+        int throws = 0;
+        var thrown = DiskSpace.EnsureAvailable(root, 1, "throwing measurement", _ =>
+        {
+            throws++;
+            throw new IOException("injected measurement fault sentinel");
+        });
+        Check(throws == 1 && thrown.Status == DiskSpace.Availability.Unknown && thrown.Space.AvailableBytes == null
+            && thrown.Message.Contains("injected measurement fault sentinel"), "thrown measurement remains unknown without rejection");
+
+        foreach (long available in new[] { 0L, 1L, 123456789L, long.MaxValue - 1, long.MaxValue })
+        {
+            var space = new DiskSpace.Inspection(root, root, "fixture-volume", available);
+            var equal = DiskSpace.Assess(space, available, "exact boundary");
+            Check(equal.Status == DiskSpace.Availability.Sufficient && equal.RequiredBytes == available,
+                "exact boundary including zero and Int64 maximum is sufficient");
+            Check(DiskSpace.EnsureAvailable(root, available, "exact boundary", _ => new("fixture-volume", available)).Status
+                == DiskSpace.Availability.Sufficient, "EnsureAvailable accepts exact boundary without arbitrary reserve");
+            if (available < long.MaxValue)
+            {
+                var over = DiskSpace.Assess(space, available + 1, "one byte over");
+                Check(over.Status == DiskSpace.Availability.Insufficient && over.RequiredBytes == available + 1,
+                    "one byte over exact boundary is insufficient without overflow");
+            }
+        }
+        var huge = DiskSpace.Assess(new(root, root, "fixture-volume", 0), long.MaxValue, "huge allocation");
+        Check(huge.Status == DiskSpace.Availability.Insufficient && huge.Message.Contains(long.MaxValue.ToString(CultureInfo.InvariantCulture)),
+            "large required count never wraps negative");
+        foreach (long? unknown in new long?[] { null, -1, long.MinValue })
+            Check(DiskSpace.EnsureAvailable(root, unknown, "unknown requirement", _ => new("fixture-volume", 0)).Status
+                == DiskSpace.Availability.Unknown, "unknown or negative required bytes never masquerade as sufficient/full");
+        string blocked = Path.Combine(root, "blocking-file");
+        File.WriteAllText(blocked, "disk parent sentinel");
+        Check(Stimulus(() => File.WriteAllText(Path.Combine(blocked, "child"), "write")) is IOException,
+            "disk file-as-parent fault actually occurs");
+        Check(DiskSpace.Inspect(Path.Combine(blocked, "child")).AvailableBytes == null
+            && File.ReadAllText(blocked) == "disk parent sentinel", "invalid ancestor produces unknown and preserves parent");
+        foreach (string? path in new string?[] { null, "", Path.Combine(root, "bad\0path"), Path.Combine(root, new string('x', 5000)) })
+        {
+            Check(Stimulus(() => File.WriteAllText(path!, "bad path")) != null, "invalid disk path stimulus fails");
+            var inspection = DiskSpace.Inspect(path);
+            Check(inspection.AvailableBytes == null && !string.IsNullOrEmpty(inspection.Error), "invalid disk destination is unknown with a reason");
+        }
+    }
+
+    static void LowSpace()
+    {
+        string destination = Path.Combine(Root, "future-target");
+        const long available = 314159;
+        const long required = available + 1;
+        int calls = 0;
+        Exception? error = Stimulus(() => DiskSpace.EnsureAvailable(destination, required, "fixture allocation", _ =>
+        {
+            calls++;
+            return new("measured-fixture-volume", available);
+        }));
+        Check(calls == 1, "low-space measurement positive control");
+        Check(error is DiskSpace.InsufficientDiskSpaceException, "LOW_SPACE_REJECTS");
+        var insufficient = (DiskSpace.InsufficientDiskSpaceException)error!;
+        Check(insufficient.Assessment.Status == DiskSpace.Availability.Insufficient
+            && insufficient.Assessment.RequiredBytes == required && insufficient.Assessment.Space.AvailableBytes == available
+            && insufficient.Assessment.Space.DestinationPath == destination && insufficient.Message.Contains(destination)
+            && insufficient.Message.Contains("required additional bytes: " + required)
+            && insufficient.Message.Contains("available bytes: " + available) && insufficient.Message.Contains("fixture allocation"),
+            "named insufficient exception contains actual required available destination and operation");
+    }
+
+    static string[] LogFiles(string root) => Directory.GetFiles(root, FileName + "*", SearchOption.AllDirectories)
+        .Where(path => !path.EndsWith(".lock", StringComparison.Ordinal)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+
+    static string Logs(string root) => string.Join("\n", LogFiles(root).Select(File.ReadAllText));
+
+    static void Bound(string root)
+    {
+        string[] files = LogFiles(root);
+        Check(files.Length is >= 1 and <= 4 && files.All(path => new FileInfo(path).Length <= FileLimit)
+            && files.Sum(path => new FileInfo(path).Length) <= 4L * FileLimit, "logs bounded to four files of at most one MiB each");
+        Check(files.All(path => Path.GetFileName(path) == FileName
+            || Enumerable.Range(1, 3).Any(i => Path.GetFileName(path) == FileName + "." + i)), "only expected rotation names exist");
+    }
+
+    static void LogSecrets(string shape, string root)
+    {
+        string[] fields = { "launch", "fixture-world", Password, "example.invalid", "2456", "example.invalid", "https",
+            "0", "fixture-user", "field9", Companion, "field11", "playerConfig=" + Player };
+        string decoded = string.Join("?", fields);
+        string payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(decoded));
+        string companionPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("?", fields.Take(12))));
+        string uri = "phvalheim://?" + payload;
+        string launch = "--phvalheim-launch " + payload;
+        string launchEquals = "--phvalheim-launch=" + payload;
+        string[] raw = shape switch {
+            "uri" or "uri-fallback" => new[] { uri }, "uri-escaped" => new[] { Uri.EscapeDataString(uri) },
+            "launch" => new[] { "--phvalheim-launch", payload }, "launch-equals" => new[] { launchEquals },
+            _ => throw new AssertionFailure("unknown argument shape")
+        };
+        string[] secrets = { Password, Companion, Player, decoded, payload, companionPayload, uri, launch, launchEquals };
+        string[] forms = secrets.SelectMany(value => new[] { value, Uri.EscapeDataString(value),
+            Uri.EscapeDataString(Uri.EscapeDataString(value)), Uri.EscapeDataString(value).Replace("%20", "+") }).Distinct().ToArray();
+        string input = Ordinary + "\n" + string.Join("\n", forms.Select(value => "credential stimulus: " + value));
+        Check(forms.All(input.Contains) && fields[10] == Companion && fields[12] == "playerConfig=" + Player,
+            "all raw encoded credential forms and field positions are present in stimulus");
+        string directory = Path.Combine(root, "logs");
+        if (shape == "uri-fallback")
+        {
+            File.WriteAllText(directory, "secret fallback blocker sentinel");
+            Check(Stimulus(() => Directory.CreateDirectory(directory)) is IOException, "secret fallback primary path actually blocked");
+            directory = Path.Combine(root, "temp", "logs");
+        }
+        DiagnosticLog.Initialize(raw, root);
+        DiagnosticLog.Write("normal-sentinel", Ordinary);
+        DiagnosticLog.Write("secret-stimulus", input);
+        DiagnosticLog.Failure("exception-stimulus", new IOException(input));
+        DiagnosticLog.Write(Password, "step-redaction-control");
+        DiagnosticLog.Failure("hostile-exception-control", new ThrowingMessage());
+        string text = Logs(root);
+        Check(text.Contains("Begin run;") && text.Contains("normal-sentinel") && text.Contains("secret-stimulus")
+            && text.Contains("exception-stimulus") && text.Contains("System.IO.IOException") && text.Contains(Ordinary)
+            && text.Contains("step-redaction-control") && text.Contains("hostile-exception-control"), "all log stimuli reached disk with ordinary path and user retained");
+        Check(forms.All(value => !text.Contains(value, StringComparison.Ordinal)), "REDACTION_SECRET_ABSENT");
+        Check(text.Contains("[REDACTED]"), "redaction replacement positive control");
+        Check(DiagnosticLog.SupportLine.Contains(Path.Combine(directory, FileName)), "log support path points to actual fixture file");
+        Check(File.Exists(Path.Combine(directory, FileName)), "log file exists");
+        Bound(root);
+    }
+
+    static void LogFallback(string root)
+    {
+        string blocked = Path.Combine(root, "logs");
+        File.WriteAllText(blocked, "fallback-blocker-sentinel");
+        Check(Stimulus(() => Directory.CreateDirectory(blocked)) is IOException, "primary log directory creation actually blocked by file");
+        DiagnosticLog.Initialize(Array.Empty<string>(), root);
+        DiagnosticLog.Write("fallback entry sentinel");
+        string fallback = Path.Combine(root, "temp", "logs", FileName);
+        string fallbackParent = Path.Combine(root, "temp");
+        if (!OperatingSystem.IsWindows() && Directory.Exists(fallbackParent))
+            Console.WriteLine("OBSERVED: fallback parent Unix mode " + File.GetUnixFileMode(fallbackParent));
+        Check(File.ReadAllText(blocked) == "fallback-blocker-sentinel" && File.Exists(fallback)
+            && File.ReadAllText(fallback).Contains("fallback entry sentinel") && DiagnosticLog.SupportLine.Contains(fallback),
+            "fallback file receives entry and primary blocker is preserved");
+        Bound(root);
+    }
+
+    static void LogBlocked(string root)
+    {
+        foreach (string name in new[] { "logs", "temp" })
+        {
+            string path = Path.Combine(root, name);
+            File.WriteAllText(path, name + " blocker sentinel");
+            Check(Stimulus(() => Directory.CreateDirectory(path)) is IOException, "both log destinations really blocked by files");
+        }
+        var warning = new StringWriter();
+        TextWriter previous = Console.Error;
+        try
+        {
+            Console.SetError(warning);
+            DiagnosticLog.Initialize(Array.Empty<string>(), root);
+            for (int i = 0; i < 12; i++)
+            {
+                DiagnosticLog.Write("blocked write stimulus " + i);
+                DiagnosticLog.Failure("blocked failure stimulus", new IOException("blocked exception"));
+                DiagnosticLog.Initialize(Array.Empty<string>(), root);
+            }
+        }
+        finally { Console.SetError(previous); }
+        string[] lines = warning.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Check(lines.Length == 1 && lines[0].Contains("Warning: diagnostic logging unavailable")
+            && lines[0].Contains("continue"), "all paths blocked emits exactly one warning and continues");
+        Check(DiagnosticLog.SupportLine.Contains("unavailable") && LogFiles(root).Length == 0
+            && File.ReadAllText(Path.Combine(root, "logs")) == "logs blocker sentinel"
+            && File.ReadAllText(Path.Combine(root, "temp")) == "temp blocker sentinel", "blocked logging preserves both fault sentinels without creating logs");
+    }
+
+    static void LogRun(string root, string sentinel)
+    {
+        DiagnosticLog.Initialize(Array.Empty<string>(), root);
+        DiagnosticLog.Write(sentinel);
+        Check(File.ReadAllText(Path.Combine(root, "logs", FileName)).Contains(sentinel), "fresh process writes run sentinel");
+    }
+
+    static void RunRotation()
+    {
+        string root = Fresh("run-rotation");
+        for (int run = 0; run < 6; run++)
+        {
+            Child("log-run", root, "RUN-SENTINEL-" + run);
+            Bound(root);
+            for (int age = 0; age <= Math.Min(run, 3); age++)
+            {
+                string path = Path.Combine(root, "logs", FileName + (age == 0 ? "" : "." + age));
+                Check(File.ReadAllText(path).Contains("RUN-SENTINEL-" + (run - age)), "run rotation preserves each retained generation sentinel");
+            }
+            if (run >= 4)
+                Check(!Logs(root).Contains("RUN-SENTINEL-" + (run - 4)), "observed older run expires after four generations");
+        }
+    }
+
+    static void LogSize(string root)
+    {
+        DiagnosticLog.Initialize(Array.Empty<string>(), root);
+        int last = -1;
+        for (int entry = 0; entry < 230; entry++)
+        {
+            DiagnosticLog.Write("SIZE-SENTINEL-" + entry.ToString("D4") + " " + new string('x', 24000));
+            if (entry == 0) Check(Logs(root).Contains("SIZE-SENTINEL-0000"), "oldest size sentinel was actually logged before expiration");
+            last = entry;
+        }
+        Bound(root);
+        string[] files = LogFiles(root);
+        Check(files.Length == 4, "size stimulus actually creates all four log generations");
+        var seen = new List<int>();
+        foreach (string file in files.Reverse())
+        {
+            string text = File.ReadAllText(file);
+            Check(text.Contains("SIZE-SENTINEL-"), "every retained size generation contains real entry sentinels");
+            foreach (string line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int marker = line.IndexOf("SIZE-SENTINEL-", StringComparison.Ordinal);
+                if (marker >= 0) seen.Add(int.Parse(line.Substring(marker + "SIZE-SENTINEL-".Length, 4), CultureInfo.InvariantCulture));
+            }
+        }
+        Check(seen.Count > 1 && seen[0] > 0 && seen[^1] == last
+            && seen.SequenceEqual(Enumerable.Range(seen[0], last - seen[0] + 1)), "size rotation preserves consecutive complete newest sentinels and expires oldest");
+        DiagnosticLog.Write("AFTER-SIZE-ROTATION-SENTINEL");
+        Check(Logs(root).Contains("AFTER-SIZE-ROTATION-SENTINEL"), "logging continues after repeated size rotation");
+    }
+
+    static void LogConcurrent(string root)
+    {
+        DiagnosticLog.Initialize(Array.Empty<string>(), root);
+        Parallel.For(0, 8, worker =>
+        {
+            for (int entry = 0; entry < 30; entry++) DiagnosticLog.Write($"CONCURRENT-{worker:D2}-{entry:D2}-END");
+        });
+        string text = Logs(root);
+        Check(Enumerable.Range(0, 8).All(worker => Enumerable.Range(0, 30).All(entry =>
+            text.Split($"CONCURRENT-{worker:D2}-{entry:D2}-END", StringSplitOptions.None).Length == 2)),
+            "all 240 concurrent entries are intact and occur exactly once");
+        Bound(root);
+    }
+
+    record Result(int Code, string Out, string Error);
+
+    static Result Run(string executable, params string[] args)
+    {
+        var start = new ProcessStartInfo(executable) { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string arg in args) start.ArgumentList.Add(arg);
+        using var process = Process.Start(start)!;
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderr = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(10000))
+        {
+            process.Kill(true);
+            throw new AssertionFailure("child process exceeded ten-second deadline");
+        }
+        return new(process.ExitCode, stdout.GetAwaiter().GetResult(), stderr.GetAwaiter().GetResult());
+    }
+
+    static void Child(params string[] args)
+    {
+        var result = Run("dotnet", new[] { Assembly.GetExecutingAssembly().Location }.Concat(args).ToArray());
+        Console.Write(result.Out);
+        if (result.Code != 0) Console.Error.Write(result.Error);
+        Check(result.Code == 0, "isolated process " + args[0] + " passed");
+        Check(result.Out.Contains("PASS:") && result.Error.Length == 0, "child positive control present without unexpected stderr");
+    }
+
+    static void Mutate(string kind, string directory)
+    {
+        string path = Path.Combine(directory, kind == "low" ? "DiskSpace.cs" : "DiagnosticLog.cs");
+        string source = File.ReadAllText(path);
+        string before = kind == "low" ? "if (assessment.Status == Availability.Insufficient)" : "string result = Sanitize(text);";
+        string after = kind == "low" ? "if (assessment.Status == Availability.Insufficient && operation == null)" : "if (text.Length >= 0) return text;\n                string result = Sanitize(text);";
+        Check(source.Split(before, StringSplitOptions.None).Length == 2, "mutation anchor occurs exactly once");
+        File.WriteAllText(path, source.Replace(before, after, StringComparison.Ordinal));
+    }
+
+    sealed class AssertionFailure(string message) : Exception(message);
+    sealed class ThrowingMessage : IOException
+    {
+        public ThrowingMessage() { HResult = unchecked((int)0x81234567); }
+        public override string Message => throw new InvalidOperationException("Message fault sentinel");
+    }
+}
