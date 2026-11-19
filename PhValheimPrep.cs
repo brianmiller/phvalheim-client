@@ -97,8 +97,16 @@ namespace PhValheim.Prep
 
             try
             {
-                using var outputFile = new StreamWriter(backendFile, false, encoding);
-                outputFile.Write(phvalheimURL);
+                if (OperatingSystem.IsWindows())
+                {
+                    byte[] bytes = encoding.GetBytes(phvalheimURL);
+                    ManagedFile.Write(backendFile, stream => stream.Write(bytes, 0, bytes.Length));
+                }
+                else
+                {
+                    using var outputFile = new StreamWriter(backendFile, false, encoding);
+                    outputFile.Write(phvalheimURL);
+                }
             }
             catch (Exception e)
             {

@@ -543,21 +543,27 @@ namespace PhValheim.Syncer
             }
 
             // ---- doorstop into the Valheim directory -----------------------------------
-            //
-            // Unconditional, as before: the guard that used to wrap this was commented out and
-            // the variable it tested was never read. Copying four small files is cheap and
-            // being certain they match the payload is worth more than skipping them.
             Ui.Step("Mod loader");
-            string loaderDestination = Path.Combine(valheimDir, "doorstop_libs");
+            string[] loaderFiles = OperatingSystem.IsWindows()
+                ? new[] { "doorstop_config.ini", "winhttp.dll" }
+                : OperatingSystem.IsLinux()
+                    ? new[] { Path.Combine("doorstop_libs", "libdoorstop_x64.so"), "doorstop_config.ini" }
+                    : Array.Empty<string>();
+            string loaderDestination = valheimDir;
+            string loaderOperation = "copy mod loader";
             try
             {
-                Tooling.PhValheim.CloneDirectory(Path.Combine(localWorldDir, "doorstop_libs"), loaderDestination, measure);
-                loaderDestination = Path.Combine(valheimDir, "doorstop_config.ini");
-                Tooling.PhValheim.CopyFile(Path.Combine(localWorldDir, "doorstop_config.ini"), loaderDestination, measure);
-                if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                if (OperatingSystem.IsLinux())
                 {
-                    loaderDestination = Path.Combine(valheimDir, "winhttp.dll");
-                    Tooling.PhValheim.CopyFile(Path.Combine(localWorldDir, "winhttp.dll"), loaderDestination, measure);
+                    loaderDestination = Path.Combine(valheimDir, "doorstop_libs");
+                    loaderOperation = "create mod loader directory";
+                    Directory.CreateDirectory(loaderDestination);
+                }
+                loaderOperation = "copy mod loader";
+                foreach (string file in loaderFiles)
+                {
+                    loaderDestination = Path.Combine(valheimDir, file);
+                    Tooling.PhValheim.CopyFile(Path.Combine(localWorldDir, file), loaderDestination, measure);
                 }
             }
             catch (Exception e)
@@ -565,16 +571,17 @@ namespace PhValheim.Syncer
                 // Named distinctly from the check below. Both printed the SAME sentence, so
                 // "the copy threw" and "the copy claimed to work and the file is not there"
                 // were indistinguishable in a bug report -- and they have different causes.
-                string[] details = FileFailureDetails(e, loaderDestination, "copy mod loader", measure);
+                string[] details = FileFailureDetails(e, loaderDestination, loaderOperation, measure);
                 Ui.Fail("failed");
                 Ui.Error("PhValheim could not install the mod loader into your Valheim folder.",
                          details);
                 return false;
             }
 
-            if (!File.Exists(Path.Combine(valheimDir, "doorstop_config.ini")))
+            foreach (string file in loaderFiles)
             {
-                string path = Path.Combine(valheimDir, "doorstop_config.ini");
+                string path = Path.Combine(valheimDir, file);
+                if (File.Exists(path)) continue;
                 DiagnosticLog.Write("verify mod loader", "Copied file missing on verification: '" + path
                     + "'. File.Exists returned false; the cause is unknown.");
                 DiagnosticLog.Write("mod loader verification file access",

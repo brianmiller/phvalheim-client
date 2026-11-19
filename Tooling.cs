@@ -71,6 +71,7 @@ namespace PhValheim.Tooling
             }
             catch (Exception error)
             {
+                RecordSourceAttributes(source);
                 RecordFailure(error, source, "read source file length");
                 throw;
             }
@@ -82,13 +83,43 @@ namespace PhValheim.Tooling
                 DiagnosticLog.Write("copy disk space", assessment.Message);
                 if (assessment.Status == DiskSpace.Availability.Insufficient)
                     throw new DiskSpace.InsufficientDiskSpaceException(assessment);
-                File.Copy(source, destination, true);
+                if (OperatingSystem.IsWindows())
+                {
+                    using var sourceFileStream = File.OpenRead(source);
+                    ManagedFile.Write(destination, stream => sourceFileStream.CopyTo(stream));
+                }
+                else File.Copy(source, destination, true);
             }
             catch (Exception error)
             {
+                RecordSourceAttributes(source);
                 RecordFailure(error, destination, "copy file", true, required, measure);
                 throw;
             }
+        }
+
+        private static void RecordSourceAttributes(string source)
+        {
+            try
+            {
+                string details;
+                try
+                {
+                    var attributes = File.GetAttributes(source);
+                    details = "Source attributes: hidden=" + ((attributes & FileAttributes.Hidden) != 0)
+                        + ", read-only=" + ((attributes & FileAttributes.ReadOnly) != 0)
+                        + ", system=" + ((attributes & FileAttributes.System) != 0)
+                        + ", reparse=" + ((attributes & FileAttributes.ReparsePoint) != 0);
+                }
+                catch (Exception error)
+                {
+                    details = "Source attributes unavailable; " + error.GetType().FullName
+                        + "; HResult=0x" + error.HResult.ToString("X8") + "; " + error.Message;
+                }
+                DiagnosticLog.Write("copy source attributes", "Source: '" + source + "'; " + details
+                    + ". Observed after the failure; attributes may change.");
+            }
+            catch { }
         }
 
         private static void RecordFailure(Exception error, string path, string operation,

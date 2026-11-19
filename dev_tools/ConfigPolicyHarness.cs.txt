@@ -29,7 +29,7 @@ class Tests {
         Put(Path.Combine(src,"BepInEx/config/BepInEx.cfg"),"managed");
         Put(Path.Combine(src,"BepInEx/config/personal.json"),"{\"seen\":false}");
         Put(Path.Combine(src,"BepInEx/plugins/test.dll"),plugin);
-        Put(Path.Combine(src,"doorstop_libs/test.so"),"loader");
+        Put(Path.Combine(src,"doorstop_libs/libdoorstop_x64.so"),"loader");
         Put(Path.Combine(src,"doorstop_config.ini"),"loader");
         Put(Path.Combine(src,"winhttp.dll"),"loader");
         ZipFile.CreateFromDirectory(src,src+".zip");
