@@ -2,6 +2,10 @@ name: Verify prerelease package revision
 on:
   workflow_dispatch:
     inputs:
+      hidden_only:
+        description: Run only the exact-executable Hidden regression (installer checks must pass separately)
+        type: boolean
+        default: false
       candidate_release:
         description: Draft release containing the candidate MSI (matching the checkout version)
         type: string
@@ -14,6 +18,7 @@ permissions:
   contents: read
 jobs:
   windows:
+    if: ${{ !inputs.hidden_only }}
     # GitHub requires repository write access to download unpublished draft assets.
     permissions:
       contents: write
@@ -140,6 +145,7 @@ jobs:
           name: draft-windows-hidden-evidence
           path: hidden-evidence/
   windows-payload-negative-control:
+    if: ${{ !inputs.hidden_only }}
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -186,6 +192,7 @@ jobs:
           name: draft-windows-payload-negative-evidence
           path: payload-negative-evidence/
   macos:
+    if: ${{ !inputs.hidden_only }}
     runs-on: macos-15
     timeout-minutes: 25
     steps:

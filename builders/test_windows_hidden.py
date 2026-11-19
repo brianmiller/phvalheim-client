@@ -506,8 +506,10 @@ def main():
             for name in tuple(env):
                 if name.upper().startswith(("PHVALHEIM_", "PHV_TEST_", "DOTNET_", "CORECLR_", "COR_")):
                     del env[name]
+            # Keep the registered USERPROFILE so the probe and client can resolve
+            # ApplicationData; isolate_diagnostics redirects its PhValheim directory.
             for name, directory in (("APPDATA", "roaming"), ("LOCALAPPDATA", "local"),
-                                    ("USERPROFILE", "profile"), ("TEMP", "temp"), ("TMP", "temp")):
+                                    ("TEMP", "temp"), ("TMP", "temp")):
                 path = root / directory
                 path.mkdir(exist_ok=True)
                 env[name] = str(path)
