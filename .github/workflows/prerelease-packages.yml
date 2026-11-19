@@ -2,6 +2,10 @@ name: Verify prerelease package revision
 on:
   workflow_dispatch:
     inputs:
+      macos_only:
+        description: Run only the macOS package build and install checks
+        type: boolean
+        default: false
       hidden_only:
         description: Run only the exact-executable Hidden regression (installer checks must pass separately)
         type: boolean
@@ -18,7 +22,7 @@ permissions:
   contents: read
 jobs:
   windows:
-    if: ${{ !inputs.hidden_only }}
+    if: ${{ !inputs.macos_only && !inputs.hidden_only }}
     # GitHub requires repository write access to download unpublished draft assets.
     permissions:
       contents: write
@@ -86,6 +90,7 @@ jobs:
             msi-logs/
             screens/
   windows-hidden:
+    if: ${{ !inputs.macos_only }}
     permissions:
       contents: write
     runs-on: windows-latest
@@ -151,7 +156,7 @@ jobs:
           name: draft-windows-hidden-evidence
           path: hidden-evidence/
   windows-payload-negative-control:
-    if: ${{ !inputs.hidden_only }}
+    if: ${{ !inputs.macos_only && !inputs.hidden_only }}
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -217,9 +222,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download 2.0.17 -p '*macos-universal.tar.gz' -p macinstall.sh -D old
-          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.17-macos-universal.tar.gz" bash old/macinstall.sh install
-          bash builders/verify_macos.sh 2.0.17
+          gh release download 2.0.18 -p '*macos-universal.tar.gz' -p macinstall.sh -D old
+          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.18-macos-universal.tar.gz" bash old/macinstall.sh install
+          bash builders/verify_macos.sh 2.0.18
       - name: Upgrade tarball and verify
         run: |
           PHVALHEIM_TARBALL="$PWD/builds/phvalheim-client-$PHV_VERSION-macos-universal.tar.gz" bash macinstall.sh install
@@ -229,7 +234,7 @@ jobs:
       - name: PKG upgrade from stable and reinstall
         run: |
           bash macinstall.sh uninstall
-          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.17-macos-universal.tar.gz" bash old/macinstall.sh install
+          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.18-macos-universal.tar.gz" bash old/macinstall.sh install
           for attempt in 1 2; do
             sudo installer -pkg "builds/phvalheim-client-$PHV_VERSION-macos-universal.pkg" -target /
             cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client
