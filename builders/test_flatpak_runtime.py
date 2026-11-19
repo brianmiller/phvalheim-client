@@ -782,7 +782,11 @@ def scenario_launch_lifecycle(port):
                 bad("lifecycle launch reached host game", "game record", "none")
                 return
             rc, out = sh(["flatpak", "run", APP_ID, launch_url(WORLD, port, False)], timeout=20)
-            contains("second launcher refuses a concurrent launch", "Another PhValheim launch is active", out)
+            out = " ".join(out.split())
+            contains("second launcher reports the failed lock operation", "could not open launch lock", out)
+            contains("second launcher identifies the lock path", ".launch.lock", out)
+            contains("second launcher reports the lock exception", "IOException", out)
+            contains("second launcher qualifies the concurrent launch hint", "Another PhValheim launch may be active", out)
             eq("second click did not start another game", rec["pid"], json.loads(VALHEIM_LOG.read_text())["pid"])
             first.wait(timeout=15)
             log.seek(0)
