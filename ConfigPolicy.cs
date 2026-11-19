@@ -131,6 +131,88 @@ internal static class ConfigPolicy
         }
     }
 
+    private static long PersonalBytes(string source)
+    {
+        FileAttributes attributes;
+        try { attributes = File.GetAttributes(source); }
+        catch (FileNotFoundException) { return 0; }
+        catch (DirectoryNotFoundException) { return 0; }
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Cannot estimate a symbolic config path: " + source);
+        long bytes = 0;
+        foreach (string path in Directory.EnumerateFileSystemEntries(source))
+        {
+            var attrs = File.GetAttributes(path);
+            if ((attrs & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Cannot estimate a symbolic config path: " + path);
+            string name = Path.GetFileName(path);
+            if (name == ManifestName || SystemFiles.Contains(name)) continue;
+            bytes = checked(bytes + ((attrs & FileAttributes.Directory) != 0
+                ? PersonalBytes(path) : new FileInfo(path).Length));
+        }
+        return bytes;
+    }
+
+    private static long StagedConfigBytes(string source, bool includeManaged)
+    {
+        // Check ancestors too: an ordinary config directory can sit below a link.
+        for (var directory = new DirectoryInfo(source); directory != null; directory = directory.Parent)
+        {
+            try
+            {
+                if ((File.GetAttributes(directory.FullName) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Cannot estimate a symbolic config path: " + directory.FullName);
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+        }
+        long bytes = PersonalBytes(source);
+        if (includeManaged)
+            foreach (string name in SystemFiles.Append(ManifestName))
+            {
+                string path = Path.Combine(source, name);
+                if (File.Exists(path)) bytes = checked(bytes + new FileInfo(path).Length);
+            }
+        return bytes;
+    }
+
+    private static long ArchiveStageBytes(string archive, string existing)
+    {
+        long bytes = 0;
+        using (var zip = ZipFile.OpenRead(archive))
+            foreach (var entry in zip.Entries)
+            {
+                long length = entry.Length;
+                if (length < 0) throw new InvalidDataException("Negative archive entry length: " + archive);
+                bytes = checked(bytes + length);
+            }
+        // Conservatively include personal copies even if the archive has no policy.
+        return checked(bytes + StagedConfigBytes(existing, includeManaged: false));
+    }
+
+    private static void EnsureStageSpace(string stage, Func<long> estimate, string operation,
+                                         Func<string, DiskSpace.Measurement>? measure)
+    {
+        long? required = null;
+        try { required = estimate(); }
+        catch (Exception ex)
+        {
+            DiagnosticLog.Write(operation, "Required additional bytes unknown for staging path: " + stage);
+            DiagnosticLog.Failure(operation, ex);
+        }
+        try
+        {
+            var assessment = DiskSpace.EnsureAvailable(stage, required, operation, measure);
+            DiagnosticLog.Write(operation, assessment.Message);
+        }
+        catch (DiskSpace.InsufficientDiskSpaceException ex)
+        {
+            DiagnosticLog.Write(operation, ex.Assessment.Message);
+            DiagnosticLog.Failure(operation, ex);
+            throw;
+        }
+    }
+
     private static void Apply(string directory, Policy policy, Policy? previous)
     {
         var active = policy.Files.ToDictionary(f => f.File, StringComparer.OrdinalIgnoreCase);
@@ -174,16 +256,19 @@ internal static class ConfigPolicy
         if (existed) { try { Directory.Delete(backup, true); } catch { } }
     }
 
-    internal static void InstallArchive(string archive, string world, bool full)
+    internal static void InstallArchive(string archive, string world, bool full,
+                                        Func<string, DiskSpace.Measurement>? measure = null)
     {
         string parent = Path.GetDirectoryName(world)!;
-        Directory.CreateDirectory(parent);
         string stage = Path.Combine(parent, ".phvalheim-stage-" + Guid.NewGuid().ToString("N"));
+        string existing = Path.Combine(world, "BepInEx", "config");
+        EnsureStageSpace(stage, () => ArchiveStageBytes(archive, existing),
+            $"Archive staging estimate from '{archive}' and personal files in '{existing}'", measure);
+        Directory.CreateDirectory(parent);
         try
         {
             ZipFile.ExtractToDirectory(archive, stage);
             string incoming = Path.Combine(stage, "BepInEx", "config");
-            string existing = Path.Combine(world, "BepInEx", "config");
             var policy = Read(incoming);
             if (policy != null)
             {
@@ -202,13 +287,16 @@ internal static class ConfigPolicy
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
     }
 
-    internal static void Enforce(string world, List<PlayerConfig.Entry>? personal = null)
+    internal static void Enforce(string world, List<PlayerConfig.Entry>? personal = null,
+                                 Func<string, DiskSpace.Measurement>? measure = null)
     {
         string directory = Path.Combine(world, "BepInEx", "config");
         var policy = Read(directory);
         if (policy == null) return;
         // Nothing to enforce when every value is personal. Missing defaults still get seeded.
         string stage = directory + ".apply-" + Guid.NewGuid().ToString("N");
+        EnsureStageSpace(stage, () => StagedConfigBytes(directory, includeManaged: true),
+            $"Config staging copy estimate from '{directory}'", measure);
         try
         {
             Directory.CreateDirectory(stage);

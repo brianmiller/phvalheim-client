@@ -8,24 +8,34 @@ namespace PhValheim;
 /// </summary>
 internal static class LaunchGuard
 {
-    internal static FileStream? Acquire(string directory, out string error)
+    internal static FileStream? Acquire(string directory, out string error,
+        Action<string, Exception, string>? onFailure = null)
     {
+        string path = directory;
+        string operation = "create directory";
         try
         {
             Directory.CreateDirectory(directory);
-            var lease = new FileStream(Path.Combine(directory, ".launch.lock"),
+            path = Path.Combine(directory, ".launch.lock");
+            operation = "open launch lock";
+            var lease = new FileStream(path,
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             error = "";
             return lease;
         }
-        catch (IOException)
+        catch (IOException e)
         {
-            error = "Another PhValheim launch is active, or its launch lock could not be opened. "
-                + "Close the previous launcher before trying again.";
+            error = $"PhValheim could not {operation} at '{path}'. {e.GetType().Name}: {e.Message} "
+                + "Another PhValheim launch may be active, or a filesystem problem may prevent access.";
+            try { onFailure?.Invoke(path, e, operation); }
+            catch { }
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException e)
         {
-            error = "PhValheim cannot open its launch lock. Check access to your PhValheim folder.";
+            error = $"PhValheim could not {operation} at '{path}'. {e.GetType().Name}: {e.Message} "
+                + "Check access to your PhValheim folder.";
+            try { onFailure?.Invoke(path, e, operation); }
+            catch { }
         }
         return null;
     }

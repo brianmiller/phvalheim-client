@@ -7,6 +7,12 @@ namespace PhValheim
 
         static void Main(string[] args)
         {
+            DiagnosticLog.Initialize(args);
+            Ui.DiagnosticSink = DiagnosticLog.Write;
+            Ui.DiagnosticSupportLine = () => DiagnosticLog.SupportLine;
+            Ui.DiagnosticRedactor = DiagnosticLog.Redact;
+            string stage = "startup";
+
             // A crash must not take its own explanation with it.
             //
             // This client is normally started by a phvalheim:// URL handler, which gives it a
@@ -20,23 +26,20 @@ namespace PhValheim
             // non-zero exit would be just as invisible.
             try
             {
-                Run(args);
+                Run(args, ref stage);
             }
             catch (Exception e)
             {
+                DiagnosticLog.Failure(stage, e);
                 Ui.Error("PhValheim hit an unexpected problem and could not finish.",
                          e.GetType().Name + ": " + e.Message);
-                Ui.Blank();
-                Ui.Line("The technical detail below is what to send if you report this:");
-                Ui.Blank();
-                Console.WriteLine(e.ToString());
                 Ui.PressEnterToExit();
                 // Hold the window even when there is no stdin for Enter to arrive on.
                 Thread.Sleep(30000);
             }
         }
 
-        static void Run(string[] args)
+        static void Run(string[] args, ref string stage)
         {
 
             System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
@@ -59,6 +62,7 @@ namespace PhValheim
 
 
             //take in and process all arguments from our URL handler
+            stage = "argument parsing";
             if (!Arguments.PhValheim.argHandler(ref args, ref argumentsPassed, ref command, ref worldName, ref worldPassword, ref worldHost, ref worldPort, ref texturePack, ref phvalheimHost, ref httpScheme, ref isVanilla))
             {
                 Ui.PressEnterToExit();
@@ -79,6 +83,7 @@ namespace PhValheim
                 Ui.Field("World", worldName + (isVanilla ? "  (vanilla - no mods)" : "  (modded)"));
                 Ui.Blank();
 
+                stage = "platform initialization";
                 if (!Platform.State.init(worldName, phvalheimHostNoPort)) {
                     Ui.PressEnterToExit();
                     return;
@@ -92,13 +97,26 @@ namespace PhValheim
 
                 // Lock BEFORE any sync/prep writes. A second browser click must
                 // neither start another game nor replace files under a running one.
-                using var launchLease = LaunchGuard.Acquire(Platform.State.PhValheimDir, out var lockError);
+                stage = "launch lock acquisition";
+                using var launchLease = LaunchGuard.Acquire(Platform.State.PhValheimDir, out var lockError,
+                    (path, error, operation) =>
+                    {
+                        DiagnosticLog.Failure(operation + ": " + path, error);
+                        string evidence = FileAccessDiagnostics.Describe(path, error, operation);
+                        if (operation == "create directory")
+                            evidence = evidence.Replace("Possible reason: an existing directory occupies the expected file path."
+                                + Environment.NewLine, "");
+                        DiagnosticLog.Write(operation, evidence);
+                        DiagnosticLog.Write(operation + " disk snapshot",
+                            DiskSpace.Assess(DiskSpace.Inspect(path), null, operation).Message);
+                    });
                 if (launchLease == null)
                 {
                     Ui.Error(lockError);
                     Thread.Sleep(5000);
                     return;
                 }
+                stage = "game state check";
                 var gameState = Game.GetState();
                 if (gameState != GameState.Stopped)
                 {
@@ -110,10 +128,12 @@ namespace PhValheim
                 }
 
                 //check client version
+                stage = "client version check";
                 Ver.PhValheim.VersionCheck(phvalheimLauncherVersion);
 
 
                 //run through the PhValheim prep logic, exit if fails
+                stage = "client preparation";
                 if (!Prep.PhValheim.PhValheimPrep())
                 {
                     Ui.PressEnterToExit();
@@ -122,6 +142,7 @@ namespace PhValheim
 
 
                 //get our Valheim installation directory, exit if fails
+                stage = "Valheim installation lookup";
                 if (!Steam.PhValheim.ValheimGetter())
                 {
                     Ui.PressEnterToExit();
@@ -135,6 +156,7 @@ namespace PhValheim
                 if (!isVanilla)
                 {
                     //sync world to local disk
+                    stage = "world synchronization";
                     if (!Syncer.PhValheim.Sync(phvalheimURL))
                     {
                         Ui.PressEnterToExit();
@@ -143,7 +165,12 @@ namespace PhValheim
 
 
                     //write backend info to local file
-                    Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, phvalheimURL);
+                    stage = "backend file write";
+                    if (!Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, phvalheimURL))
+                    {
+                        Ui.PressEnterToExit();
+                        return;
+                    }
                 }
                 else
                 {
@@ -155,7 +182,9 @@ namespace PhValheim
 
 
                 //launch the game in the world context
+                stage = "game launch";
                 Launcher.PhValheim.Launch(ref worldPassword, ref worldHost, ref worldPort, isVanilla);
+                DiagnosticLog.Write(stage, "Launch request completed.");
 
 
                 // Stay up for as long as the game does.
@@ -176,6 +205,7 @@ namespace PhValheim
                 Ui.Line("Leave it open and it closes by itself when you quit Valheim.");
                 Ui.Blank();
 
+                stage = "waiting for game exit";
                 if (Game.WaitForExit())
                 {
                     Ui.Line("Valheim has closed. See you next time.");

@@ -276,6 +276,48 @@ flatpak run com.phvalheim.Client '<paste the phvalheim:// link here>'
 Same binary, same sandbox, same everything a click produces, with progress
 printed in your current terminal.
 
+## Troubleshooting — upcoming 2.0.19 / unreleased
+
+The diagnostics below are planned for 2.0.19 and are not yet published.
+
+### Launch fails with “access denied”
+
+The error names the failed file or directory and reports the actual exception.
+Attach the diagnostic log named in the error when reporting a failure. Its normal
+location is:
+
+| Platform | Diagnostic log |
+| --- | --- |
+| Windows | `%APPDATA%\PhValheim\logs\phvalheim-client.log` |
+| Linux | `~/.config/PhValheim/logs/phvalheim-client.log` |
+| macOS | `~/Library/Application Support/PhValheim/logs/phvalheim-client.log` |
+
+Logs rotate at a 1 MiB limit and at the start of a new run, retaining up to three
+archives (`phvalheim-client.log.1` through `.3`). If the normal folder is blocked,
+the client tries a temporary fallback; use the actual path printed in the error.
+If neither location works, it reports that diagnostic logging is unavailable.
+Tokens and passwords are redacted, but paths and usernames are intentionally
+retained for diagnosis. Review the log before sharing it publicly.
+
+On Windows, Controlled Folder Access is one possible cause, not a diagnosis.
+Check **Windows Security > Ransomware protection > Allow an app** for a relevant
+protected-folder rule. A `phvalheim.backend` write failure currently stops launch;
+the client does not automatically retry that write or change permissions.
+
+### Disk space during updates
+
+Space is checked before downloading file contents, before staged extraction
+(including preserved personal config files) and config staging, and before
+loader/backend writes. Check the reported destination volume: it may differ from
+the disk containing your operating system. Diagnostics show **required additional
+bytes** versus **available bytes** for that operation; existing files already
+occupy space and are not counted again as additional requirements.
+
+These are estimates at inspection time, not guarantees that an update will fit.
+An unknown size or unavailable measurement means space sufficiency is unknown;
+it does not establish that the disk is full. Failed staged updates preserve the
+existing installation.
+
 ## Uninstalling
 
 ### Universal Linux

@@ -1,0 +1,69 @@
+name: Native file diagnostics
+
+on:
+  pull_request:
+    paths:
+      - '**.cs'
+      - 'phvalheim-client.csproj'
+      - 'dev_tools/**'
+      - '.github/workflows/file-diagnostics.yml'
+  push:
+    branches: [master]
+    paths:
+      - '**.cs'
+      - 'phvalheim-client.csproj'
+      - 'dev_tools/**'
+      - '.github/workflows/file-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  file-diagnostics:
+    name: File diagnostics (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Require native .NET 9
+        run: dotnet --list-sdks | grep '^9\.'
+
+      - name: Prove the baseline fails at runtime
+        run: |
+          result=0
+          output=$(bash dev_tools/test-launch-diagnostics.sh --baseline a3828646e2ad9367615f560df53a399d4f6fce76 2>&1) || result=$?
+          printf '%s\n' "$output"
+          printf 'Baseline exit code: %s\n' "$result"
+          # Native Windows .NET emits CRLF; match complete assertion lines on every OS.
+          output=${output//$'\r'/}
+          if [[ $result != 1 ]]; then
+            echo '::error::Baseline must exit 1 for the expected runtime regression.'
+            exit 1
+          fi
+          if ! grep -Fxq 'RUN: native .NET 9 (baseline)' <<< "$output" ||
+             ! grep -Exq 'PASS: BACKEND_ACTUAL_DENIED_WRITE_(IOException|UnauthorizedAccessException)' <<< "$output" ||
+             ! grep -Fxq 'FAIL: BACKEND_RETURNS_FALSE_WITHOUT_THROW' <<< "$output" ||
+             ! grep -Eq '^LAUNCH DIAGNOSTICS: [0-9]+ passed, [1-9][0-9]* failed \(baseline; ' <<< "$output" ||
+             grep -Eq '^FAIL: .*_HARNESS_EXCEPTION_' <<< "$output"; then
+            echo '::error::Baseline lacks valid runtime regression evidence; build or harness setup failures do not qualify.'
+            exit 1
+          fi
+
+      - name: Verify current diagnostics and staging mutation
+        run: bash dev_tools/test-launch-diagnostics.sh

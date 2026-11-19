@@ -34,6 +34,55 @@ namespace PhValheim
         private static bool lastWasBlank = true;   // true, so a leading Blank() prints nothing
         private static bool stepOpen = false;
 
+        internal static Action<string, string>? DiagnosticSink { get; set; }
+        internal static Func<string>? DiagnosticSupportLine { get; set; }
+        internal static Func<string, string>? DiagnosticRedactor { get; set; }
+
+        [ThreadStatic]
+        private static bool diagnosticCallbackActive;
+
+        private static string Redact(string text)
+        {
+            var redactor = DiagnosticRedactor;
+            if (redactor == null) { return text; }
+            const string withheld = "[diagnostic text withheld: redaction unavailable]";
+            if (diagnosticCallbackActive) { return withheld; }
+            try
+            {
+                diagnosticCallbackActive = true;
+                return redactor(text) ?? withheld;
+            }
+            catch { return withheld; }
+            finally { diagnosticCallbackActive = false; }
+        }
+
+        private static void Log(string kind, string message)
+        {
+            var sink = DiagnosticSink;
+            if (sink == null || diagnosticCallbackActive) { return; }
+            message = Redact(message);
+            try
+            {
+                diagnosticCallbackActive = true;
+                sink(kind, message);
+            }
+            catch { }
+            finally { diagnosticCallbackActive = false; }
+        }
+
+        private static string SupportLine()
+        {
+            var provider = DiagnosticSupportLine;
+            if (provider == null || diagnosticCallbackActive) { return ""; }
+            try
+            {
+                diagnosticCallbackActive = true;
+                return provider() ?? "";
+            }
+            catch { return ""; }
+            finally { diagnosticCallbackActive = false; }
+        }
+
         // An in-place progress line, tracked SEPARATELY from stepOpen.
         //
         // It used to reuse stepOpen, and that is what stopped the download bar staying on one
@@ -191,6 +240,7 @@ namespace PhValheim
 
         public static void Banner(string version)
         {
+            version = Redact(version);
             Blank();
             Emit(Indent + "PhValheim Client " + version, ConsoleColor.Cyan);
             Emit(Indent + new string('-', Width - Indent.Length), ConsoleColor.DarkGray);
@@ -200,6 +250,9 @@ namespace PhValheim
         /// <summary>A label/value pair in the header block: "  Server    value".</summary>
         public static void Field(string label, string value)
         {
+            Log("Field", label + ": " + value);
+            label = Redact(label);
+            value = Redact(value);
             // Label dim, value normal: the eye should land on the value, which is the part
             // that differs between runs.
             CloseStep();
@@ -211,6 +264,8 @@ namespace PhValheim
         /// <summary>A section heading, for a phase with several lines of its own.</summary>
         public static void Section(string title)
         {
+            Log("Section", title);
+            title = Redact(title);
             Blank();
             Emit(Indent + title, ConsoleColor.Cyan);
         }
@@ -218,12 +273,16 @@ namespace PhValheim
         /// <summary>An ordinary line of prose, wrapped to the window.</summary>
         public static void Line(string message)
         {
+            Log("Line", message);
+            message = Redact(message);
             foreach (string l in WrapLines(message, Indent)) { Emit(l); }
         }
 
         /// <summary>Secondary detail, indented under whatever it belongs to.</summary>
         public static void Note(string message)
         {
+            Log("Note", message);
+            message = Redact(message);
             foreach (string l in WrapLines(message, Indent + "    ")) { Emit(l); }
         }
 
@@ -233,6 +292,8 @@ namespace PhValheim
         /// </summary>
         public static void Step(string label)
         {
+            Log("Step", label);
+            label = Redact(label);
             CloseStep();
             string head = Indent + label + " ";
             string dots = "";
@@ -260,6 +321,9 @@ namespace PhValheim
 
         private static void EndStep(string status, ConsoleColor colour)
         {
+            Log("EndStep", (colour == ConsoleColor.Red ? "failed: "
+                : colour == ConsoleColor.Yellow ? "warning: " : "done: ") + status);
+            status = Redact(status);
             if (!stepOpen) { Emit(Indent + status, colour); return; }
             stepOpen = false;
             Paint(status, colour);
@@ -280,9 +344,15 @@ namespace PhValheim
         /// </summary>
         public static void Compare(string what, string decides, string local, string server)
         {
+            bool same = (local == server);
+            Log("Compare", what + ": " + (same ? "SAME" : "DIFFER") + "; decides " + decides
+                + "; yours " + Shown(local) + "; server " + Shown(server));
             if (!Verbose) { return; }
 
-            bool same = (local == server);
+            what = Redact(what);
+            decides = Redact(decides);
+            local = Redact(local);
+            server = Redact(server);
             string head = Indent + "  [compare] " + what + " ";
             string dots = "";
             if (head.Length < StatusColumn) { dots = new string('.', StatusColumn - head.Length); }
@@ -307,7 +377,11 @@ namespace PhValheim
         /// </summary>
         public static void Reference(string what, string value, string why)
         {
+            Log("Reference", what + ": " + Shown(value) + "; not compared -- " + why);
             if (!Verbose) { return; }
+            what = Redact(what);
+            value = Redact(value);
+            why = Redact(why);
             Emit(Indent + "  [value]   " + what + " " + Shown(value), ConsoleColor.DarkGray);
             foreach (string l in WrapLines("not compared -- " + why, Indent + "            "))
             {
@@ -328,6 +402,8 @@ namespace PhValheim
         /// </summary>
         public static void Warning(string message, params string[] hints)
         {
+            Log("Warning", string.Join(Environment.NewLine, new[] { message }.Concat(hints)));
+            message = Redact(message);
             Blank();
             foreach (string l in WrapLines("WARNING: " + message, Indent))
             {
@@ -337,7 +413,7 @@ namespace PhValheim
             // colour hides which line is the problem and which is the remedy.
             foreach (string hint in hints)
             {
-                foreach (string l in WrapLines(hint, Indent + "         ")) { Emit(l); }
+                foreach (string l in WrapLines(Redact(hint), Indent + "         ")) { Emit(l); }
             }
             Blank();
         }
@@ -345,14 +421,33 @@ namespace PhValheim
         /// <summary>A problem that stops what we were doing.</summary>
         public static void Error(string message, params string[] hints)
         {
+            string support = SupportLine();
+            bool hasSupport = !string.IsNullOrWhiteSpace(support);
+            string redactedSupport = hasSupport ? Redact(support) : "";
+            var errorHints = new List<string>();
+            foreach (string hint in hints)
+            {
+                string redactedHint = Redact(hint);
+                if (!hasSupport || (hint != support && redactedHint != redactedSupport))
+                {
+                    errorHints.Add(redactedHint);
+                }
+            }
+            Log("Error", string.Join(Environment.NewLine, new[] { message }.Concat(errorHints))
+                + (hasSupport ? Environment.NewLine + redactedSupport : ""));
+            message = Redact(message);
             Blank();
             foreach (string l in WrapLines("ERROR: " + message, Indent))
             {
                 Emit(l, ConsoleColor.Red);
             }
-            foreach (string hint in hints)
+            foreach (string hint in errorHints)
             {
                 foreach (string l in WrapLines(hint, Indent + "       ")) { Emit(l); }
+            }
+            if (hasSupport)
+            {
+                Emit(Indent + "       " + redactedSupport);
             }
             Blank();
         }
@@ -368,6 +463,7 @@ namespace PhValheim
         /// </summary>
         public static void Command(string command)
         {
+            command = Redact(command);
             Emit(Indent + "    " + command, ConsoleColor.Cyan);
         }
 
@@ -381,13 +477,16 @@ namespace PhValheim
         /// </summary>
         public static void Detail(string label, string value)
         {
+            Log("Detail", label + ": " + value);
             if (!Verbose) { return; }
-            Emit(Indent + "  [" + label + "] " + value, ConsoleColor.DarkGray);
+            Emit(Indent + "  " + Redact("[" + label + "] " + value), ConsoleColor.DarkGray);
         }
 
         public static void Detail(string message)
         {
+            Log("Detail", message);
             if (!Verbose) { return; }
+            message = Redact(message);
             Emit(Indent + "  [debug] " + message, ConsoleColor.DarkGray);
         }
 
@@ -397,6 +496,7 @@ namespace PhValheim
         /// </summary>
         public static void Progress(string message)
         {
+            message = Redact(message);
             // Close a STEP, but never the progress line itself -- it is the thing being
             // rewritten. CloseStep() handles only an open step here because the progress flag
             // is cleared first; calling it unguarded would newline every update, which is the
@@ -418,6 +518,8 @@ namespace PhValheim
         /// </summary>
         public static void ProgressDone(string message)
         {
+            Log("ProgressDone", message);
+            message = Redact(message);
             string line = Indent + "    " + message;
             // Erase by the tracked length, not PadRight(Width + 4). That constant is 80 -- the
             // full width of cmd.exe's default window -- so on an 80-column terminal the pad
