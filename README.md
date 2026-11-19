@@ -278,11 +278,10 @@ printed in your current terminal.
 
 ## Troubleshooting — 2.0.19 prerelease
 
-The corrected [2.0.19 prerelease](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.19)
-covers all seven package formats below. The Linux and macOS packages are rebuilt
-from the corrected source; the existing corrected Windows MSI is unchanged and
-has not been rebuilt again. **2.0.18 remains the latest stable release and the
-fallback for normal installation.** Use the explicit downloads below to test 2.0.19.
+The [2.0.19 prerelease](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.19)
+is available in all seven package formats below, all built from the corrected source.
+**2.0.18 remains the latest stable release and the fallback for normal installation.**
+Use the explicit downloads below to test 2.0.19.
 
 On Windows, the correction handles Hidden `winhttp.dll`, `doorstop_config.ini`,
 and `phvalheim.backend` files while preserving their Hidden attribute. Windows
