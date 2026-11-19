@@ -588,7 +588,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        from: ['2.0.15']
+        from: ['2.0.15', '2.0.18']
     steps:
       - uses: actions/checkout@v4
 
