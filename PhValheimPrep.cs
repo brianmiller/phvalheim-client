@@ -121,8 +121,13 @@ namespace PhValheim.Prep
             DiagnosticLog.Write(operation + " disk snapshot",
                 DiskSpace.Assess(DiskSpace.Inspect(path), requiredBytes, operation).Message);
             Ui.Fail("failed");
-            Ui.Error(message, DiagnosticLog.Redact(error.GetType().Name + ": " + error.Message),
-                DiagnosticLog.Redact(path));
+            Ui.Error(message, new[] { DiagnosticLog.Redact(error.GetType().Name + ": " + error.Message),
+                    DiagnosticLog.Redact(path) }
+                .Concat(evidence.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.TrimEnd('\r'))
+                    .Where(line => line.StartsWith("Possible reason:", StringComparison.Ordinal)
+                        || line.StartsWith("A protected-folder rule may be involved.", StringComparison.Ordinal)))
+                .ToArray());
             return false;
         }
     }
