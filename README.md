@@ -276,9 +276,14 @@ flatpak run com.phvalheim.Client '<paste the phvalheim:// link here>'
 Same binary, same sandbox, same everything a click produces, with progress
 printed in your current terminal.
 
-## Troubleshooting — upcoming 2.0.19 / unreleased
+## Troubleshooting — 2.0.19 Windows MSI diagnostic prerelease preparation
 
-The diagnostics below are planned for 2.0.19 and are not yet published.
+The diagnostics below are implemented in source for a Windows MSI diagnostic
+prerelease of 2.0.19. This is release preparation only: no 2.0.19 package or MSI
+download link is published here, and other platform packages are not being
+published in this release scope. A fix for the original access-denied report is
+unconfirmed; a denied `phvalheim.backend` write still aborts launch. See the
+[release notes](docs/releases/RELEASE-2.0.19.md) for validation limits.
 
 ### Launch fails with “access denied”
 

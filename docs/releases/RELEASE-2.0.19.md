@@ -1,9 +1,17 @@
-# PhValheim Client 2.0.19 — file-write diagnostics and disk-space checks
+# PhValheim Client 2.0.19 — Windows MSI diagnostic prerelease preparation
 
-**UNRELEASED.** Upcoming changes; implementation is under review for
+**UNRELEASED — preparation only.** Brian has authorized a Windows MSI diagnostic
+prerelease so the affected user can try the file-write diagnostics and disk-space
+checks for
 [issue #25](https://github.com/brianmiller/phvalheim-client/issues/25).
-These notes do not announce publication. Package formats and the prerelease decision
-remain Brian's responsibility.
+This changeset prepares the version, notes, and Windows upgrade verification matrix;
+it does not build, verify, or publish a 2.0.19 package or provide an MSI download link.
+Linux and macOS packages are not being published in this release scope. The existing
+macOS workflow job is unchanged and may run as additional validation.
+
+A fix for the original access-denied report is **unconfirmed**. The diagnostic
+prerelease is intended to collect evidence from the affected environment, not to
+claim that its underlying cause has been resolved.
 
 File-write failures retain the actual failing path, operation, exception type and
 message, and hexadecimal HResult. Where available, diagnostics add file attributes,
@@ -39,7 +47,10 @@ transport preserves the cached archive. The existing backend policy remains unch
 a failed `phvalheim.backend` write aborts launch. Diagnostics do not change target
 ACLs or read-only attributes, request elevation, or automatically retry that write.
 
-Final validation evidence is not yet complete. Native Windows and macOS validation
-will be recorded in the PR. Real Controlled Folder Access/antivirus behavior and
-live-game behavior remain unverified. These notes make no claim of green CI,
-completed platform validation, or successful package builds.
+Prior source validation for `48e265f` was reported green across all 17 workflow jobs.
+That evidence predates this release-preparation changeset and does not verify a
+2.0.19 MSI. The Windows predecessor matrix now includes 2.0.18 alongside 2.0.12
+through 2.0.17; candidate package verification has not been run for this changeset.
+No successful package build, install, upgrade, repair, uninstall, wizard check,
+or served-download hash verification is claimed for a 2.0.19 MSI. Real Controlled
+Folder Access/antivirus behavior and live-game behavior remain unverified.
