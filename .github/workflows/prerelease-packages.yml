@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        from: ['2.0.12', '2.0.13', '2.0.14', '2.0.15', '2.0.16', '2.0.17', '2.0.18']
+        from: ['2.0.12', '2.0.13', '2.0.14', '2.0.15', '2.0.16', '2.0.17', '2.0.18', '2.0.19']
     steps:
       - uses: actions/checkout@v4
       - name: Read candidate version
@@ -38,6 +38,15 @@ jobs:
         run: |
           gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
           gh release download "$OLD_VERSION" -p '*x86_64.msi' -D old
+      - name: Verify original 2.0.19 MSI
+        if: matrix.from == '2.0.19'
+        shell: pwsh
+        run: |
+          $old = @(Get-ChildItem old -Filter '*.msi' -File)
+          if ($old.Count -ne 1) { throw 'Expected exactly one original MSI' }
+          if ((Get-FileHash $old[0].FullName -Algorithm SHA256).Hash -ne '7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488') {
+            throw 'Original 2.0.19 MSI SHA256 mismatch'
+          }
       - name: Upgrade, exact payload, repair and uninstall
         env:
           EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
@@ -66,6 +75,116 @@ jobs:
           path: |
             msi-logs/
             screens/
+  windows-hidden:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Download draft candidate and original public 2.0.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RELEASE: ${{ inputs.candidate_release }}
+        shell: bash
+        run: |
+          gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
+          gh release download 2.0.19 -p '*x86_64.msi' -D original
+      - name: Verify original MSI and administratively extract both payloads
+        id: extract
+        shell: pwsh
+        run: |
+          $evidence = New-Item -ItemType Directory -Path hidden-evidence
+          foreach ($name in @('original', 'candidate')) {
+            $msi = @(Get-ChildItem $name -Filter '*.msi' -File)
+            if ($msi.Count -ne 1) { throw "Expected exactly one $name MSI" }
+            $hash = (Get-FileHash $msi[0].FullName -Algorithm SHA256).Hash
+            "$hash  $($msi[0].Name)" | Set-Content (Join-Path $evidence.FullName "$name-msi.sha256")
+            if ($name -eq 'original' -and $hash -ne '7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488') {
+              throw 'Original 2.0.19 MSI SHA256 mismatch'
+            }
+            $target = Join-Path $env:RUNNER_TEMP "hidden-$name-$([guid]::NewGuid())"
+            New-Item -ItemType Directory -Path $target | Out-Null
+            $log = Join-Path $evidence.FullName "$name-extract.log"
+            $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$($msi[0].FullName)`"", '/qn', "TARGETDIR=`"$target`"", '/l*v', "`"$log`"") -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "$name administrative extraction failed (exit $($process.ExitCode)); see $log" }
+            $exe = @(Get-ChildItem $target -Filter 'phvalheim-client.exe' -Recurse -File)
+            if ($exe.Count -ne 1) { throw "Expected exactly one phvalheim-client.exe in $name extraction; found $($exe.Count)" }
+            "${name}_exe=$($exe[0].FullName)" >> $env:GITHUB_OUTPUT
+          }
+      - name: Reproduce Hidden denial with original executable
+        env:
+          ORIGINAL_EXE: ${{ steps.extract.outputs.original_exe }}
+        shell: pwsh
+        run: |
+          python builders/test_windows_hidden.py --client "$env:ORIGINAL_EXE" --baseline --expected-sha 36971278f9ef5c6a45dd55d4ef3c22cf736b17eb99e181f4b510e17976bedeac --evidence-dir hidden-evidence/original 2>&1 | Tee-Object -FilePath hidden-evidence/original-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "Original hidden-file baseline failed (exit $LASTEXITCODE)" }
+      - name: Verify Hidden replacements and ReadOnly control with candidate executable
+        env:
+          CANDIDATE_EXE: ${{ steps.extract.outputs.candidate_exe }}
+          EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
+        shell: pwsh
+        run: |
+          python builders/test_windows_hidden.py --client "$env:CANDIDATE_EXE" --expected-sha "$env:EXPECTED_SHA" --evidence-dir hidden-evidence/candidate 2>&1 | Tee-Object -FilePath hidden-evidence/candidate-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "Candidate hidden-file verification failed (exit $LASTEXITCODE)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: draft-windows-hidden-evidence
+          path: hidden-evidence/
+  windows-payload-negative-control:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download public predecessor and original 2.0.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release download 2.0.18 -p '*x86_64.msi' -D old
+          gh release download 2.0.19 -p '*x86_64.msi' -D original
+      - name: Require only the exact payload assertion to fail, including repair and cleanup
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
+        shell: pwsh
+        run: |
+          if ($env:EXPECTED_SHA -notmatch '^[a-fA-F0-9]{64}$') { throw 'Expected executable SHA256 is required' }
+          if ($env:EXPECTED_SHA -eq '36971278f9ef5c6a45dd55d4ef3c22cf736b17eb99e181f4b510e17976bedeac') {
+            throw 'Candidate SHA256 must differ from the original executable'
+          }
+          $old = @(Get-ChildItem old -Filter '*.msi' -File)
+          $original = @(Get-ChildItem original -Filter '*.msi' -File)
+          if ($old.Count -ne 1 -or $original.Count -ne 1) { throw 'Expected exactly one MSI per release' }
+          if ((Get-FileHash $original[0].FullName -Algorithm SHA256).Hash -ne '7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488') {
+            throw 'Original 2.0.19 MSI SHA256 mismatch'
+          }
+          New-Item -ItemType Directory -Path payload-negative-evidence | Out-Null
+          $PSNativeCommandUseErrorActionPreference = $false
+          pwsh -NoProfile -File ./builders/verify_msi_upgrade.ps1 -OldMsi $old[0].FullName -OldVersion 2.0.18 -NewMsi $original[0].FullName -NewVersion 2.0.19 -ExpectedExeSha256 $env:EXPECTED_SHA -LogDir payload-negative-evidence/msi-logs 2>&1 | Tee-Object -FilePath payload-negative-evidence/stdout.txt
+          $code = $LASTEXITCODE
+          $output = Get-Content payload-negative-evidence/stdout.txt -Raw
+          $failures = @([regex]::Matches($output, '(?m)^\s*FAIL: [^\r\n]+'))
+          if ($code -ne 1 -or $failures.Count -ne 1 -or $failures[0].Value.Trim() -ne 'FAIL: installed payload SHA256 differs from the candidate') {
+            throw 'Negative control did not fail only on the exact payload SHA256 assertion'
+          }
+          if ($output -notmatch '(?m)^\d+ passed, 1 failed\s*$' -or $output -notmatch 'PASS: uninstall succeeded' -or $output -notmatch 'PASS: no ARP entries remain') {
+            throw 'Negative control did not complete verification and cleanup'
+          }
+          Write-Host 'PASS: original payload rejected only by candidate SHA256; cleanup verified'
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: draft-windows-payload-negative-evidence
+          path: payload-negative-evidence/
   macos:
     runs-on: macos-15
     timeout-minutes: 25

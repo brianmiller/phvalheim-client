@@ -88,6 +88,7 @@ namespace PhValheim.Tooling
                     using var sourceFileStream = File.OpenRead(source);
                     ManagedFile.Write(destination, stream => sourceFileStream.CopyTo(stream));
                 }
+                else if (OperatingSystem.IsMacOS()) CopyFilePreservingHidden(source, destination);
                 else File.Copy(source, destination, true);
             }
             catch (Exception error)
@@ -96,6 +97,45 @@ namespace PhValheim.Tooling
                 RecordFailure(error, destination, "copy file", true, required, measure);
                 throw;
             }
+        }
+
+        private static void CopyFilePreservingHidden(string source, string destination)
+        {
+            FileAttributes? original = null;
+            try { original = File.GetAttributes(destination); }
+            catch (FileNotFoundException) { }
+            if (original.HasValue) CheckCopyDestination(destination, original.Value);
+
+            try { File.Copy(source, destination, true); }
+            catch
+            {
+                if (original.HasValue)
+                {
+                    try { RestoreCopyHidden(destination, original.Value); }
+                    catch (Exception error)
+                    {
+                        try { DiagnosticLog.Failure("restore copy destination Hidden; path: '" + destination + "'", error); }
+                        catch { }
+                    }
+                }
+                throw;
+            }
+            if (original.HasValue) RestoreCopyHidden(destination, original.Value);
+        }
+
+        private static void CheckCopyDestination(string destination, FileAttributes attributes)
+        {
+            if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory | FileAttributes.Device)) != 0)
+                throw new IOException("Copy destination is not a regular file: " + destination);
+        }
+
+        private static void RestoreCopyHidden(string destination, FileAttributes original)
+        {
+            // Path checks cannot exclude an external replacement between check and use.
+            var current = File.GetAttributes(destination);
+            CheckCopyDestination(destination, current);
+            var retained = (current & ~FileAttributes.Hidden) | (original & FileAttributes.Hidden);
+            if (retained != current) File.SetAttributes(destination, retained);
         }
 
         private static void RecordSourceAttributes(string source)

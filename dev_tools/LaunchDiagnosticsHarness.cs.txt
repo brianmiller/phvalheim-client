@@ -211,10 +211,12 @@ class Tests
             string prefix = (windows ? "WINDOWS" : mac ? "MAC" : "LINUX") + "_" + name.Replace('.', '_').ToUpperInvariant();
             string folder = Path.Combine(root, "native-files", name);
             string target = Path.Combine(folder, (linux ? "." : "") + name);
-            string source = Path.Combine(folder, ".source");
+            string source = Path.Combine(folder, "source");
             const string contents = "native-new-content-雪";
             Put(source, contents);
             Run(prefix, () => {
+                Check((File.GetAttributes(source) & FileAttributes.Hidden) == 0,
+                    prefix + "_SOURCE_NOT_HIDDEN_FIXTURE");
                 var created = WriteNative(backend, source, target, contents);
                 Check(WriteSucceeded(created, backend) && File.ReadAllText(target) == contents,
                     prefix + "_NEW_FILE_CONTROL", created);
@@ -298,6 +300,9 @@ class Tests
         bool changed = false;
         try
         {
+            var baselineSecurity = new FileInfo(target).GetAccessControl(AccessControlSections.Access);
+            baselineSecurity.SetAccessRuleProtection(true, true);
+            new FileInfo(target).SetAccessControl(baselineSecurity);
             original = new FileInfo(target).GetAccessControl(AccessControlSections.Access);
             originalSecurity = SecurityState(target);
             using var identity = WindowsIdentity.GetCurrent();
@@ -345,7 +350,9 @@ class Tests
                     var restore = new FileSecurity();
                     restore.SetSecurityDescriptorBinaryForm(original.GetSecurityDescriptorBinaryForm(), AccessControlSections.Access);
                     new FileInfo(target).SetAccessControl(restore);
-                    Check(SecurityState(target) == originalSecurity, prefix + "_DACL_RESTORED");
+                    string restoredSecurity = SecurityState(target);
+                    Check(restoredSecurity == originalSecurity, prefix + "_DACL_RESTORED",
+                        details: "Before deny SDDL: " + originalSecurity + "\nAfter restore SDDL: " + restoredSecurity);
                     using var stream = new FileStream(target, FileMode.Open, FileAccess.Write, FileShare.None);
                     Check(stream.CanWrite, prefix + "_DACL_RESTORED_WRITE_CONTROL");
                 }
