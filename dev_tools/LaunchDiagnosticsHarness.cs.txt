@@ -23,8 +23,8 @@ namespace PhValheim.Arguments
 class Tests
 {
     static int passed, failed;
-    static readonly string work = Environment.GetEnvironmentVariable("PHV_TEST_ROOT")!;
-    static readonly string root = Path.Combine(work, "fixtures-" + Guid.NewGuid().ToString("N"));
+    static readonly string work = Path.GetFullPath(Environment.GetEnvironmentVariable("PHV_TEST_ROOT")!);
+    static readonly string root = Path.GetFullPath(Path.Combine(work, "fixtures-" + Guid.NewGuid().ToString("N")));
     static readonly string logRoot = Path.Combine(root, "diagnostics");
     static readonly TextWriter report = Console.Out;
     static readonly StringBuilder captured = new();
@@ -33,10 +33,26 @@ class Tests
     static readonly Func<string, DiskSpace.Measurement> enough = p => new(Path.GetPathRoot(p), 100_000_000);
     static readonly Func<string, DiskSpace.Measurement> unknown = p => new(null, null, "fixture unknown measurement");
 
-    static void Check(bool ok, string name)
+    static void Check(bool ok, string name, Outcome? outcome = null, string? details = null)
     {
         report.WriteLine((ok ? "PASS: " : "FAIL: ") + name);
         if (ok) passed++; else failed++;
+        if (!ok && details != null) FixtureDetail("observations", details);
+        if (!ok && outcome != null)
+        {
+            FixtureDetail("value", JsonSerializer.Serialize(outcome.Value));
+            FixtureDetail("exception", outcome.Error?.ToString() ?? "<none>");
+            if (outcome.Error is DiskSpace.InsufficientDiskSpaceException space)
+                FixtureDetail("space", JsonSerializer.Serialize(space.Assessment));
+            FixtureDetail("output", outcome.Output);
+            FixtureDetail("log", outcome.Log);
+        }
+    }
+    static void FixtureDetail(string label, string text)
+    {
+        string safe = DiagnosticLog.Redact(text.Replace(credential, "[REDACTED]"));
+        if (safe.Length > 4096) safe = safe[..2048] + "\n[truncated]\n" + safe[^2048..];
+        report.WriteLine("FIXTURE " + label + ": " + JsonSerializer.Serialize(safe));
     }
     static void Put(string path, string value)
     {
@@ -72,16 +88,20 @@ class Tests
     static void Run(string name, Action action)
     {
         try { action(); }
-        catch (Exception ex) { Check(false, name + "_HARNESS_EXCEPTION_" + ex.GetType().Name); }
+        catch (Exception ex)
+        {
+            Check(false, name + "_HARNESS_EXCEPTION_" + ex.GetType().Name);
+            FixtureDetail("exception", ex.ToString());
+        }
     }
     static void ErrorEvidence(Outcome outcome, string prefix, string path, string type)
     {
-        Check(Has(outcome.Output, path) && outcome.Output.Contains(type), prefix + "_OUTPUT_PATH_AND_TYPE");
+        Check(Has(outcome.Output, path) && outcome.Output.Contains(type), prefix + "_OUTPUT_PATH_AND_TYPE", outcome);
         Check(outcome.Log.Contains(path) && outcome.Log.Contains(type) && outcome.Log.Contains("HResult=0x")
-            && outcome.Log.Contains("   at "), prefix + "_FULL_EXCEPTION_LOGGED");
-        Check(Regex.Matches(outcome.Output, "Diagnostic log:").Count == 1, prefix + "_ONE_SUPPORT_LINE");
+            && outcome.Log.Contains("   at "), prefix + "_FULL_EXCEPTION_LOGGED", outcome);
+        Check(Regex.Matches(outcome.Output, "Diagnostic log:").Count == 1, prefix + "_ONE_SUPPORT_LINE", outcome);
         Check(!outcome.Output.Contains(credential) && !outcome.Log.Contains(credential)
-            && outcome.Output.Contains("ERROR:"), prefix + "_CREDENTIAL_ABSENT_ERROR_PRESENT");
+            && outcome.Output.Contains("ERROR:"), prefix + "_CREDENTIAL_ABSENT_ERROR_PRESENT", outcome);
     }
     static Exception Denied(string path)
     {
@@ -89,12 +109,18 @@ class Tests
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ex; }
         throw new Exception("Directory-as-file fixture did not deny the write.");
     }
+    static Exception DeniedCopy(string source, string target)
+    {
+        try { File.Copy(source, target, true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ex; }
+        throw new Exception("Directory-as-file fixture did not deny the copy.");
+    }
     static void Backend()
     {
         string legacyRoot = OperatingSystem.IsWindows()
             ? Environment.ExpandEnvironmentVariables(@"%appdata%\PhValheim\worlds")
             : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "/.config/PhValheim/worlds";
-        string isolatedWorldParent = Path.GetFullPath(work);
+        string isolatedWorldParent = work;
         string phvalheimHostNoPort = Path.GetRelativePath(legacyRoot, isolatedWorldParent);
         const string worldName = "test";
         string world = Path.Combine(isolatedWorldParent, worldName, worldName);
@@ -117,7 +143,7 @@ class Tests
         Exception stimulus = Denied(target);
         Check(stimulus is IOException or UnauthorizedAccessException, "BACKEND_ACTUAL_DENIED_WRITE_" + stimulus.GetType().Name);
         var result = Capture(() => PhValheim.Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, "http://localhost/" + credential));
-        Check(result.Error == null && result.Value is false, "BACKEND_RETURNS_FALSE_WITHOUT_THROW");
+        Check(result.Error == null && result.Value is false, "BACKEND_RETURNS_FALSE_WITHOUT_THROW", result);
         ErrorEvidence(result, "BACKEND", target, stimulus.GetType().Name);
         Check(Directory.Exists(target), "BACKEND_COLLISION_DIRECTORY_PRESERVED");
         if (OperatingSystem.IsWindows())
@@ -167,26 +193,30 @@ class Tests
         PhValheim.Platform.State.PhValheimDir = Path.Combine(root, "legacy");
         PhValheim.Platform.State.ValheimDir = game;
         Directory.CreateDirectory(Path.GetDirectoryName(world)!);
+        string source = Path.Combine(root, "sync-copy-source", "loader.so");
+        Put(source, "loader-control");
         string target = Path.Combine(game, "doorstop_libs", "nested", "loader.so");
         Directory.CreateDirectory(target);
-        Exception stimulus = Denied(target);
-        Check(stimulus is IOException or UnauthorizedAccessException, "SYNC_ACTUAL_DENIED_WRITE_" + stimulus.GetType().Name);
+        Exception stimulus = DeniedCopy(source, target);
+        Check(stimulus is IOException or UnauthorizedAccessException, "SYNC_ACTUAL_DENIED_COPY_" + stimulus.GetType().Name);
         var result = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
         Check(result.Error == null && result.Value is false && server.ZipRequests > 0
-            && File.Exists(Path.Combine(world, "doorstop_config.ini")), "SYNC_REAL_HTTP_AND_COPY_FAILURE");
+            && File.Exists(Path.Combine(world, "doorstop_config.ini")), "SYNC_REAL_HTTP_AND_COPY_FAILURE", result);
         ErrorEvidence(result, "SYNC", target, stimulus.GetType().Name);
         Check(!result.Output.Contains("usually antivirus", StringComparison.OrdinalIgnoreCase)
-            && result.Output.Contains("ERROR:"), "SYNC_NO_UNSUPPORTED_ANTIVIRUS_BLAME");
+            && result.Output.Contains("ERROR:"), "SYNC_NO_UNSUPPORTED_ANTIVIRUS_BLAME", result);
         Directory.Move(target, target + ".collision");
         int prior = server.ZipRequests;
         var success = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
         Check(success.Error == null && success.Value is true && File.ReadAllText(target) == "loader-control"
-            && File.ReadAllText(Path.Combine(game, "doorstop_config.ini")) == "loader-ini", "SYNC_SUCCESS_CONTROL");
-        Check(server.ZipRequests == prior && prior > 0, "SYNC_CACHED_NO_DOWNLOAD_CONTROL");
+            && File.ReadAllText(Path.Combine(game, "doorstop_config.ini")) == "loader-ini", "SYNC_SUCCESS_CONTROL", success);
+        Check(server.ZipRequests == prior && prior > 0, "SYNC_CACHED_NO_DOWNLOAD_CONTROL", success);
     }
     public static void RemoveCopiedLoader(string path)
     {
-        if (!Path.GetFullPath(path).StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        path = Path.GetFullPath(path);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, comparison))
             throw new Exception("Removal fixture escaped its root.");
         if (!File.Exists(path)) throw new Exception("Removal fixture requires a successful copy.");
         File.Move(path, path + ".removed-by-fixture");
@@ -202,14 +232,14 @@ class Tests
         Directory.CreateDirectory(Path.GetDirectoryName(world)!); Directory.CreateDirectory(game);
         string target = Path.Combine(game, "doorstop_config.ini");
         var result = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
-        Check(result.Error == null && result.Value is false, "SYNC_MISSING_AFTER_COPY_RETURNS_FALSE");
+        Check(result.Error == null && result.Value is false, "SYNC_MISSING_AFTER_COPY_RETURNS_FALSE", result);
         Check(File.Exists(target + ".removed-by-fixture") && File.ReadAllText(target + ".removed-by-fixture") == "loader-ini"
-            && !File.Exists(target), "SYNC_MISSING_ACTUAL_COPY_AND_REMOVAL_CONTROL");
+            && !File.Exists(target), "SYNC_MISSING_ACTUAL_COPY_AND_REMOVAL_CONTROL", result);
         Check(Has(result.Output, target) && result.Output.Contains("missing on verification")
-            && !result.Output.Contains("could not install the mod loader"), "SYNC_MISSING_DISTINCT_FROM_COPY_THROW");
+            && !result.Output.Contains("could not install the mod loader"), "SYNC_MISSING_DISTINCT_FROM_COPY_THROW", result);
         Check(result.Log.Contains(target) && result.Log.Contains("File.Exists returned false")
-            && result.Output.Contains("cause is unknown"), "SYNC_MISSING_EVIDENCE_WITHOUT_CAUSE_CLAIM");
-        Check(Regex.Matches(result.Output, "Diagnostic log:").Count == 1, "SYNC_MISSING_ONE_SUPPORT_LINE");
+            && result.Output.Contains("cause is unknown"), "SYNC_MISSING_EVIDENCE_WITHOUT_CAUSE_CLAIM", result);
+        Check(Regex.Matches(result.Output, "Diagnostic log:").Count == 1, "SYNC_MISSING_ONE_SUPPORT_LINE", result);
     }
     static void Downloads(Server server)
     {
@@ -224,34 +254,37 @@ class Tests
             measured++; partialSeen |= Directory.GetFiles(folder, "*.partial").Length != 0;
             return new(Path.GetPathRoot(p), 0);
         });
-        Check(low.Error == null && low.Value is false, "DOWNLOAD_LOW_RETURNS_FALSE");
+        string lowDetails = JsonSerializer.Serialize(new { measured, partialSeen, availableBytes = 0 });
+        Check(low.Error == null && low.Value is false, "DOWNLOAD_LOW_RETURNS_FALSE", low, lowDetails);
         Check(measured > 0 && !partialSeen && File.ReadAllText(target) == "cached-control"
-            && Directory.GetFiles(folder, "*.partial").Length == 0, "DOWNLOAD_LOW_PREFLIGHT_PRESERVES_CACHE_NO_PARTIAL");
-        Check(low.Log.Contains("required additional bytes:") && low.Log.Contains("available bytes: 0"), "DOWNLOAD_LOW_SPACE_EVIDENCE");
-        Check(Regex.Matches(low.Output, "Diagnostic log:").Count == 1, "DOWNLOAD_LOW_ONE_SUPPORT_LINE");
+            && Directory.GetFiles(folder, "*.partial").Length == 0, "DOWNLOAD_LOW_PREFLIGHT_PRESERVES_CACHE_NO_PARTIAL", low, lowDetails);
+        Check(low.Log.Contains("required additional bytes:") && low.Log.Contains("available bytes: 0"), "DOWNLOAD_LOW_SPACE_EVIDENCE", low, lowDetails);
+        Check(Regex.Matches(low.Output, "Diagnostic log:").Count == 1, "DOWNLOAD_LOW_ONE_SUPPORT_LINE", low, lowDetails);
         var ok = download("known", "known", enough);
-        Check(ok.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_KNOWN_SUCCESS_CONTROL");
+        Check(ok.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_KNOWN_SUCCESS_CONTROL", ok);
         Put(target, "cached-control"); measured = 0;
         var chunked = download("unknown", "unknown-length", p => { measured++; return enough(p); });
-        Check(chunked.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_UNKNOWN_LENGTH_SUCCESS");
-        Check(measured >= 2 && chunked.Log.Contains("required additional bytes: unknown"), "DOWNLOAD_UNKNOWN_LENGTH_MEASURED");
+        string chunkedDetails = JsonSerializer.Serialize(new { measured });
+        Check(chunked.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_UNKNOWN_LENGTH_SUCCESS", chunked, chunkedDetails);
+        Check(measured >= 2 && chunked.Log.Contains("required additional bytes: unknown"), "DOWNLOAD_UNKNOWN_LENGTH_MEASURED", chunked, chunkedDetails);
         var unmeasured = download("known", "unknown-space", unknown);
-        Check(unmeasured.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_UNKNOWN_SPACE_PASSES");
+        Check(unmeasured.Error == null && File.ReadAllText(target) == Server.Payload, "DOWNLOAD_UNKNOWN_SPACE_PASSES", unmeasured);
         foreach (string route in new[] { "truncated", "httpfail" })
         {
             Put(target, "cached-control");
             var result = download(route, route, enough);
             string label = "DOWNLOAD_" + route.ToUpperInvariant();
-            Check(result.Error == null && result.Value is false, label + "_RETURNS_FALSE");
+            Check(result.Error == null && result.Value is false, label + "_RETURNS_FALSE", result);
             Check(File.ReadAllText(target) == "cached-control" && Directory.GetFiles(folder, "*.partial").Length == 0,
-                label + "_CACHE_INTACT_NO_PARTIAL");
-            Check(result.Log.Contains(target) && result.Log.Contains("HResult=0x"), label + "_FAILURE_LOGGED");
-            Check(Regex.Matches(result.Output, "Diagnostic log:").Count == 1, label + "_ONE_SUPPORT_LINE");
+                label + "_CACHE_INTACT_NO_PARTIAL", result);
+            Check(result.Log.Contains(target) && result.Log.Contains("HResult=0x"), label + "_FAILURE_LOGGED", result);
+            Check(Regex.Matches(result.Output, "Diagnostic log:").Count == 1, label + "_ONE_SUPPORT_LINE", result);
             Check(!result.Output.Contains(credential) && !result.Log.Contains(credential)
-                && result.Output.Contains("ERROR:"), label + "_REDACTION_CONTROL");
+                && result.Output.Contains("ERROR:"), label + "_REDACTION_CONTROL", result);
         }
         Check(server.Routes.Contains("known") && server.Routes.Contains("unknown")
-            && server.Routes.Contains("truncated") && server.Routes.Contains("httpfail"), "DOWNLOAD_HTTP_STIMULI_OBSERVED");
+            && server.Routes.Contains("truncated") && server.Routes.Contains("httpfail"), "DOWNLOAD_HTTP_STIMULI_OBSERVED",
+            details: JsonSerializer.Serialize(new { routes = server.Routes.ToArray() }));
     }
     static void Policies(string archive)
     {
@@ -259,37 +292,55 @@ class Tests
         string personal = new string('p', 4096);
         Put(Path.Combine(config, "personal.cfg"), personal);
         Put(Path.Combine(world, "previous.dll"), "previous-control");
-        long zipBytes;
-        using (var zip = ZipFile.OpenRead(archive)) zipBytes = zip.Entries.Sum(e => e.Length);
-        Check(zipBytes > new FileInfo(archive).Length, "ARCHIVE_COMPRESSED_FIXTURE_CONTROL");
+        var archiveInfo = Capture(() => {
+            using var zip = ZipFile.OpenRead(archive);
+            return zip.Entries.Sum(e => e.Length);
+        });
+        if (archiveInfo.Error != null) throw archiveInfo.Error;
+        long zipBytes = (long)archiveInfo.Value!;
+        Check(zipBytes > new FileInfo(archive).Length, "ARCHIVE_COMPRESSED_FIXTURE_CONTROL", archiveInfo,
+            JsonSerializer.Serialize(new { zipBytes, compressedBytes = new FileInfo(archive).Length }));
         int measured = 0; bool stageSeen = false;
+        string? measuredPath = null;
+        DiskSpace.Measurement? measurement = null;
+        string StageDetails(Outcome estimate, long injectedAvailableBytes) => JsonSerializer.Serialize(new {
+            measured, stageSeen, measuredPath, measurement, injectedAvailableBytes,
+            rawRequiredBytes = estimate.Value, rawEstimateError = estimate.Error?.ToString()
+        });
+        var archiveEstimate = Capture(() => Invoke(typeof(ConfigPolicy), "ArchiveStageBytes", new object?[] { archive, config }));
         Func<string, DiskSpace.Measurement> low = p => {
             measured++;
+            measuredPath = p;
             stageSeen |= Directory.GetDirectories(Path.GetDirectoryName(world)!, ".phvalheim-stage-*").Length != 0;
-            return new(Path.GetPathRoot(p), zipBytes + personal.Length - 1);
+            return measurement = new(Path.GetPathRoot(p), zipBytes + personal.Length - 1);
         };
         var rejected = Capture(() => Invoke(typeof(ConfigPolicy), "InstallArchive", new object?[] { archive, world, true }, low));
-        Check(rejected.Error is DiskSpace.InsufficientDiskSpaceException, "ARCHIVE_LOW_REJECTS");
-        Check(measured > 0 && rejected.Log.Contains("required additional bytes: " + (zipBytes + personal.Length)), "ARCHIVE_COUNTS_PERSONAL_BYTES");
+        string archiveDetails = StageDetails(archiveEstimate, zipBytes + personal.Length - 1);
+        Check(rejected.Error is DiskSpace.InsufficientDiskSpaceException, "ARCHIVE_LOW_REJECTS", rejected, archiveDetails);
+        Check(measured > 0 && rejected.Log.Contains("required additional bytes: " + (zipBytes + personal.Length)), "ARCHIVE_COUNTS_PERSONAL_BYTES", rejected, archiveDetails);
         Check(!stageSeen && Directory.GetDirectories(Path.GetDirectoryName(world)!, ".phvalheim-stage-*").Length == 0
             && File.Exists(Path.Combine(world, "previous.dll")) && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal,
-            "ARCHIVE_LOW_BEFORE_STAGE_PREVIOUS_INTACT");
+            "ARCHIVE_LOW_BEFORE_STAGE_PREVIOUS_INTACT", rejected, archiveDetails);
         var installed = Capture(() => Invoke(typeof(ConfigPolicy), "InstallArchive", new object?[] { archive, world, true }, unknown));
         Check(installed.Error == null && File.Exists(Path.Combine(world, "BepInEx", "plugins", "test.dll"))
-            && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ARCHIVE_UNKNOWN_SPACE_SUCCESS_CONTROL");
+            && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ARCHIVE_UNKNOWN_SPACE_SUCCESS_CONTROL", installed);
         string cfg = Path.Combine(config, "test.cfg"); Put(cfg, "[UI]\nLimit = 999\n");
         measured = 0; stageSeen = false;
+        measuredPath = null; measurement = null;
+        var configEstimate = Capture(() => Invoke(typeof(ConfigPolicy), "StagedConfigBytes", new object?[] { config, true }));
         var enforced = Capture(() => Invoke(typeof(ConfigPolicy), "Enforce", new object?[] { world, null }, p => {
             measured++;
+            measuredPath = p;
             stageSeen |= Directory.GetDirectories(Path.GetDirectoryName(config)!, "config.apply-*").Length != 0;
-            return new(Path.GetPathRoot(p), 0);
+            return measurement = new(Path.GetPathRoot(p), 0);
         }));
-        Check(enforced.Error is DiskSpace.InsufficientDiskSpaceException, "ENFORCE_LOW_REJECTS");
+        string enforceDetails = StageDetails(configEstimate, 0);
+        Check(enforced.Error is DiskSpace.InsufficientDiskSpaceException, "ENFORCE_LOW_REJECTS", enforced, enforceDetails);
         Check(measured > 0 && !stageSeen && File.ReadAllText(cfg).Contains("999")
-            && Directory.GetDirectories(Path.GetDirectoryName(config)!, "config.apply-*").Length == 0, "ENFORCE_LOW_BEFORE_STAGE_PREVIOUS_INTACT");
+            && Directory.GetDirectories(Path.GetDirectoryName(config)!, "config.apply-*").Length == 0, "ENFORCE_LOW_BEFORE_STAGE_PREVIOUS_INTACT", enforced, enforceDetails);
         var applied = Capture(() => Invoke(typeof(ConfigPolicy), "Enforce", new object?[] { world, null }, unknown));
         Check(applied.Error == null && File.ReadAllText(cfg).Contains("Limit = 10")
-            && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ENFORCE_UNKNOWN_SPACE_SUCCESS_CONTROL");
+            && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ENFORCE_UNKNOWN_SPACE_SUCCESS_CONTROL", applied);
     }
     static void UiErrors()
     {
