@@ -144,9 +144,9 @@ def steam_registry(steam, executable):
                     ctypes.byref(handle), ctypes.byref(disposition))
     if status:
         raise ctypes.WinError(status)
-    key = winreg.HKEYType(handle.value)
+    key = handle.value
     if disposition.value != 1:
-        key.Close()
+        winreg.CloseKey(key)
         raise RuntimeError("Steam key appeared during setup; refusing to change it.")
     try:
         winreg.SetValueEx(key, "SteamPath", 0, winreg.REG_SZ, str(steam))
@@ -158,7 +158,7 @@ def steam_registry(steam, executable):
             require(winreg.QueryInfoKey(key)[0] == 0, "Unexpected Steam subkey; refusing recursive cleanup.")
             winreg.DeleteKeyEx(winreg.HKEY_CURRENT_USER, STEAM_KEY, winreg.KEY_WOW64_64KEY)
         finally:
-            key.Close()
+            winreg.CloseKey(key)
 
 
 def run_process(command, cwd, env, timeout, output):

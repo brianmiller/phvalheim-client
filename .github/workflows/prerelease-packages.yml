@@ -42,7 +42,12 @@ jobs:
         shell: bash
         run: |
           gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
-          gh release download "$OLD_VERSION" -p '*x86_64.msi' -D old
+          if [[ "$OLD_VERSION" == '2.0.19' ]]; then
+            mkdir -p old
+            curl --fail --location --retry 3 --output old/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi
+          else
+            gh release download "$OLD_VERSION" -p '*x86_64.msi' -D old
+          fi
       - name: Verify original 2.0.19 MSI
         if: matrix.from == '2.0.19'
         shell: pwsh
@@ -94,14 +99,15 @@ jobs:
         with:
           python-version: '3.12'
           architecture: x64
-      - name: Download draft candidate and original public 2.0.19
+      - name: Download draft candidate and pinned original 2.0.19
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RELEASE: ${{ inputs.candidate_release }}
         shell: bash
         run: |
           gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
-          gh release download 2.0.19 -p '*x86_64.msi' -D original
+          mkdir -p original
+          curl --fail --location --retry 3 --output original/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi
       - name: Verify original MSI and administratively extract both payloads
         id: extract
         shell: pwsh
@@ -150,13 +156,14 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Download public predecessor and original 2.0.19
+      - name: Download public predecessor and pinned original 2.0.19
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           gh release download 2.0.18 -p '*x86_64.msi' -D old
-          gh release download 2.0.19 -p '*x86_64.msi' -D original
+          mkdir -p original
+          curl --fail --location --retry 3 --output original/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi
       - name: Require only the exact payload assertion to fail, including repair and cleanup
         env:
           EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
