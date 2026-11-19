@@ -1,106 +1,104 @@
-# PhValheim Client 2.0.19 — Windows MSI diagnostic prerelease
+# PhValheim Client 2.0.19 — corrected Windows MSI public prerelease
 
-This Windows-only diagnostic prerelease adds file-write diagnostics, persistent
-logs, and disk-space preflight checks for
-[issue #25](https://github.com/brianmiller/phvalheim-client/issues/25).
-Its purpose is to collect evidence from the affected environment. A fix for the
-original access-denied report, including the reported SmileMaster launch failure,
-is **unconfirmed**.
+**The corrected Windows MSI is public** on the
+[2.0.19 release page](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.19).
+**Existing 2.0.19 testers: [download the MSI again](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.msi)
+and install over the original 2.0.19 installation.** Native Windows testing verified
+this upgrade. The version and filename are unchanged; identify the corrected MSI
+by its size and SHA-256 below.
 
-The [2.0.19 release page](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.19)
-provides the published Windows MSI,
-[`phvalheim-client-2.0.19-x86_64.msi`](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.msi).
-**2.0.18 remains the latest stable release.** No Linux, Flatpak, or macOS packages
-are published as part of this prerelease. macOS validation or package jobs do not
-imply macOS asset publication.
+**2.0.18 remains stable and unchanged.** This prerelease contains only the Windows
+MSI and checksums; no Linux, Flatpak, or macOS packages are published by this revision.
+All other published packages remain unchanged.
+
+## Corrected behavior
+
+The correction handles Hidden `winhttp.dll`, `doorstop_config.ini`, and
+`phvalheim.backend` files while preserving Hidden attributes and existing ACLs.
+Managed writes stage new contents before replacing the target; failed staging
+preserves the original. ReadOnly and actual write permissions remain enforced,
+reparse-point destinations are rejected, and a genuinely denied backend write
+still aborts launch. The client does not change permissions, clear ReadOnly, or
+request elevation. Staging does not guarantee protection against external races or power loss.
+
+Windows loader installation copies only `winhttp.dll` and `doorstop_config.ini`,
+skipping files intended for other platforms. Linux selects `libdoorstop_x64.so`
+and the config; macOS copies no loader files into the signed `Valheim.app` bundle.
+Ordinary macOS copies also preserve the destination's Hidden flag. Cross-platform
+source validation does not imply publication of packages for those platforms.
+
+## Artifact identity and migration
+
+Both builds use `phvalheim-client-2.0.19-x86_64.msi`:
+
+| Field | Original MSI (superseded) | Corrected public MSI |
+| --- | --- | --- |
+| Size | 32,886,784 bytes | 32,899,072 bytes |
+| MSI SHA-256 | `7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488` | `260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a` |
+| ProductCode | `3783EF6D-25B9-4A61-9518-BE79B530643A` | `9ED226DE-BDBE-4D21-A0F3-C0422155FA22` |
+
+The corrected executable SHA-256 is
+`d692bf7312e2a6fc307af47406110e0c592fab3c3a57ea98e5bf9aa80de4fec1`.
+It was built from corrected source
+[`1d6d7c93c8dc4c58a6ca6d4401b3075e6837ecb7`](https://github.com/brianmiller/phvalheim-client/commit/1d6d7c93c8dc4c58a6ca6d4401b3075e6837ecb7);
+source PR #28 remains unmerged. The numeric `2.0.19` tag remains at
+[`6204fe1103f8c7f5e26bcd833e84d16e8cf2dc33`](https://github.com/brianmiller/phvalheim-client/commit/6204fe1103f8c7f5e26bcd833e84d16e8cf2dc33)
+and does not identify the corrected build.
+
+The original MSI is preserved at immutable Git commit
+[`3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi`](https://github.com/brianmiller/phvalheim-client/blob/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi).
+The corrected MSI explicitly upgrades the original ProductCode
+`3783EF6D-25B9-4A61-9518-BE79B530643A` to `9ED226DE-BDBE-4D21-A0F3-C0422155FA22`.
+Unknown same-version products and newer versions remain blocked. The MSI retains
+the existing self-signed publisher certificate; Windows may show an unknown publisher.
+
+## Completed validation
+
+- Local build: 27 existing warnings, 0 errors; all 11 test suites passed.
+- MSI: 78 structural/signature checks; executable: 24 argument/smoke checks;
+  Wine: 36 installation-behavior checks passed. Wine skipped repair; native Windows covered it.
+- [Native file validation — 44619866045](https://github.com/brianmiller/phvalheim-client/actions/runs/44619866045):
+  **SUCCESS**, with Windows 126, macOS 98, and Linux 103 assertions passed.
+- [Native installer validation — 44620112640](https://github.com/brianmiller/phvalheim-client/actions/runs/44620112640):
+  all eight Windows upgrade jobs from 2.0.12–2.0.19 passed 14 checks each, including
+  exact installed executable SHA-256, one Add/Remove Programs entry, repair, and uninstall.
+  The full wizard passed 12 checks plus five no-click control checks; the old-payload
+  negative control passed by failing specifically at the executable SHA check.
+  **The overall workflow failed only at the old Hidden-file fixture.** The successful
+  installation jobs are distinct from that overall result; the corrected fixture passed below.
+- [Final focused real-client validation — 44622099219](https://github.com/brianmiller/phvalheim-client/actions/runs/44622099219):
+  **SUCCESS**, using the actual corrected executable extracted from the exact MSI.
+  Hidden `winhttp.dll`, `doorstop_config.ini`, and `phvalheim.backend` sentinel contents
+  changed to the expected bytes while Hidden stayed true and attributes stayed `34`.
+  Foreign Hidden+ReadOnly `.so`/`.dylib` files retained their bytes and attributes.
+  The ReadOnly+Hidden `winhttp.dll` control preserved bytes and flags with no Steam handoff.
+  The original real executable reproduced access denial with no Steam handoff.
+  Testing used a disposable local HTTP world and a recording Steam stub, not live Valheim.
 
 ## Diagnostics and troubleshooting
 
-File-write failures retain the actual failing path, operation, exception type and
-message, and hexadecimal HResult. Where available, diagnostics add file attributes,
-Windows owner/ACL observations, and a temporary parent-directory create/write/delete
-probe. These observations are evidence for troubleshooting, not an antivirus or
-Controlled Folder Access diagnosis; unavailable observations are reported as unknown.
+Path-specific diagnostics retain the failing operation, exception type, message,
+and hexadecimal HResult, plus file attributes, Windows owner/ACL observations,
+and a temporary parent-directory write probe where available. Unavailable observations
+remain unknown; these observations do not establish antivirus or Controlled Folder Access as the cause.
 
-On Windows, the normal diagnostic log is
-`%APPDATA%\PhValheim\logs\phvalheim-client.log`. Logs redact credentials and rotate
-at a 1 MiB limit and at the start of each run, retaining up to three archives
-(`phvalheim-client.log.1` through `.3`). If the normal location cannot be used, the
-client tries a temporary fallback. **Use the actual log path printed in the error**
-when reporting a failure. If neither location works, logging is reported as
-unavailable. Paths and usernames remain in the logs; review them before sharing
-publicly.
+The normal Windows log is `%APPDATA%\PhValheim\logs\phvalheim-client.log`.
+Logs redact credentials and rotate at 1 MiB and at the start of each run, retaining
+up to three archives. If the normal location fails, the client tries a temporary
+fallback. Use the actual path printed in the error; if both locations fail, logging
+is reported as unavailable. Review logs before sharing: local paths and usernames may remain.
 
-Disk-space preflight checks the volume receiving the data, which may differ from
-the operating-system volume. Downloads check known remaining bytes against available
-space at their temporary destination beside the cached archive. Archive staging
-accounts for uncompressed contents plus preserved personal configuration; config
-staging, loader copies, and backend writes also check their actual destinations.
-Diagnostics report required additional bytes and available bytes. Unknown sizes or
-unavailable measurements remain unknown, and estimates do not guarantee an update
-will fit.
-
-Failed staged updates preserve the currently installed world. Failed download
-transport preserves the cached archive. The existing backend policy remains unchanged:
-a failed `phvalheim.backend` write aborts launch. Diagnostics do not change target
-ACLs or read-only attributes, request elevation, or automatically retry that write.
-
-## Exact MSI and source
-
-| Field | Value |
-| --- | --- |
-| Asset | `phvalheim-client-2.0.19-x86_64.msi` |
-| Size | 32,886,784 bytes |
-| SHA-256 | `7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488` |
-| Runtime/build source | `6204fe1103f8c7f5e26bcd833e84d16e8cf2dc33` |
-
-The MSI uses the existing self-signed certificate. Windows may report an unknown
-publisher; this is an existing packaging characteristic, not evidence of a new
-signing trust chain.
-
-Later test/documentation commits leave all `.cs`, `.csproj`, and `.wxs` files
-unchanged from the build source. Test-only commit `0078537` adjusts the smoke
-assertion to expect intentional redaction of a malformed decoded launch payload.
-Neither the runtime nor the MSI was rebuilt for that assertion change.
-
-## Validation evidence
-
-The exact MSI above passed local validation:
-
-- 75 structural, signature, and smoke checks.
-- 24 executable smoke assertions.
-- 36 Wine installation-behavior checks, using the actual 2.0.18 predecessor MSI.
-  Wine repair was skipped; native Windows repair coverage passed below.
-
-The [native Windows candidate workflow](https://github.com/brianmiller/phvalheim-client/actions/runs/44605956555)
-passed all seven upgrade jobs, from 2.0.12 through 2.0.18. Each job passed 14
-assertions, including the exact installed executable SHA-256, a single Add/Remove
-Programs entry, repair, and uninstall. The full installer wizard step also passed
-in the 2.0.17 job, including its negative control and candidate installation. The
-additional macOS package job passed as validation only; no macOS assets are
-published as part of this Windows-only prerelease.
-
-The [native diagnostics workflow](https://github.com/brianmiller/phvalheim-client/actions/runs/44605622061)
-passed on Windows (57 diagnostics assertions plus 6 missing-copy checks)
-and Linux (76 plus 6). Its macOS diagnostics job was still queued when this evidence
-was recorded. Prior macOS diagnostics at `48e265f`, with the same diagnostic runtime
-code, passed 76 plus 6 assertions; that is prior-source evidence, not a completed
-macOS result for this run.
+Disk-space preflight checks the destination volume for downloads, archive/config
+staging, loader copies, and backend writes. It reports required additional bytes
+and available space where measurable; unknown sizes remain unknown, and estimates
+do not guarantee an update will fit. Failed staged updates preserve the installed
+world; failed download transport preserves the cached archive.
 
 ## Validation limits
 
-Smoke checks cover startup, the version banner, and malformed URLs; they do not
-exercise world synchronization, downloads, or a live Valheim launch. Installation
-and diagnostic tests do not establish that the affected user's launch now succeeds.
-Live Valheim, real Controlled Folder Access/antivirus behavior, and the reported
-SmileMaster failure remain unverified. A denied backend write still stops launch.
-
-Public download verification is complete. Release 2.0.19 (ID `451871940`) is
-published with `isDraft: false` and `isPrerelease: true`; its runtime tag points to
-`6204fe1`. An unauthenticated `curl` download from the direct public MSI link above
-to `/tmp/phv219-public.msi` was byte-identical to the local artifact by `cmp`.
-Its SHA-256, `7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488`,
-matches both the served `SHA256SUMS` and the GitHub asset digest.
-Running `verify_msi.sh` on the downloaded file with `--skip-wine` passed all 71
-checks. Release 2.0.18 (ID `435814564`) remains the latest stable release with
-unchanged flags.
+For [issue #25](https://github.com/brianmiller/phvalheim-client/issues/25), the affected
+player confirmed gameplay after manually clearing Hidden flags in the original
+installation. **Live gameplay with the corrected MSI has not been tested.** No actual
+Valheim gameplay validation was performed; the Steam stub verifies handoff only.
+The corrected MSI's resolution of that player's failure and real antivirus/Controlled
+Folder Access behavior remain unverified.
