@@ -4,6 +4,14 @@ name: Windows managed writes (every file Hidden)
 # error; the published 2.0.19 build must be denied on the Hidden config files (the test can fail).
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-managed-writes.yml'
+      - 'builders/test_windows_hidden.py'
+      - 'ManagedFile.cs'
+      - 'ConfigPolicy.cs'
+      - 'Syncer.cs'
+      - 'phvalheim-client.csproj'
 permissions:
   contents: read
 jobs:
@@ -36,14 +44,18 @@ jobs:
         run: |
           gh release download 2.0.19 -p 'phvalheim-client-2.0.19-x86_64.msi' -D published
           $msi = Resolve-Path published/phvalheim-client-2.0.19-x86_64.msi
+          $msiSha = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
+          if ($msiSha -ne '260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a') { throw "Published 2.0.19 MSI SHA256 mismatch: $msiSha" }
           $target = Join-Path $env:RUNNER_TEMP "published-$([guid]::NewGuid())"
           New-Item -ItemType Directory -Path $target | Out-Null
           $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$msi`"", '/qn', "TARGETDIR=`"$target`"") -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "administrative extraction failed (exit $($process.ExitCode))" }
           $exe = @(Get-ChildItem $target -Filter 'phvalheim-client.exe' -Recurse -File)
           if ($exe.Count -ne 1) { throw "Expected one phvalheim-client.exe; found $($exe.Count)" }
+          $exeSha = (Get-FileHash $exe[0].FullName -Algorithm SHA256).Hash.ToLower()
+          if ($exeSha -ne 'd692bf7312e2a6fc307af47406110e0c592fab3c3a57ea98e5bf9aa80de4fec1') { throw "Published 2.0.19 executable SHA256 mismatch: $exeSha" }
           "exe=$($exe[0].FullName)" >> $env:GITHUB_OUTPUT
-          "sha=$((Get-FileHash $exe[0].FullName -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+          "sha=$exeSha" >> $env:GITHUB_OUTPUT
       - name: Published 2.0.19 is denied on Hidden config files
         env:
           EXE: ${{ steps.published.outputs.exe }}

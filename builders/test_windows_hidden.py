@@ -497,12 +497,17 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
 
     Two runs: a relaunch (config policy enforced on Hidden config files, the sync record, the logs)
     and a world update (download over a Hidden cached archive, install, settings, sync record).
-    Both must launch with no ERROR, apply the server's settings, keep the player's, and leave the
-    files Hidden. With --expect-config-denial (a build from before this fix) the relaunch must fail
+    Both must launch with no ERROR, apply the server's settings, keep the player's, and preserve
+    Hidden on config, sync record, and loader/backend files. The cached archive may be replaced,
+    and the archive-authoritative manifest may take new attributes during installation.
+    With --expect-config-denial (a build from before this fix) the relaunch must fail
     with an access denial while applying the world's settings: the test can fail.
     """
     config = cached_world / "BepInEx" / "config" / "fixture.cfg"
     manifest = cached_world / "BepInEx" / "config" / POLICY
+    # Syncer uses PhValheimServerRoot / (WorldName + suffix); cache is that root.
+    sync_record = cache / (cache.name + ".sync")
+    archive = cache / (cache.name + ".zip")
 
     def hide_everything(label):
         hidden = []
@@ -516,15 +521,72 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
                     attrs.set(path, (value & ~NORMAL) | HIDDEN)
                     hidden.append(str(path))
         require(str(config) in hidden and str(manifest) in hidden, "Config files were not part of the Hidden set.")
+        require(str(sync_record) in hidden and str(archive) in hidden,
+                "Sync record and cached archive were not part of the Hidden set.")
         report["cases"].setdefault(label, {})["hidden_before"] = len(hidden)
         return hidden
+
+    def snapshot(hidden):
+        result = {}
+        for name in hidden:
+            path = Path(name)
+            entry = {"exists": None, "attributes": None, "hidden": None, "readonly": None,
+                     "sha256": None, "size": None, "file_id": None}
+            result[name] = entry
+            try:
+                stat = path.stat()
+                entry.update(exists=True, size=stat.st_size, file_id=[stat.st_dev, stat.st_ino])
+                value = attrs.get(path)
+                entry.update(attributes=value, hidden=bool(value & HIDDEN), readonly=bool(value & READONLY))
+                entry["sha256"] = sha256(path)
+            except FileNotFoundError:
+                entry["exists"] = False
+            except OSError as error:
+                entry["error"] = str(error)
+        return result
+
+    @contextmanager
+    def hidden_case(label):
+        hidden = hide_everything(label)
+        result = report["cases"][label]
+        result["before"] = snapshot(hidden)
+        result["expected_world_md5"] = server.md5
+        result["replacement_note"] = (
+            "The cached archive may be replaced; archive and archive-authoritative manifest "
+            "attributes are recorded without requiring preservation after replacement.")
+        save_json(evidence / "results.json", report)
+        try:
+            require(not any("error" in entry for entry in result["before"].values()),
+                    "Could not snapshot every Hidden file before " + label)
+            yield
+        finally:
+            result["after"] = snapshot(hidden)
+            result["changes"] = {}
+            for name in hidden:
+                before, after = result["before"][name], result["after"][name]
+                fields = [key for key in before if before[key] != after.get(key)]
+                if fields or "error" in after:
+                    result["changes"][name] = {
+                        "fields": fields,
+                        "missing": after["exists"] is False,
+                        "replaced": (before["file_id"] != after["file_id"]
+                                     if before["file_id"] and after["file_id"] else None),
+                    }
+            save_json(evidence / "results.json", report)
+            for path in (manifest, archive):
+                before, after = result["before"][str(path)], result["after"][str(path)]
+                print(f"{label}: {path}: attributes {before['attributes']} -> {after['attributes']}; "
+                      f"SHA256 {before['sha256']} -> {after['sha256']}; "
+                      f"change={result['changes'].get(str(path), {})}", flush=True)
+        require(not any("error" in entry for entry in result["after"].values()),
+                "Could not snapshot every Hidden file after " + label)
 
     def config_text():
         return config.read_text(encoding="utf-8")
 
     attrs.seed(config, b"[Fixture]\nmanaged = tampered\npersonal = mine\n", 0)
-    hide_everything("all-hidden")
-    output, record = run_case("all-hidden")
+    with hidden_case("all-hidden"):
+        output, record = run_case("all-hidden")
     if args.expect_config_denial:
         require("ERROR" in output, "A build without the fix should have failed on Hidden config files.")
         require(re.search(r"UnauthorizedAccessException|access.{0,30}denied|0x80070005", output, re.I),
@@ -539,25 +601,29 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
     text = config_text()
     require("managed = rev1" in text, "The server's setting was not enforced on a Hidden config file.")
     require("personal = mine" in text, "The player's own setting was not kept.")
-    for path in (config, manifest, *targets.values()):
+    for path in (config, manifest, sync_record, *targets.values()):
         require(attrs.get(path) & HIDDEN, "Hidden was lost from " + str(path))
 
     server.archive = make_archive(2)
     server.md5 = hashlib.md5(server.archive).hexdigest()
-    hide_everything("all-hidden-update")
-    output, record = run_case("all-hidden-update")
+    with hidden_case("all-hidden-update"):
+        output, record = run_case("all-hidden-update")
     require("ERROR" not in output, "Every-file-Hidden world update reported ERROR; see all-hidden-update-stdout.txt.")
     require(any(urlsplit(p).path.endswith(".zip") for p in report["cases"]["all-hidden-update"]["requests"]),
             "The world update did not download the new archive.")
-    require((cache / (cache.name + ".zip")).read_bytes() == server.archive,
+    require(archive.read_bytes() == server.archive,
             "The Hidden cached archive was not replaced by the new one.")
     check_launch(record, payload, preloader)
     correct_targets()
     text = config_text()
     require("managed = rev2" in text, "The updated world's setting was not applied.")
     require("personal = mine" in text, "The player's own setting was lost in the update.")
-    for path in targets.values():
+    for path in (config, sync_record, *targets.values()):
         require(attrs.get(path) & HIDDEN, "Hidden was lost from " + str(path))
+    sync_text = sync_record.read_text(encoding="utf-8")
+    report["cases"]["all-hidden-update"]["sync_record_contents"] = sync_text
+    require(sync_text.splitlines() == ["worldMd5=" + server.md5, "modsMd5=", "configMd5="],
+            "The sync record does not describe the updated world's current MD5.")
     report["cases"]["all-hidden-update"]["passed"] = True
 
 
