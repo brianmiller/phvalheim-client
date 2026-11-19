@@ -155,17 +155,7 @@ internal static class ConfigPolicy
 
     private static long StagedConfigBytes(string source, bool includeManaged)
     {
-        // Check ancestors too: an ordinary config directory can sit below a link.
-        for (var directory = new DirectoryInfo(source); directory != null; directory = directory.Parent)
-        {
-            try
-            {
-                if ((File.GetAttributes(directory.FullName) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Cannot estimate a symbolic config path: " + directory.FullName);
-            }
-            catch (FileNotFoundException) { }
-            catch (DirectoryNotFoundException) { }
-        }
+        // Resolve ancestor aliases normally; PersonalBytes rejects links in the config root and contents.
         long bytes = PersonalBytes(source);
         if (includeManaged)
             foreach (string name in SystemFiles.Append(ManifestName))

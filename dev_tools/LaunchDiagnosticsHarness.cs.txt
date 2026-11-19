@@ -342,6 +342,126 @@ class Tests
         Check(applied.Error == null && File.ReadAllText(cfg).Contains("Limit = 10")
             && File.ReadAllText(Path.Combine(config, "personal.cfg")) == personal, "ENFORCE_UNKNOWN_SPACE_SUCCESS_CONTROL", applied);
     }
+    static void PoliciesUnderSymlinkedAncestor(string archive)
+    {
+        string actual = Path.Combine(root, "policy-ancestor-actual"), link = Path.Combine(root, "policy-ancestor-link");
+        Directory.CreateDirectory(actual);
+        Directory.CreateSymbolicLink(link, actual);
+        Put(Path.Combine(link, "write-control"), "ancestor-write-through");
+        Check((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0
+            && File.ReadAllText(Path.Combine(actual, "write-control")) == "ancestor-write-through",
+            "ANCESTOR_REAL_SYMLINK_WRITE_THROUGH_CONTROL");
+        long zipBytes;
+        using (var zip = ZipFile.OpenRead(archive)) zipBytes = zip.Entries.Sum(e => e.Length);
+
+        foreach (bool install in new[] { true, false })
+        {
+            string operation = install ? "archive" : "enforce", prefix = "ANCESTOR_" + operation.ToUpperInvariant();
+            string world = Path.Combine(link, operation, "world"), config = Path.Combine(world, "BepInEx", "config");
+            var files = new Dictionary<string, string> {
+                [Path.Combine("nested", "personal.cfg")] = new string('p', 4096) + "雪",
+                ["test.cfg"] = "[UI]\nLimit = 999\n",
+                [ConfigPolicy.ManifestName] = Policy(),
+                ["BepInEx.cfg"] = "managed-loader-control",
+                ["ZeroBandwidth.CustomSeed.cfg"] = "managed-seed-control",
+                ["quick_connect_servers.cfg"] = "managed-connect-control"
+            };
+            void Seed()
+            {
+                foreach (var file in files) Put(Path.Combine(config, file.Key), file.Value);
+                Put(Path.Combine(world, "previous.dll"), "previous-control");
+            }
+            string[] Snapshot() => Directory.GetFiles(world, "*", SearchOption.AllDirectories)
+                .Select(p => Path.GetRelativePath(world, p) + ":" + Convert.ToBase64String(File.ReadAllBytes(p)))
+                .OrderBy(p => p, StringComparer.Ordinal).ToArray();
+            Seed();
+            string[] before = Snapshot();
+            long personalBytes = Encoding.UTF8.GetByteCount(files[Path.Combine("nested", "personal.cfg")])
+                + Encoding.UTF8.GetByteCount(files["test.cfg"]);
+            long required = install ? zipBytes + personalBytes : files.Values.Sum(v => (long)Encoding.UTF8.GetByteCount(v));
+            string stageParent = install ? Path.GetDirectoryName(world)! : Path.GetDirectoryName(config)!;
+            string stagePattern = install ? ".phvalheim-stage-*" : "config.apply-*";
+            string physicalParent = install ? Path.Combine(actual, operation) : Path.Combine(actual, operation, "world", "BepInEx");
+            // Resolve only the expected location (including macOS /var); operations retain the explicit link.
+            string expectedPath = (string)Invoke(typeof(DiskSpace), "ResolveUnixPath", new object?[] { physicalParent })!;
+            int measured = 0; bool stageSeen = false;
+            string? measuredPath = null;
+            DiskSpace.Measurement Measure(string path, long available)
+            {
+                measured++; measuredPath = path;
+                stageSeen |= Directory.GetDirectories(stageParent, stagePattern).Length != 0;
+                return new(Path.GetPathRoot(path), available);
+            }
+            Outcome Execute(Func<string, DiskSpace.Measurement> measure) => Capture(() => install
+                ? Invoke(typeof(ConfigPolicy), "InstallArchive", new object?[] { archive, world, true }, measure)
+                : Invoke(typeof(ConfigPolicy), "Enforce", new object?[] { world, null }, measure));
+            var estimate = Capture(() => install
+                ? Invoke(typeof(ConfigPolicy), "ArchiveStageBytes", new object?[] { archive, config })
+                : Invoke(typeof(ConfigPolicy), "StagedConfigBytes", new object?[] { config, true }));
+            var rejected = Execute(p => Measure(p, required - 1));
+            bool previousIntact = before.SequenceEqual(Snapshot());
+            int remainingStages = Directory.GetDirectories(stageParent, stagePattern).Length;
+            string details = JsonSerializer.Serialize(new {
+                world, config, link, expectedPath, measuredPath, measured, stageSeen, zipBytes, personalBytes,
+                previousIntact, remainingStages, requiredBytes = required, injectedAvailableBytes = required - 1,
+                rawRequiredBytes = estimate.Value, rawEstimateError = estimate.Error?.ToString()
+            });
+            Check(measured == 1 && measuredPath == expectedPath, prefix + "_MEASURES_RESOLVED_DESTINATION", rejected, details);
+            Check(estimate.Error == null && estimate.Value is long bytes && bytes == required
+                && rejected.Log.Contains("required additional bytes: " + required + ";"),
+                prefix + "_EXACT_REQUIRED_BYTES", rejected, details);
+            Check(rejected.Error is DiskSpace.InsufficientDiskSpaceException space
+                && space.Assessment.RequiredBytes == required && space.Assessment.Space.AvailableBytes == required - 1,
+                prefix + "_LOW_REJECTS", rejected, details);
+            Check(!stageSeen && remainingStages == 0 && previousIntact,
+                prefix + "_LOW_BEFORE_STAGE_PREVIOUS_INTACT", rejected, details);
+
+            Seed();
+            measured = 0; measuredPath = null; stageSeen = false;
+            var success = Execute(p => Measure(p, required));
+            Check(success.Error == null && measured == 1 && measuredPath == expectedPath && !stageSeen
+                && File.ReadAllText(Path.Combine(config, "test.cfg")).Contains("Limit = 10")
+                && File.ReadAllText(Path.Combine(config, "nested", "personal.cfg")) == files[Path.Combine("nested", "personal.cfg")]
+                && (install ? File.Exists(Path.Combine(world, "BepInEx", "plugins", "test.dll"))
+                    && !File.Exists(Path.Combine(world, "previous.dll"))
+                    : File.ReadAllText(Path.Combine(config, "BepInEx.cfg")) == files["BepInEx.cfg"]
+                        && File.ReadAllText(Path.Combine(world, "previous.dll")) == "previous-control")
+                && Directory.GetDirectories(stageParent, stagePattern).Length == 0,
+                prefix + "_SUFFICIENT_SPACE_SUCCESS_CONTROL", success);
+        }
+
+        string protectedSource = Path.Combine(actual, "protected-config"), sourceLink = Path.Combine(actual, "config-link");
+        Put(Path.Combine(protectedSource, "personal.cfg"), "protected-personal-control");
+        Directory.CreateSymbolicLink(sourceLink, protectedSource);
+        Check((File.GetAttributes(sourceLink) & FileAttributes.ReparsePoint) != 0
+            && File.ReadAllText(Path.Combine(sourceLink, "personal.cfg")) == "protected-personal-control",
+            "ANCESTOR_CONFIG_SOURCE_REAL_SYMLINK_CONTROL");
+        foreach (bool includeManaged in new[] { false, true })
+        {
+            var sourceEstimate = Capture(() => Invoke(typeof(ConfigPolicy), "StagedConfigBytes", new object?[] { sourceLink, includeManaged }));
+            Check(sourceEstimate.Error is IOException && sourceEstimate.Error.Message.EndsWith(sourceLink, StringComparison.Ordinal),
+                "ANCESTOR_CONFIG_SOURCE_SYMLINK_REJECTED_" + (includeManaged ? "ENFORCE" : "ARCHIVE"), sourceEstimate);
+        }
+        foreach (bool directory in new[] { false, true })
+        {
+            string source = Path.Combine(actual, directory ? "nested-directory-source" : "nested-file-source");
+            string nestedLink = Path.Combine(source, "nested", "linked-personal");
+            Directory.CreateDirectory(Path.GetDirectoryName(nestedLink)!);
+            if (directory) Directory.CreateSymbolicLink(nestedLink, protectedSource);
+            else File.CreateSymbolicLink(nestedLink, Path.Combine(protectedSource, "personal.cfg"));
+            string prefix = "ANCESTOR_NESTED_" + (directory ? "DIRECTORY" : "FILE");
+            Check((File.GetAttributes(nestedLink) & FileAttributes.ReparsePoint) != 0
+                && File.ReadAllText(directory ? Path.Combine(nestedLink, "personal.cfg") : nestedLink) == "protected-personal-control",
+                prefix + "_REAL_SYMLINK_CONTROL");
+            var estimate = Capture(() => Invoke(typeof(ConfigPolicy), "PersonalBytes", new object?[] { source }));
+            Check(estimate.Error is IOException && estimate.Error.Message.EndsWith(nestedLink, StringComparison.Ordinal),
+                prefix + "_SYMLINK_ESTIMATE_REJECTED", estimate);
+            var copy = Capture(() => Invoke(typeof(ConfigPolicy), "CopyPersonal", new object?[] { source, source + "-copy" }));
+            Check(copy.Error is IOException && copy.Error.Message.EndsWith(nestedLink, StringComparison.Ordinal)
+                && File.ReadAllText(Path.Combine(protectedSource, "personal.cfg")) == "protected-personal-control",
+                prefix + "_SYMLINK_COPY_REJECTED", copy);
+        }
+    }
     static void UiErrors()
     {
         var result = Capture(() => {
@@ -406,6 +526,8 @@ class Tests
             }
         }
         if (!missingOnly) Run("POLICY", () => Policies(archive));
+        if (!missingOnly && (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
+            Run("POLICY_ANCESTOR", () => PoliciesUnderSymlinkedAncestor(archive));
         if (!policyOnly && !missingOnly)
         {
             Check(!captured.ToString().Contains(credential) && captured.ToString().Contains("[REDACTED]"), "CREDENTIALS_NEVER_LEAK_TO_CONSOLE");
