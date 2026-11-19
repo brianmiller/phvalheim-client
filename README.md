@@ -276,24 +276,57 @@ flatpak run com.phvalheim.Client '<paste the phvalheim:// link here>'
 Same binary, same sandbox, same everything a click produces, with progress
 printed in your current terminal.
 
-## Troubleshooting — 2.0.19 Windows MSI prerelease
+## Troubleshooting — 2.0.19 prerelease
 
-The corrected [2.0.19 Windows prerelease](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.19)
-handles Hidden `winhttp.dll`, `doorstop_config.ini`, and `phvalheim.backend` files
-while preserving their Hidden attribute. Windows copies only the required loader
-files, `winhttp.dll` and `doorstop_config.ini`. Permissions and ReadOnly attributes
-remain unchanged; a genuinely denied backend write still aborts launch, and the
-client does not request elevation. **2.0.18 remains the latest stable release.**
-No Linux, Flatpak, or macOS packages are published as part of this prerelease.
+The corrected [2.0.19 prerelease](https://github.com/brianmiller/phvalheim-client/releases/tag/2.0.19)
+covers all seven package formats below. The Linux and macOS packages are rebuilt
+from the corrected source; the existing corrected Windows MSI is unchanged and
+has not been rebuilt again. **2.0.18 remains the latest stable release and the
+fallback for normal installation.** Use the explicit downloads below to test 2.0.19.
 
-File-write diagnostics, persistent logs, and disk-space checks remain available.
-The user confirmed gameplay after manually clearing Hidden flags in the original
-installation; live gameplay with the corrected MSI remains unverified. See the
-[release notes](docs/releases/RELEASE-2.0.19.md) for Windows validation and its limits.
+On Windows, the correction handles Hidden `winhttp.dll`, `doorstop_config.ini`,
+and `phvalheim.backend` files while preserving their Hidden attribute. Windows
+copies only `winhttp.dll` and `doorstop_config.ini`; Linux selects
+`doorstop_libs/libdoorstop_x64.so` and `doorstop_config.ini`. macOS preserves
+destination Hidden flags during ordinary copies and does not copy loader files
+into the signed `Valheim.app` bundle. Genuine write permissions and ReadOnly
+restrictions remain respected; a denied backend write still aborts launch, and
+the client does not request elevation.
+
+File-write diagnostics, persistent logs, and disk-space checks are available
+across Windows, Linux, and macOS. These corrections have been tested with file
+and launch fixtures; that does not establish live Valheim gameplay. See the
+[release notes](docs/releases/RELEASE-2.0.19.md) for validation details and limits.
+
+### Prerelease downloads and installation
+
+| Platform / format | 2.0.19 download |
+| --- | --- |
+| Windows MSI | [phvalheim-client-2.0.19-x86_64.msi](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.msi) |
+| Linux DEB | [phvalheim-client-2.0.19-x86_64.deb](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.deb) |
+| Linux RPM | [phvalheim-client-2.0.19-x86_64.rpm](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.rpm) |
+| Linux TGZ | [phvalheim-client-2.0.19-universal-x86_64.tar.gz](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-universal-x86_64.tar.gz) |
+| Linux Flatpak | [phvalheim-client-2.0.19-x86_64.flatpak](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.flatpak) |
+| macOS universal TGZ (primary) | [phvalheim-client-2.0.19-macos-universal.tar.gz](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.tar.gz) |
+| macOS universal PKG (supplementary) | [phvalheim-client-2.0.19-macos-universal.pkg](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.pkg) |
+
+For Linux, use the matching [installation commands above](#installation), replacing
+`<version>` with `2.0.19`. For Windows, run the MSI as described above.
 
 Existing 2.0.19 testers must [redownload the MSI](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.msi)
 and install it over the original; the filename and version are unchanged, so confirm
 SHA-256 `260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a`.
+
+macOS continues to use the shell installer plus universal tarball as its primary
+installation method; the PKG is supplementary. The normal installer selects
+stable 2.0.18, so download the **2.0.19 installer and tarball** into the same
+directory and explicitly select that tarball:
+
+```bash
+curl -fLO https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/macinstall.sh
+curl -fLO https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.tar.gz
+PHVALHEIM_TARBALL=./phvalheim-client-2.0.19-macos-universal.tar.gz bash ./macinstall.sh install
+```
 
 ### Launch fails with “access denied”
 
