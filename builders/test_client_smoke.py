@@ -145,7 +145,8 @@ def main():
     case(exe, "empty query", ["phvalheim:///?"], ["launch link could not be understood"])
     case(exe, "not base64", ["phvalheim://?not-valid-base64!!"], ["launch link could not be understood"])
     case(exe, "no query at all", ["phvalheim://"], ["launch link could not be understood"])
-    case(exe, "base64 but one field", [b64url("launch")], ["launch link could not be understood"])
+    # RegisterPayload redacts the entire decoded payload, including the word "launch".
+    case(exe, "base64 but one field", [b64url("launch")], ["ERROR: That [REDACTED] link could not be understood."])
     case(exe, "launch missing fields", [b64url("launch?World?pw")], ["launch link could not be understood"])
     case(exe, "textures missing fields", [b64url("textures?World")], ["launch link could not be understood"])
 
