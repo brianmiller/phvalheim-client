@@ -10,6 +10,10 @@ on:
         description: Run only the exact-executable Hidden regression (installer checks must pass separately)
         type: boolean
         default: false
+      migration_only:
+        description: Run only the original 2.0.19 Windows MSI migration checks
+        type: boolean
+        default: false
       candidate_release:
         description: Draft release containing the candidate MSI (matching the checkout version)
         type: string
@@ -31,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        from: ['2.0.12', '2.0.13', '2.0.14', '2.0.15', '2.0.16', '2.0.17', '2.0.18', '2.0.19', '2.0.19-corrected']
+        from: ${{ fromJSON(inputs.migration_only && '["2.0.19"]' || '["2.0.12", "2.0.13", "2.0.14", "2.0.15", "2.0.16", "2.0.17", "2.0.18", "2.0.19", "2.0.19-corrected"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Read candidate version
@@ -80,42 +84,67 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $candidate = @(Get-ChildItem candidate -Filter '*.msi' -File)
           if ($candidate.Count -ne 1) { throw 'Expected exactly one candidate MSI' }
-          $installer = New-Object -ComObject WindowsInstaller.Installer
-          $session = $installer.OpenPackage($candidate[0].FullName, 1)
-          $view = $session.Database.OpenView('SELECT `Condition` FROM `LaunchCondition`')
-          $view.Execute()
-          $conditions = @()
-          while ($record = $view.Fetch()) { $conditions += $record.StringData(1) }
-          $view.Close()
-          $same = @($conditions | Where-Object { $_ -match '\bPHV_SAME_VERSION_FOUND\b' })
-          $newer = @($conditions | Where-Object { $_ -match '\bPHV_NEWER_FOUND\b' })
-          if ($same.Count -ne 1 -or $newer.Count -ne 1) { throw 'Expected same-version and newer-version launch conditions' }
-          $original = '{3783EF6D-25B9-4A61-9518-BE79B530643A}'
-          $corrected = '{9ED226DE-BDBE-4D21-A0F3-C0422155FA22}'
-          $unknown = '{00000000-0000-0000-0000-000000000001}'
-          $cases = @(
-            @{ Name = 'no same-version product'; Value = ''; Expected = 1 }
-            @{ Name = 'original predecessor'; Value = $original; Expected = 1 }
-            @{ Name = 'corrected predecessor'; Value = $corrected; Expected = 1 }
-            @{ Name = 'unknown product'; Value = $unknown; Expected = 0 }
-            @{ Name = 'both known products'; Value = "$original;$corrected"; Expected = 0 }
-            @{ Name = 'both known products reversed'; Value = "$corrected;$original"; Expected = 0 }
-            @{ Name = 'original then unknown'; Value = "$original;$unknown"; Expected = 0 }
-            @{ Name = 'unknown then original'; Value = "$unknown;$original"; Expected = 0 }
-            @{ Name = 'corrected then unknown'; Value = "$corrected;$unknown"; Expected = 0 }
-            @{ Name = 'unknown then corrected'; Value = "$unknown;$corrected"; Expected = 0 }
-          )
-          foreach ($case in $cases) {
-            foreach ($newerProduct in @('', $unknown)) {
-              $session.Property('PHV_SAME_VERSION_FOUND') = $case.Value
-              $session.Property('PHV_NEWER_FOUND') = $newerProduct
-              $sameResult = $session.EvaluateCondition($same[0])
-              $newerResult = $session.EvaluateCondition($newer[0])
-              $expectedNewer = if ($newerProduct) { 0 } else { 1 }
-              if ($sameResult -ne $case.Expected -or $newerResult -ne $expectedNewer) {
-                throw "$($case.Name), newer='$newerProduct': same=$sameResult (expected $($case.Expected)), newer=$newerResult (expected $expectedNewer)"
+          $installer = $session = $database = $view = $null
+          try {
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            if ($null -eq $installer) { throw 'Expected a Windows Installer COM object' }
+            $session = $installer.GetType().InvokeMember('OpenPackage', [System.Reflection.BindingFlags]::InvokeMethod, $null, $installer, @($candidate[0].FullName, 1))
+            if ($null -eq $session) { throw 'OpenPackage returned no session' }
+            $database = $session.GetType().InvokeMember('Database', [System.Reflection.BindingFlags]::GetProperty, $null, $session, $null)
+            if ($null -eq $database) { throw 'Session.Database returned no database' }
+            $view = $database.GetType().InvokeMember('OpenView', [System.Reflection.BindingFlags]::InvokeMethod, $null, $database, @('SELECT `Condition` FROM `LaunchCondition`'))
+            if ($null -eq $view) { throw 'OpenView returned no LaunchCondition view' }
+            [void]$view.GetType().InvokeMember('Execute', [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+            $conditions = @()
+            while ($null -ne ($record = $view.GetType().InvokeMember('Fetch', [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null))) {
+              try {
+                $conditions += $record.GetType().InvokeMember('StringData', [System.Reflection.BindingFlags]::GetProperty, $null, $record, @(1))
+              } finally {
+                [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($record)
               }
-              Write-Host "PASS: $($case.Name), newer='$newerProduct'"
+            }
+            $same = @($conditions | Where-Object { $_ -match '\bPHV_SAME_VERSION_FOUND\b' })
+            $newer = @($conditions | Where-Object { $_ -match '\bPHV_NEWER_FOUND\b' })
+            if ($same.Count -ne 1 -or $newer.Count -ne 1) { throw 'Expected same-version and newer-version launch conditions' }
+            $original = '{3783EF6D-25B9-4A61-9518-BE79B530643A}'
+            $corrected = '{9ED226DE-BDBE-4D21-A0F3-C0422155FA22}'
+            $unknown = '{00000000-0000-0000-0000-000000000001}'
+            $cases = @(
+              @{ Name = 'no same-version product'; Value = ''; Expected = 1 }
+              @{ Name = 'original predecessor'; Value = $original; Expected = 1 }
+              @{ Name = 'corrected predecessor'; Value = $corrected; Expected = 1 }
+              @{ Name = 'unknown product'; Value = $unknown; Expected = 0 }
+              @{ Name = 'both known products'; Value = "$original;$corrected"; Expected = 0 }
+              @{ Name = 'both known products reversed'; Value = "$corrected;$original"; Expected = 0 }
+              @{ Name = 'original then unknown'; Value = "$original;$unknown"; Expected = 0 }
+              @{ Name = 'unknown then original'; Value = "$unknown;$original"; Expected = 0 }
+              @{ Name = 'corrected then unknown'; Value = "$corrected;$unknown"; Expected = 0 }
+              @{ Name = 'unknown then corrected'; Value = "$unknown;$corrected"; Expected = 0 }
+            )
+            foreach ($case in $cases) {
+              foreach ($newerProduct in @('', $unknown)) {
+                [void]$session.GetType().InvokeMember('Property', [System.Reflection.BindingFlags]::SetProperty, $null, $session, @('PHV_SAME_VERSION_FOUND', $case.Value))
+                [void]$session.GetType().InvokeMember('Property', [System.Reflection.BindingFlags]::SetProperty, $null, $session, @('PHV_NEWER_FOUND', $newerProduct))
+                $sameResult = $session.GetType().InvokeMember('EvaluateCondition', [System.Reflection.BindingFlags]::InvokeMethod, $null, $session, @($same[0]))
+                $newerResult = $session.GetType().InvokeMember('EvaluateCondition', [System.Reflection.BindingFlags]::InvokeMethod, $null, $session, @($newer[0]))
+                $expectedNewer = if ($newerProduct) { 0 } else { 1 }
+                if ($sameResult -ne $case.Expected -or $newerResult -ne $expectedNewer) {
+                  throw "$($case.Name), newer='$newerProduct': same=$sameResult (expected $($case.Expected)), newer=$newerResult (expected $expectedNewer)"
+                }
+                Write-Host "PASS: $($case.Name), newer='$newerProduct'"
+              }
+            }
+          } finally {
+            try {
+              if ($null -ne $view) {
+                [void]$view.GetType().InvokeMember('Close', [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+              }
+            } finally {
+              foreach ($comObject in @($view, $database, $session, $installer)) {
+                if ($null -ne $comObject) {
+                  [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+                }
+              }
             }
           }
       - name: Upgrade, exact payload, repair and uninstall
@@ -147,7 +176,7 @@ jobs:
             msi-logs/
             screens/
   windows-hidden:
-    if: ${{ !inputs.macos_only }}
+    if: ${{ !inputs.macos_only && !inputs.migration_only }}
     permissions:
       contents: write
     runs-on: windows-latest
@@ -213,7 +242,7 @@ jobs:
           name: draft-windows-hidden-evidence
           path: hidden-evidence/
   windows-payload-negative-control:
-    if: ${{ !inputs.macos_only && !inputs.hidden_only }}
+    if: ${{ !inputs.macos_only && !inputs.hidden_only && !inputs.migration_only }}
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -261,7 +290,7 @@ jobs:
           name: draft-windows-payload-negative-evidence
           path: payload-negative-evidence/
   macos:
-    if: ${{ !inputs.hidden_only }}
+    if: ${{ !inputs.hidden_only && !inputs.migration_only }}
     runs-on: macos-15
     timeout-minutes: 25
     steps:
