@@ -1,0 +1,100 @@
+name: Published 2.0.18 vs 2.0.19 Hidden reproduction
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-published-reproduction.yml'
+      - 'builders/test_windows_hidden_pair.py'
+      - 'builders/test_windows_hidden.py'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Download, verify and administratively extract the public release MSIs
+        id: published
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path "$env:GITHUB_WORKSPACE" 'published-hidden-evidence'
+          New-Item -ItemType Directory -Path "$evidence" -Force | Out-Null
+          $root = Join-Path "$env:RUNNER_TEMP" "published-hidden-$([guid]::NewGuid())"
+          New-Item -ItemType Directory -Path "$root" | Out-Null
+          $releases = @(
+            @{ Role = 'old'; Version = '2.0.18'; MsiSha = 'f12c3c9af99b698b4364ab9d13697b528ed5d99b66230debefa6026a89b6aeb1'; ExeSha = $null }
+            @{ Role = 'new'; Version = '2.0.19'; MsiSha = '6816a959190a3a4eedbd5fbe4cab15348c9fc10c8345699f9c098d8e8b611ab5'; ExeSha = '72e717f34381ea04246fdd695e8e6119dba1c16eaf9ab2972072683507017ca8' }
+          )
+          try {
+            foreach ($release in $releases) {
+              $version = $release.Version
+              $url = "https://github.com/brianmiller/phvalheim-client/releases/download/$version/phvalheim-client-$version-x86_64.msi"
+              $msi = Join-Path "$root" "phvalheim-client-$version-x86_64.msi"
+              $target = Join-Path "$root" "extracted-$version"
+              $log = Join-Path "$evidence" "$version-extract.log"
+              $metadataPath = Join-Path "$evidence" "$version-binary.json"
+              $metadata = [ordered]@{
+                version = $version
+                url = $url
+                msi_path = $msi
+                expected_msi_sha256 = $release.MsiSha
+                expected_exe_sha256 = $release.ExeSha
+              }
+              $metadata | ConvertTo-Json | Set-Content -LiteralPath "$metadataPath" -Encoding utf8
+              Invoke-WebRequest -Uri "$url" -OutFile "$msi" -TimeoutSec 120
+              $msiSha = (Get-FileHash -LiteralPath "$msi" -Algorithm SHA256).Hash.ToLowerInvariant()
+              $metadata['msi_sha256'] = $msiSha
+              $metadata | ConvertTo-Json | Set-Content -LiteralPath "$metadataPath" -Encoding utf8
+              if ($msiSha -ne $release.MsiSha) { throw "$version public MSI SHA256 mismatch: $msiSha" }
+              New-Item -ItemType Directory -Path "$target" | Out-Null
+              $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/a', "`"$msi`"", '/qn', "TARGETDIR=`"$target`"", '/l*v', "`"$log`"") -Wait -PassThru
+              $metadata['extraction_exit_code'] = $process.ExitCode
+              $metadata | ConvertTo-Json | Set-Content -LiteralPath "$metadataPath" -Encoding utf8
+              if ($process.ExitCode -ne 0) { throw "$version administrative extraction failed (exit $($process.ExitCode)); see $log" }
+              $exe = @(Get-ChildItem -LiteralPath "$target" -Filter 'phvalheim-client.exe' -Recurse -File)
+              if ($exe.Count -ne 1) { throw "Expected one phvalheim-client.exe in $version extraction; found $($exe.Count)" }
+              $exePath = $exe[0].FullName
+              $exeSha = (Get-FileHash -LiteralPath "$exePath" -Algorithm SHA256).Hash.ToLowerInvariant()
+              $metadata['exe_path'] = $exePath
+              $metadata['exe_sha256'] = $exeSha
+              $metadata['file_version'] = $exe[0].VersionInfo.FileVersion
+              $metadata | ConvertTo-Json | Set-Content -LiteralPath "$metadataPath" -Encoding utf8
+              if ($release.ExeSha -and $exeSha -ne $release.ExeSha) { throw "$version public executable SHA256 mismatch: $exeSha" }
+              "$($release.Role)_exe=$exePath" >> "$env:GITHUB_OUTPUT"
+              "$($release.Role)_sha=$exeSha" >> "$env:GITHUB_OUTPUT"
+            }
+          } catch {
+            $_ | Out-String | Set-Content -LiteralPath (Join-Path "$evidence" 'extraction-failure.txt') -Encoding utf8
+            throw
+          }
+      - name: Require published 2.0.18 Hidden failure and published 2.0.19 success
+        env:
+          OLD_CLIENT: ${{ steps.published.outputs.old_exe }}
+          OLD_SHA: ${{ steps.published.outputs.old_sha }}
+          NEW_CLIENT: ${{ steps.published.outputs.new_exe }}
+          NEW_SHA: ${{ steps.published.outputs.new_sha }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $evidence = Join-Path "$env:GITHUB_WORKSPACE" 'published-hidden-evidence'
+          $pairEvidence = Join-Path "$evidence" 'pair'
+          $stdout = Join-Path "$evidence" 'pair-stdout.txt'
+          python -u "builders/test_windows_hidden_pair.py" --old-client "$env:OLD_CLIENT" --old-sha "$env:OLD_SHA" --new-client "$env:NEW_CLIENT" --new-sha "$env:NEW_SHA" --evidence-dir "$pairEvidence" 2>&1 | Tee-Object -FilePath "$stdout"
+          if ($LASTEXITCODE -ne 0) { throw "Published Hidden paired comparison failed (exit $LASTEXITCODE)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-218-219-hidden-reproduction
+          path: published-hidden-evidence/
+          include-hidden-files: true
