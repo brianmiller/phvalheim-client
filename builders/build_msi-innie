@@ -134,6 +134,18 @@ case "$stage" in
 		fi
 		revisionArgs=(-D "PrereleasePredecessor=$MSI_PRERELEASE_PREDECESSOR")
 	fi
+	if [ -n "${MSI_PRERELEASE_PREDECESSOR2:-}" ]; then
+		if [ -z "${MSI_PRERELEASE_PREDECESSOR:-}" ]; then
+			echo "ERROR: MSI_PRERELEASE_PREDECESSOR2 requires MSI_PRERELEASE_PREDECESSOR"; exit 1
+		fi
+		if ! [[ "$MSI_PRERELEASE_PREDECESSOR2" =~ ^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$ ]]; then
+			echo "ERROR: MSI_PRERELEASE_PREDECESSOR2 must be an uppercase braced GUID"; exit 1
+		fi
+		if [ "$MSI_PRERELEASE_PREDECESSOR2" = "$MSI_PRERELEASE_PREDECESSOR" ]; then
+			echo "ERROR: MSI_PRERELEASE_PREDECESSOR2 must differ from MSI_PRERELEASE_PREDECESSOR"; exit 1
+		fi
+		revisionArgs+=(-D "PrereleasePredecessor2=$MSI_PRERELEASE_PREDECESSOR2")
+	fi
 	( cd "$stagingDir" && wixl -a x64 --ext ui -D Version="$version" "${revisionArgs[@]}" -o "$out" phvalheim-client.wxs ui-phvalheim.wxs ) || exit 1
 
 	if [ ! -s "$out" ]; then

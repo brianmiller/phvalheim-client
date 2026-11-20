@@ -2,6 +2,18 @@ name: Verify prerelease package revision
 on:
   workflow_dispatch:
     inputs:
+      macos_only:
+        description: Run only the macOS package build and install checks
+        type: boolean
+        default: false
+      hidden_only:
+        description: Run only the exact-executable Hidden regression (installer checks must pass separately)
+        type: boolean
+        default: false
+      migration_only:
+        description: Run only the original 2.0.19 Windows MSI migration checks
+        type: boolean
+        default: false
       candidate_release:
         description: Draft release containing the candidate MSI (matching the checkout version)
         type: string
@@ -14,6 +26,7 @@ permissions:
   contents: read
 jobs:
   windows:
+    if: ${{ !inputs.macos_only && !inputs.hidden_only }}
     # GitHub requires repository write access to download unpublished draft assets.
     permissions:
       contents: write
@@ -22,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        from: ['2.0.12', '2.0.13', '2.0.14', '2.0.15', '2.0.16', '2.0.17', '2.0.18']
+        from: ${{ fromJSON(inputs.migration_only && '["2.0.19"]' || '["2.0.12", "2.0.13", "2.0.14", "2.0.15", "2.0.16", "2.0.17", "2.0.18", "2.0.19", "2.0.19-corrected"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Read candidate version
@@ -37,18 +50,123 @@ jobs:
         shell: bash
         run: |
           gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
-          gh release download "$OLD_VERSION" -p '*x86_64.msi' -D old
+          if [[ "$OLD_VERSION" == '2.0.19' ]]; then
+            mkdir -p old
+            curl --fail --location --retry 3 --output old/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi
+          elif [[ "$OLD_VERSION" == '2.0.19-corrected' ]]; then
+            mkdir -p old
+            curl --fail --location --retry 3 --output old/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/07e2956203c844c3b710ade3ce603d7d1bd8eebc/builds/phvalheim-client-2.0.19-x86_64.msi
+          else
+            gh release download "$OLD_VERSION" -p '*x86_64.msi' -D old
+          fi
+      - name: Verify original 2.0.19 MSI
+        if: matrix.from == '2.0.19'
+        shell: pwsh
+        run: |
+          $old = @(Get-ChildItem old -Filter '*.msi' -File)
+          if ($old.Count -ne 1) { throw 'Expected exactly one original MSI' }
+          if ((Get-FileHash $old[0].FullName -Algorithm SHA256).Hash -ne '7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488') {
+            throw 'Original 2.0.19 MSI SHA256 mismatch'
+          }
+      - name: Verify corrected 2.0.19 MSI
+        if: matrix.from == '2.0.19-corrected'
+        shell: pwsh
+        run: |
+          $old = @(Get-ChildItem old -Filter '*.msi' -File)
+          if ($old.Count -ne 1) { throw 'Expected exactly one corrected MSI' }
+          if ((Get-FileHash $old[0].FullName -Algorithm SHA256).Hash -ne '260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a') {
+            throw 'Corrected 2.0.19 MSI SHA256 mismatch'
+          }
       - name: Upgrade, exact payload, repair and uninstall
         env:
           EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
           NEW_VERSION: ${{ steps.version.outputs.value }}
-          OLD_VERSION: ${{ matrix.from }}
+          OLD_VERSION: ${{ matrix.from == '2.0.19-corrected' && '2.0.19' || matrix.from }}
         shell: pwsh
         run: |
           if ($env:EXPECTED_SHA -notmatch '^[a-fA-F0-9]{64}$') { throw 'Expected executable SHA256 is required' }
           $old = (Get-ChildItem old -Filter '*.msi').FullName
           $new = (Get-ChildItem candidate -Filter '*.msi').FullName
           ./builders/verify_msi_upgrade.ps1 -OldMsi $old -OldVersion $env:OLD_VERSION -NewMsi $new -NewVersion $env:NEW_VERSION -ExpectedExeSha256 $env:EXPECTED_SHA
+      - name: Evaluate candidate MSI upgrade conditions on Windows
+        if: matrix.from == '2.0.19'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidate = @(Get-ChildItem candidate -Filter '*.msi' -File)
+          if ($candidate.Count -ne 1) { throw 'Expected exactly one candidate MSI' }
+          $installer = $session = $database = $view = $null
+          try {
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            if ($null -eq $installer) { throw 'Expected a Windows Installer COM object' }
+            $session = $installer.GetType().InvokeMember('OpenPackage', [System.Reflection.BindingFlags]::InvokeMethod, $null, $installer, @($candidate[0].FullName, 1))
+            if ($null -eq $session) { throw 'OpenPackage returned no session' }
+            $database = $session.GetType().InvokeMember('Database', [System.Reflection.BindingFlags]::GetProperty, $null, $session, $null)
+            if ($null -eq $database) { throw 'Session.Database returned no database' }
+            $view = $database.GetType().InvokeMember('OpenView', [System.Reflection.BindingFlags]::InvokeMethod, $null, $database, @('SELECT `Condition` FROM `LaunchCondition`'))
+            if ($null -eq $view) { throw 'OpenView returned no LaunchCondition view' }
+            [void]$view.GetType().InvokeMember('Execute', [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+            $conditions = @()
+            while ($null -ne ($record = $view.GetType().InvokeMember('Fetch', [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null))) {
+              try {
+                [string]$condition = $record.GetType().InvokeMember('StringData', [System.Reflection.BindingFlags]::GetProperty, $null, $record, @(1))
+                $conditions += [string]$condition
+              } finally {
+                [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($record)
+              }
+            }
+            $same = @($conditions | Where-Object { $_ -match '\bPHV_SAME_VERSION_FOUND\b' })
+            $newer = @($conditions | Where-Object { $_ -match '\bPHV_NEWER_FOUND\b' })
+            if ($same.Count -ne 1 -or $newer.Count -ne 1) { throw 'Expected same-version and newer-version launch conditions' }
+            [object[]]$sameArguments = @([string]$same[0])
+            [object[]]$newerArguments = @([string]$newer[0])
+            if ($sameArguments[0] -isnot [string] -or $sameArguments[0] -is [psobject] -or
+                $newerArguments[0] -isnot [string] -or $newerArguments[0] -is [psobject]) {
+              throw 'Expected plain System.String condition arguments'
+            }
+            $original = '{3783EF6D-25B9-4A61-9518-BE79B530643A}'
+            $corrected = '{9ED226DE-BDBE-4D21-A0F3-C0422155FA22}'
+            $unknown = '{00000000-0000-0000-0000-000000000001}'
+            $cases = @(
+              @{ Name = 'no same-version product'; Value = ''; Expected = 1 }
+              @{ Name = 'original predecessor'; Value = $original; Expected = 1 }
+              @{ Name = 'corrected predecessor'; Value = $corrected; Expected = 1 }
+              @{ Name = 'unknown product'; Value = $unknown; Expected = 0 }
+              @{ Name = 'both known products'; Value = "$original;$corrected"; Expected = 0 }
+              @{ Name = 'both known products reversed'; Value = "$corrected;$original"; Expected = 0 }
+              @{ Name = 'original then unknown'; Value = "$original;$unknown"; Expected = 0 }
+              @{ Name = 'unknown then original'; Value = "$unknown;$original"; Expected = 0 }
+              @{ Name = 'corrected then unknown'; Value = "$corrected;$unknown"; Expected = 0 }
+              @{ Name = 'unknown then corrected'; Value = "$unknown;$corrected"; Expected = 0 }
+            )
+            foreach ($case in $cases) {
+              foreach ($newerProduct in @('', $unknown)) {
+                [void]$session.GetType().InvokeMember('Property', [System.Reflection.BindingFlags]::SetProperty, $null, $session, [object[]]@([string]'PHV_SAME_VERSION_FOUND', [string]$case.Value))
+                [void]$session.GetType().InvokeMember('Property', [System.Reflection.BindingFlags]::SetProperty, $null, $session, [object[]]@([string]'PHV_NEWER_FOUND', [string]$newerProduct))
+                Write-Host "EvaluateCondition: type=$($sameArguments[0].GetType().FullName), condition='$($sameArguments[0])'"
+                $sameResult = $session.GetType().InvokeMember('EvaluateCondition', [System.Reflection.BindingFlags]::InvokeMethod, $null, $session, $sameArguments)
+                Write-Host "EvaluateCondition: type=$($newerArguments[0].GetType().FullName), condition='$($newerArguments[0])'"
+                $newerResult = $session.GetType().InvokeMember('EvaluateCondition', [System.Reflection.BindingFlags]::InvokeMethod, $null, $session, $newerArguments)
+                $expectedNewer = if ($newerProduct) { 0 } else { 1 }
+                if ($sameResult -ne $case.Expected -or $newerResult -ne $expectedNewer) {
+                  throw "$($case.Name), newer='$newerProduct': same=$sameResult (expected $($case.Expected)), newer=$newerResult (expected $expectedNewer)"
+                }
+                Write-Host "PASS: $($case.Name), newer='$newerProduct'"
+              }
+            }
+          } finally {
+            try {
+              if ($null -ne $view) {
+                [void]$view.GetType().InvokeMember('Close', [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+              }
+            } finally {
+              foreach ($comObject in @($view, $database, $session, $installer)) {
+                if ($null -ne $comObject) {
+                  [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+                }
+              }
+            }
+          }
       - name: Full wizard negative control and install
         if: matrix.from == '2.0.17'
         env:
@@ -66,7 +184,122 @@ jobs:
           path: |
             msi-logs/
             screens/
+  windows-hidden:
+    if: ${{ !inputs.macos_only && !inputs.migration_only }}
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Download draft candidate and pinned original 2.0.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RELEASE: ${{ inputs.candidate_release }}
+        shell: bash
+        run: |
+          gh release download "$CANDIDATE_RELEASE" -p '*x86_64.msi' -D candidate
+          mkdir -p original
+          curl --fail --location --retry 3 --output original/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi
+      - name: Verify original MSI and administratively extract both payloads
+        id: extract
+        shell: pwsh
+        run: |
+          $evidence = New-Item -ItemType Directory -Path hidden-evidence
+          foreach ($name in @('original', 'candidate')) {
+            $msi = @(Get-ChildItem $name -Filter '*.msi' -File)
+            if ($msi.Count -ne 1) { throw "Expected exactly one $name MSI" }
+            $hash = (Get-FileHash $msi[0].FullName -Algorithm SHA256).Hash
+            "$hash  $($msi[0].Name)" | Set-Content (Join-Path $evidence.FullName "$name-msi.sha256")
+            if ($name -eq 'original' -and $hash -ne '7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488') {
+              throw 'Original 2.0.19 MSI SHA256 mismatch'
+            }
+            $target = Join-Path $env:RUNNER_TEMP "hidden-$name-$([guid]::NewGuid())"
+            New-Item -ItemType Directory -Path $target | Out-Null
+            $log = Join-Path $evidence.FullName "$name-extract.log"
+            $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$($msi[0].FullName)`"", '/qn', "TARGETDIR=`"$target`"", '/l*v', "`"$log`"") -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "$name administrative extraction failed (exit $($process.ExitCode)); see $log" }
+            $exe = @(Get-ChildItem $target -Filter 'phvalheim-client.exe' -Recurse -File)
+            if ($exe.Count -ne 1) { throw "Expected exactly one phvalheim-client.exe in $name extraction; found $($exe.Count)" }
+            "${name}_exe=$($exe[0].FullName)" >> $env:GITHUB_OUTPUT
+          }
+      - name: Reproduce Hidden denial with original executable
+        env:
+          ORIGINAL_EXE: ${{ steps.extract.outputs.original_exe }}
+        shell: pwsh
+        run: |
+          python builders/test_windows_hidden.py --client "$env:ORIGINAL_EXE" --baseline --expected-sha 36971278f9ef5c6a45dd55d4ef3c22cf736b17eb99e181f4b510e17976bedeac --evidence-dir hidden-evidence/original 2>&1 | Tee-Object -FilePath hidden-evidence/original-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "Original hidden-file baseline failed (exit $LASTEXITCODE)" }
+      - name: Verify Hidden replacements and ReadOnly control with candidate executable
+        env:
+          CANDIDATE_EXE: ${{ steps.extract.outputs.candidate_exe }}
+          EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
+        shell: pwsh
+        run: |
+          python builders/test_windows_hidden.py --client "$env:CANDIDATE_EXE" --expected-sha "$env:EXPECTED_SHA" --evidence-dir hidden-evidence/candidate 2>&1 | Tee-Object -FilePath hidden-evidence/candidate-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "Candidate hidden-file verification failed (exit $LASTEXITCODE)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: draft-windows-hidden-evidence
+          path: hidden-evidence/
+  windows-payload-negative-control:
+    if: ${{ !inputs.macos_only && !inputs.hidden_only && !inputs.migration_only }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download public predecessor and pinned original 2.0.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release download 2.0.18 -p '*x86_64.msi' -D old
+          mkdir -p original
+          curl --fail --location --retry 3 --output original/phvalheim-client-2.0.19-x86_64.msi https://raw.githubusercontent.com/brianmiller/phvalheim-client/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi
+      - name: Require only the exact payload assertion to fail, including repair and cleanup
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_exe_sha256 }}
+        shell: pwsh
+        run: |
+          if ($env:EXPECTED_SHA -notmatch '^[a-fA-F0-9]{64}$') { throw 'Expected executable SHA256 is required' }
+          if ($env:EXPECTED_SHA -eq '36971278f9ef5c6a45dd55d4ef3c22cf736b17eb99e181f4b510e17976bedeac') {
+            throw 'Candidate SHA256 must differ from the original executable'
+          }
+          $old = @(Get-ChildItem old -Filter '*.msi' -File)
+          $original = @(Get-ChildItem original -Filter '*.msi' -File)
+          if ($old.Count -ne 1 -or $original.Count -ne 1) { throw 'Expected exactly one MSI per release' }
+          if ((Get-FileHash $original[0].FullName -Algorithm SHA256).Hash -ne '7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488') {
+            throw 'Original 2.0.19 MSI SHA256 mismatch'
+          }
+          New-Item -ItemType Directory -Path payload-negative-evidence | Out-Null
+          $PSNativeCommandUseErrorActionPreference = $false
+          pwsh -NoProfile -File ./builders/verify_msi_upgrade.ps1 -OldMsi $old[0].FullName -OldVersion 2.0.18 -NewMsi $original[0].FullName -NewVersion 2.0.19 -ExpectedExeSha256 $env:EXPECTED_SHA -LogDir payload-negative-evidence/msi-logs 2>&1 | Tee-Object -FilePath payload-negative-evidence/stdout.txt
+          $code = $LASTEXITCODE
+          $output = Get-Content payload-negative-evidence/stdout.txt -Raw
+          $failures = @([regex]::Matches($output, '(?m)^\s*FAIL: [^\r\n]+'))
+          if ($code -ne 1 -or $failures.Count -ne 1 -or $failures[0].Value.Trim() -ne 'FAIL: installed payload SHA256 differs from the candidate') {
+            throw 'Negative control did not fail only on the exact payload SHA256 assertion'
+          }
+          if ($output -notmatch '(?m)^\d+ passed, 1 failed\s*$' -or $output -notmatch 'PASS: uninstall succeeded' -or $output -notmatch 'PASS: no ARP entries remain') {
+            throw 'Negative control did not complete verification and cleanup'
+          }
+          Write-Host 'PASS: original payload rejected only by candidate SHA256; cleanup verified'
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: draft-windows-payload-negative-evidence
+          path: payload-negative-evidence/
   macos:
+    if: ${{ !inputs.hidden_only && !inputs.migration_only }}
     runs-on: macos-15
     timeout-minutes: 25
     steps:
@@ -84,9 +317,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download 2.0.17 -p '*macos-universal.tar.gz' -p macinstall.sh -D old
-          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.17-macos-universal.tar.gz" bash old/macinstall.sh install
-          bash builders/verify_macos.sh 2.0.17
+          gh release download 2.0.18 -p '*macos-universal.tar.gz' -p macinstall.sh -D old
+          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.18-macos-universal.tar.gz" bash old/macinstall.sh install
+          bash builders/verify_macos.sh 2.0.18
       - name: Upgrade tarball and verify
         run: |
           PHVALHEIM_TARBALL="$PWD/builds/phvalheim-client-$PHV_VERSION-macos-universal.tar.gz" bash macinstall.sh install
@@ -96,7 +329,7 @@ jobs:
       - name: PKG upgrade from stable and reinstall
         run: |
           bash macinstall.sh uninstall
-          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.17-macos-universal.tar.gz" bash old/macinstall.sh install
+          PHVALHEIM_TARBALL="$PWD/old/phvalheim-client-2.0.18-macos-universal.tar.gz" bash old/macinstall.sh install
           for attempt in 1 2; do
             sudo installer -pkg "builds/phvalheim-client-$PHV_VERSION-macos-universal.pkg" -target /
             cmp builders/.macos_staging/phvalheim-client /usr/local/bin/phvalheim-client

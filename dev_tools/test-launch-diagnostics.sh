@@ -28,7 +28,7 @@ for file in PhValheimPrep Tooling Syncer Downloader ConfigPolicy Ui; do
         cp "$repo/$file.cs" "$scratch/input/"
     fi
 done
-for file in PlayerConfig DiskSpace DiagnosticLog FileAccessDiagnostics; do
+for file in PlayerConfig DiskSpace DiagnosticLog FileAccessDiagnostics ManagedFile; do
     cp "$repo/$file.cs" "$scratch/input/"
 done
 cp "$repo/dev_tools/LaunchDiagnosticsHarness.cs.txt" "$scratch/input/Program.cs"

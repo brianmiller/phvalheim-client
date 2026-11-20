@@ -2,6 +2,8 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -23,6 +25,7 @@ namespace PhValheim.Arguments
 class Tests
 {
     static int passed, failed;
+    static bool baseline;
     static readonly string work = Path.GetFullPath(Environment.GetEnvironmentVariable("PHV_TEST_ROOT")!);
     static readonly string root = Path.GetFullPath(Path.Combine(work, "fixtures-" + Guid.NewGuid().ToString("N")));
     static readonly string logRoot = Path.Combine(root, "diagnostics");
@@ -103,6 +106,13 @@ class Tests
         Check(!outcome.Output.Contains(credential) && !outcome.Log.Contains(credential)
             && outcome.Output.Contains("ERROR:"), prefix + "_CREDENTIAL_ABSENT_ERROR_PRESENT", outcome);
     }
+    static void CollisionEvidence(Outcome outcome, string prefix, string path)
+    {
+        var type = Regex.Match(outcome.Log, @"System\.(?:IO\.)?(UnauthorizedAccessException|IOException)\b");
+        Check(type.Success && Has(outcome.Output, "existing directory occupies the expected file path"),
+            prefix + "_DIRECTORY_COLLISION_MEANING", outcome);
+        ErrorEvidence(outcome, prefix, path, type.Success ? type.Groups[1].Value : "<missing exception type>");
+    }
     static Exception Denied(string path)
     {
         try { File.WriteAllText(path, "must not overwrite directory"); }
@@ -144,7 +154,7 @@ class Tests
         Check(stimulus is IOException or UnauthorizedAccessException, "BACKEND_ACTUAL_DENIED_WRITE_" + stimulus.GetType().Name);
         var result = Capture(() => PhValheim.Prep.PhValheim.WriteBackendFile(worldName, phvalheimHostNoPort, "http://localhost/" + credential));
         Check(result.Error == null && result.Value is false, "BACKEND_RETURNS_FALSE_WITHOUT_THROW", result);
-        ErrorEvidence(result, "BACKEND", target, stimulus.GetType().Name);
+        CollisionEvidence(result, "BACKEND", target);
         Check(Directory.Exists(target), "BACKEND_COLLISION_DIRECTORY_PRESERVED");
         if (OperatingSystem.IsWindows())
             Check(result.Log.Contains("Owner SID:") && result.Log.Contains("ACL:"), "BACKEND_WINDOWS_OWNER_ACL_EVIDENCE");
@@ -163,10 +173,223 @@ class Tests
         var result = Capture(() => Invoke(typeof(PhValheim.Tooling.PhValheim), "CloneDirectory", new object?[] { source, destination }, enough));
         Check(result.Error is IOException or UnauthorizedAccessException, "COPY_PROPAGATES_ACCESS_FAILURE");
         Check(result.Error?.Data["PhValheim.Path"] as string == target, "COPY_EXACT_NESTED_TARGET_METADATA");
-        Check(result.Log.Contains(target) && result.Log.Contains("HResult=0x") && result.Log.Contains("   at "), "COPY_EXACT_NESTED_TARGET_LOGGED");
+        Check(result.Error != null && result.Log.Contains(result.Error.GetType().FullName!)
+            && result.Log.Contains(target) && result.Log.Contains("HResult=0x") && result.Log.Contains("   at ")
+            && result.Log.Contains("existing directory occupies the expected file path"), "COPY_EXACT_NESTED_TARGET_LOGGED", result);
         Directory.Move(target, target + ".collision");
         var success = Capture(() => Invoke(typeof(PhValheim.Tooling.PhValheim), "CloneDirectory", new object?[] { source, destination }, enough));
         Check(success.Error == null && File.ReadAllText(target) == "loader-control", "COPY_SUCCESS_CONTROL");
+        if (!baseline)
+        {
+            Put(target, "existing-copy-control");
+            var low = Capture(() => Invoke(typeof(PhValheim.Tooling.PhValheim), "CopyFile",
+                new object?[] { Path.Combine(source, "nested", "loader.so"), target }, p => new(Path.GetPathRoot(p), 0)));
+            Check(low.Error is DiskSpace.InsufficientDiskSpaceException && File.ReadAllText(target) == "existing-copy-control",
+                "COPY_LOW_SPACE_EXISTING_TARGET_BYTES_INTACT", low);
+            Check(low.Log.Contains("available bytes: 0") && low.Log.Contains(target)
+                && !Directory.GetFiles(Path.GetDirectoryName(target)!, ".phvalheim-*.tmp").Any(),
+                "COPY_LOW_SPACE_EVIDENCE_NO_STAGING", low);
+        }
+    }
+    static Outcome WriteNative(bool backend, string source, string target, string contents) => Capture(() => backend
+        ? Invoke(typeof(PhValheim.Prep.PhValheim), "WriteBackendFile", new object?[] { target, contents })
+        : Invoke(typeof(PhValheim.Tooling.PhValheim), "CopyFile", new object?[] { source, target }, enough));
+    static bool WriteSucceeded(Outcome result, bool backend) => result.Error == null && (!backend || result.Value is true);
+    static bool NoWriteTemps(string folder) => !Directory.GetFiles(folder, ".phvalheim-*.tmp").Any();
+    static void NativeFiles()
+    {
+        bool windows = OperatingSystem.IsWindows(), mac = OperatingSystem.IsMacOS(), linux = OperatingSystem.IsLinux();
+        if (!windows && !mac && !linux)
+        {
+            report.WriteLine("LIMITS: native file tests require Windows, macOS or Linux.");
+            Check(false, "NATIVE_FILES_UNSUPPORTED_OS");
+            return;
+        }
+        foreach (string name in new[] { "doorstop_config.ini", "winhttp.dll", "phvalheim.backend" })
+        {
+            bool backend = name == "phvalheim.backend";
+            string prefix = (windows ? "WINDOWS" : mac ? "MAC" : "LINUX") + "_" + name.Replace('.', '_').ToUpperInvariant();
+            string folder = Path.Combine(root, "native-files", name);
+            string target = Path.Combine(folder, (linux ? "." : "") + name);
+            string source = Path.Combine(folder, "source");
+            const string contents = "native-new-content-雪";
+            Put(source, contents);
+            Run(prefix, () => {
+                Check((File.GetAttributes(source) & FileAttributes.Hidden) == 0,
+                    prefix + "_SOURCE_NOT_HIDDEN_FIXTURE");
+                var created = WriteNative(backend, source, target, contents);
+                Check(WriteSucceeded(created, backend) && File.ReadAllText(target) == contents,
+                    prefix + "_NEW_FILE_CONTROL", created);
+                Put(target, "plain-old-control");
+                var plain = WriteNative(backend, source, target, contents);
+                Check(WriteSucceeded(plain, backend) && File.ReadAllText(target) == contents,
+                    prefix + "_ORDINARY_OVERWRITE_CONTROL", plain);
+                Put(target, "hidden-old-control");
+                FileAttributes original = File.GetAttributes(target);
+                try
+                {
+                    if (!linux) File.SetAttributes(target, original | FileAttributes.Hidden);
+                    bool hidden = (File.GetAttributes(target) & FileAttributes.Hidden) != 0;
+                    Check(hidden, prefix + "_ACTUAL_HIDDEN_FIXTURE");
+                    if (!hidden)
+                    {
+                        report.WriteLine("LIMITS: filesystem did not retain Hidden; native Hidden coverage unavailable for " + prefix);
+                        return;
+                    }
+                    var overwritten = WriteNative(backend, source, target, contents);
+                    Check(WriteSucceeded(overwritten, backend)
+                        && File.ReadAllBytes(target).SequenceEqual(Encoding.UTF8.GetBytes(contents)),
+                        prefix + "_HIDDEN_OVERWRITE_BYTES", overwritten);
+                    Check((File.GetAttributes(target) & FileAttributes.Hidden) != 0,
+                        prefix + "_HIDDEN_RETAINED", overwritten);
+                    Check(Directory.GetFiles(folder).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal)
+                        .SequenceEqual(new[] { Path.GetFileName(source), Path.GetFileName(target) }.OrderBy(n => n, StringComparer.Ordinal))
+                        && File.ReadAllText(source) == contents && NoWriteTemps(folder),
+                        prefix + "_NAMES_SOURCE_BYTES_NO_TEMP_LEFTOVERS", overwritten);
+                    if (windows) ReadOnlyHidden(backend, source, target, contents, prefix);
+                }
+                finally { File.SetAttributes(target, original); }
+            });
+            if (windows) Run(prefix + "_DACL", () => DenyWriteData(backend, source, Path.Combine(folder, "acl-target"), contents, prefix));
+        }
+        if (windows) Run("WINDOWS_STAGING", WriterThrows);
+        else report.WriteLine("LIMITS: Windows Hidden/read-only/DACL/staging tests require native Windows; Windows helper is not invoked on Unix.");
+        if (!mac) report.WriteLine("LIMITS: macOS Hidden-flag preservation requires native macOS; Linux dotfile coverage does not establish it.");
+    }
+    static void DenialEvidence(Outcome result, bool backend, string target, string prefix)
+    {
+        if (backend)
+        {
+            Check(result.Error == null && result.Value is false, prefix + "_RETURNS_FALSE", result);
+            ErrorEvidence(result, prefix, target, nameof(UnauthorizedAccessException));
+        }
+        else
+        {
+            Check(result.Error is UnauthorizedAccessException && result.Error.HResult == unchecked((int)0x80070005),
+                prefix + "_ACTUAL_ACCESS_DENIED", result);
+            Check(result.Error?.Data["PhValheim.Path"] as string == target
+                && result.Log.Contains(typeof(UnauthorizedAccessException).FullName!)
+                && result.Log.Contains(target) && result.Log.Contains("HResult=0x80070005") && result.Log.Contains("   at "),
+                prefix + "_ACTUAL_TYPE_PATH_AND_STACK", result);
+        }
+    }
+    static void ReadOnlyHidden(bool backend, string source, string target, string contents, string prefix)
+    {
+        File.SetAttributes(target, File.GetAttributes(target) & ~FileAttributes.Hidden);
+        Put(target, "readonly-original-control");
+        File.SetAttributes(target, File.GetAttributes(target) | FileAttributes.Hidden | FileAttributes.ReadOnly);
+        byte[] before = File.ReadAllBytes(target);
+        FileAttributes attributes = File.GetAttributes(target);
+        Check((attributes & (FileAttributes.Hidden | FileAttributes.ReadOnly)) == (FileAttributes.Hidden | FileAttributes.ReadOnly),
+            prefix + "_READONLY_HIDDEN_FIXTURE");
+        var denied = WriteNative(backend, source, target, contents);
+        DenialEvidence(denied, backend, target, prefix + "_READONLY");
+        Check(File.ReadAllBytes(target).SequenceEqual(before) && File.GetAttributes(target) == attributes
+            && NoWriteTemps(Path.GetDirectoryName(target)!), prefix + "_READONLY_BYTES_ATTRS_INTACT", denied);
+    }
+    static string SecurityState(string target) => new FileInfo(target)
+        .GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner | AccessControlSections.Group)
+        .GetSecurityDescriptorSddlForm(AccessControlSections.Access | AccessControlSections.Owner | AccessControlSections.Group);
+    static void DenyWriteData(bool backend, string source, string target, string contents, string prefix)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("DACL fixture requires Windows.");
+        Put(target, "dacl-original-control");
+        FileAttributes originalAttributes = File.GetAttributes(target);
+        FileSecurity? original = null;
+        string? originalSecurity = null;
+        bool changed = false;
+        try
+        {
+            var baselineSecurity = new FileInfo(target).GetAccessControl(AccessControlSections.Access);
+            baselineSecurity.SetAccessRuleProtection(true, true);
+            new FileInfo(target).SetAccessControl(baselineSecurity);
+            original = new FileInfo(target).GetAccessControl(AccessControlSections.Access);
+            originalSecurity = SecurityState(target);
+            using var identity = WindowsIdentity.GetCurrent();
+            var rule = new FileSystemAccessRule(identity.User ?? throw new InvalidOperationException("No Windows user SID."),
+                FileSystemRights.WriteData, AccessControlType.Deny);
+            var security = new FileInfo(target).GetAccessControl(AccessControlSections.Access);
+            security.AddAccessRule(rule);
+            File.SetAttributes(target, originalAttributes | FileAttributes.Hidden);
+            changed = true;
+            new FileInfo(target).SetAccessControl(security);
+            string deniedSecurity = SecurityState(target);
+            byte[] before = File.ReadAllBytes(target);
+            FileAttributes attributes = File.GetAttributes(target);
+            Check(deniedSecurity != originalSecurity && (attributes & FileAttributes.Hidden) != 0,
+                prefix + "_DACL_HIDDEN_FIXTURE");
+            var probe = Capture(() => {
+                using var stream = new FileStream(target, FileMode.Open, FileAccess.Write, FileShare.None);
+                return null;
+            });
+            Check(probe.Error is UnauthorizedAccessException && probe.Error.HResult == unchecked((int)0x80070005),
+                prefix + "_DACL_OS_DENIES_WRITE_DATA", probe);
+            if (probe.Error is not UnauthorizedAccessException)
+            {
+                report.WriteLine("LIMITS: DACL fixture did not produce actual Windows access denial for " + prefix);
+                return;
+            }
+            var denied = WriteNative(backend, source, target, contents);
+            DenialEvidence(denied, backend, target, prefix + "_DACL");
+            Check(File.ReadAllBytes(target).SequenceEqual(before) && File.GetAttributes(target) == attributes
+                && SecurityState(target) == deniedSecurity && NoWriteTemps(Path.GetDirectoryName(target)!),
+                prefix + "_DACL_BYTES_ATTRS_ACL_INTACT", denied);
+        }
+        catch (Exception ex) when (ex is PlatformNotSupportedException or NotSupportedException or UnauthorizedAccessException)
+        {
+            report.WriteLine("LIMITS: native DACL coverage unavailable or failed: " + prefix + "; " + ex.GetType().Name);
+            Check(false, prefix + "_DACL_UNVERIFIED");
+            FixtureDetail("exception", ex.ToString());
+        }
+        finally
+        {
+            try
+            {
+                if (changed && original != null)
+                {
+                    var restore = new FileSecurity();
+                    restore.SetSecurityDescriptorBinaryForm(original.GetSecurityDescriptorBinaryForm(), AccessControlSections.Access);
+                    new FileInfo(target).SetAccessControl(restore);
+                    string restoredSecurity = SecurityState(target);
+                    Check(restoredSecurity == originalSecurity, prefix + "_DACL_RESTORED",
+                        details: "Before deny SDDL: " + originalSecurity + "\nAfter restore SDDL: " + restoredSecurity);
+                    using var stream = new FileStream(target, FileMode.Open, FileAccess.Write, FileShare.None);
+                    Check(stream.CanWrite, prefix + "_DACL_RESTORED_WRITE_CONTROL");
+                }
+            }
+            finally { File.SetAttributes(target, originalAttributes); }
+        }
+    }
+    static void WriterThrows()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Managed writer fixture requires Windows.");
+        string folder = Path.Combine(root, "writer-throws"), target = Path.Combine(folder, "doorstop_config.ini");
+        Put(target, "original-before-partial-staging");
+        FileAttributes original = File.GetAttributes(target);
+        File.SetAttributes(target, original | FileAttributes.Hidden);
+        try
+        {
+            byte[] before = File.ReadAllBytes(target);
+            FileAttributes attributes = File.GetAttributes(target);
+            string security = SecurityState(target);
+            string[] entries = Directory.GetFileSystemEntries(folder).OrderBy(p => p, StringComparer.Ordinal).ToArray();
+            bool staged = false;
+            var fault = new IOException("fixture-writer-threw-after-partial-staging");
+            Action<Stream> writer = stream => {
+                stream.Write(Encoding.UTF8.GetBytes("partial-stage"));
+                stream.Flush();
+                staged = stream.Length > 0 && Directory.GetFiles(folder, ".phvalheim-write-*.tmp").Length == 1;
+                throw fault;
+            };
+            var result = Capture(() => Invoke(typeof(PhValheim.Tooling.PhValheim).Assembly.GetType("PhValheim.ManagedFile", true)!,
+                "Write", new object?[] { target, writer }));
+            Check(staged && ReferenceEquals(result.Error, fault), "WINDOWS_WRITER_PARTIAL_STAGE_ACTUAL_THROW", result);
+            Check(File.ReadAllBytes(target).SequenceEqual(before) && File.GetAttributes(target) == attributes
+                && SecurityState(target) == security, "WINDOWS_WRITER_THROW_ORIGINAL_BYTES_ATTRS_ACL_INTACT", result);
+            Check(entries.SequenceEqual(Directory.GetFileSystemEntries(folder).OrderBy(p => p, StringComparer.Ordinal))
+                && NoWriteTemps(folder), "WINDOWS_WRITER_THROW_NO_TEMP_LEFTOVERS", result);
+        }
+        finally { File.SetAttributes(target, original); }
     }
     static string Policy() => JsonSerializer.Serialize(new { version = 1, minClientVersion = "2.0.17",
         files = new[] { new { file = "test.cfg", entries = new[] {
@@ -178,6 +401,8 @@ class Tests
         Put(Path.Combine(source, "BepInEx", "config", ConfigPolicy.ManifestName), Policy());
         Put(Path.Combine(source, "BepInEx", "plugins", "test.dll"), new string('x', 32_768));
         Put(Path.Combine(source, "doorstop_libs", "nested", "loader.so"), "loader-control");
+        Put(Path.Combine(source, "doorstop_libs", "libdoorstop_x64.so"), "linux-loader");
+        Put(Path.Combine(source, "doorstop_libs", "libdoorstop.dylib"), "mac-loader");
         Put(Path.Combine(source, "doorstop_config.ini"), "loader-ini");
         Put(Path.Combine(source, "winhttp.dll"), "windows-loader");
         string archive = source + ".zip";
@@ -193,25 +418,71 @@ class Tests
         PhValheim.Platform.State.PhValheimDir = Path.Combine(root, "legacy");
         PhValheim.Platform.State.ValheimDir = game;
         Directory.CreateDirectory(Path.GetDirectoryName(world)!);
-        string source = Path.Combine(root, "sync-copy-source", "loader.so");
-        Put(source, "loader-control");
-        string target = Path.Combine(game, "doorstop_libs", "nested", "loader.so");
-        Directory.CreateDirectory(target);
-        Exception stimulus = DeniedCopy(source, target);
-        Check(stimulus is IOException or UnauthorizedAccessException, "SYNC_ACTUAL_DENIED_COPY_" + stimulus.GetType().Name);
+        Directory.CreateDirectory(game);
+        string[] foreign = OperatingSystem.IsWindows()
+            ? new[] { Path.Combine("doorstop_libs", "libdoorstop_x64.so"), Path.Combine("doorstop_libs", "libdoorstop.dylib") }
+            : OperatingSystem.IsLinux()
+                ? new[] { "winhttp.dll", Path.Combine("doorstop_libs", "libdoorstop.dylib") }
+                : new[] { "winhttp.dll", "doorstop_config.ini", Path.Combine("doorstop_libs", "libdoorstop_x64.so"),
+                    Path.Combine("doorstop_libs", "libdoorstop.dylib") };
+        if (!baseline)
+            foreach (string file in foreign) Put(Path.Combine(game, file), "foreign-sentinel:" + file);
+        string blocked = Path.Combine(game, "doorstop_libs", "nested");
+        if (!baseline) Put(blocked, "foreign-blocked-directory-control");
+        void ForeignIntact(string suffix)
+        {
+            if (baseline) return;
+            Check(foreign.All(file => File.Exists(Path.Combine(game, file))
+                && File.ReadAllText(Path.Combine(game, file)) == "foreign-sentinel:" + file)
+                && File.ReadAllText(blocked) == "foreign-blocked-directory-control",
+                "SYNC_FOREIGN_LOADERS_UNTOUCHED_" + suffix);
+        }
+        bool mac = OperatingSystem.IsMacOS() && !baseline;
+        string relative = baseline ? Path.Combine("doorstop_libs", "nested", "loader.so")
+            : OperatingSystem.IsWindows() ? "winhttp.dll" : Path.Combine("doorstop_libs", "libdoorstop_x64.so");
+        string target = Path.Combine(game, relative);
+        string expected = baseline ? "loader-control" : OperatingSystem.IsWindows() ? "windows-loader" : "linux-loader";
+        string[] before = GameSnapshot(game);
+        if (!mac)
+        {
+            string source = Path.Combine(root, "sync-copy-source", "loader.so");
+            Put(source, expected);
+            Directory.CreateDirectory(target);
+            Exception stimulus = DeniedCopy(source, target);
+            Check(stimulus is IOException or UnauthorizedAccessException, "SYNC_ACTUAL_DENIED_COPY_" + stimulus.GetType().Name);
+        }
         var result = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
-        Check(result.Error == null && result.Value is false && server.ZipRequests > 0
-            && File.Exists(Path.Combine(world, "doorstop_config.ini")), "SYNC_REAL_HTTP_AND_COPY_FAILURE", result);
-        ErrorEvidence(result, "SYNC", target, stimulus.GetType().Name);
-        Check(!result.Output.Contains("usually antivirus", StringComparison.OrdinalIgnoreCase)
-            && result.Output.Contains("ERROR:"), "SYNC_NO_UNSUPPORTED_ANTIVIRUS_BLAME", result);
-        Directory.Move(target, target + ".collision");
+        if (mac)
+        {
+            Check(result.Error == null && result.Value is true && server.ZipRequests > 0
+                && File.ReadAllText(Path.Combine(world, "doorstop_libs", "libdoorstop.dylib")) == "mac-loader",
+                "SYNC_MAC_REAL_HTTP_WORLD_DYLIB_SUCCESS", result);
+            Check(before.SequenceEqual(GameSnapshot(game)), "SYNC_MAC_NO_GAME_COPY", result);
+        }
+        else
+        {
+            Check(result.Error == null && result.Value is false && server.ZipRequests > 0
+                && File.Exists(Path.Combine(world, "doorstop_config.ini")), "SYNC_REAL_HTTP_AND_COPY_FAILURE", result);
+            CollisionEvidence(result, "SYNC", target);
+            Check(!result.Output.Contains("usually antivirus", StringComparison.OrdinalIgnoreCase)
+                && result.Output.Contains("ERROR:"), "SYNC_NO_UNSUPPORTED_ANTIVIRUS_BLAME", result);
+            Directory.Move(target, target + ".collision");
+        }
+        ForeignIntact("FIRST_RUN");
         int prior = server.ZipRequests;
         var success = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
-        Check(success.Error == null && success.Value is true && File.ReadAllText(target) == "loader-control"
-            && File.ReadAllText(Path.Combine(game, "doorstop_config.ini")) == "loader-ini", "SYNC_SUCCESS_CONTROL", success);
+        Check(success.Error == null && success.Value is true
+            && (mac ? File.ReadAllText(Path.Combine(world, "doorstop_libs", "libdoorstop.dylib")) == "mac-loader"
+                : File.ReadAllText(target) == expected && File.ReadAllText(Path.Combine(game, "doorstop_config.ini")) == "loader-ini"),
+            "SYNC_SUCCESS_CONTROL", success);
         Check(server.ZipRequests == prior && prior > 0, "SYNC_CACHED_NO_DOWNLOAD_CONTROL", success);
+        ForeignIntact("CACHED_RUN");
+        if (mac) Check(before.SequenceEqual(GameSnapshot(game)), "SYNC_MAC_CACHED_NO_GAME_COPY", success);
     }
+    static string[] GameSnapshot(string game) => Directory.GetFileSystemEntries(game, "*", SearchOption.AllDirectories)
+        .Select(p => Path.GetRelativePath(game, p) + ":" + (Directory.Exists(p) ? "directory"
+            : Convert.ToBase64String(File.ReadAllBytes(p)) + ":" + File.GetAttributes(p)))
+        .OrderBy(p => p, StringComparer.Ordinal).ToArray();
     public static void RemoveCopiedLoader(string path)
     {
         path = Path.GetFullPath(path);
@@ -232,6 +503,19 @@ class Tests
         Directory.CreateDirectory(Path.GetDirectoryName(world)!); Directory.CreateDirectory(game);
         string target = Path.Combine(game, "doorstop_config.ini");
         var result = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
+        if (OperatingSystem.IsMacOS())
+        {
+            Check(result.Error == null && result.Value is true && server.ZipRequests > 0
+                && File.ReadAllText(Path.Combine(world, "doorstop_libs", "libdoorstop.dylib")) == "mac-loader",
+                "SYNC_MISSING_MAC_WORLD_DYLIB_SUCCESS", result);
+            Check(!Directory.EnumerateFileSystemEntries(game).Any() && !File.Exists(target + ".removed-by-fixture"),
+                "SYNC_MISSING_MAC_NO_GAME_COPY_OR_REMOVAL", result);
+            int prior = server.ZipRequests;
+            var cached = Capture(() => Invoke(typeof(PhValheim.Syncer.PhValheim), "Sync", new object?[] { server.Url }, enough));
+            Check(cached.Error == null && cached.Value is true && server.ZipRequests == prior
+                && !Directory.EnumerateFileSystemEntries(game).Any(), "SYNC_MISSING_MAC_CACHED_NO_GAME_COPY", cached);
+            return;
+        }
         Check(result.Error == null && result.Value is false, "SYNC_MISSING_AFTER_COPY_RETURNS_FALSE", result);
         Check(File.Exists(target + ".removed-by-fixture") && File.ReadAllText(target + ".removed-by-fixture") == "loader-ini"
             && !File.Exists(target), "SYNC_MISSING_ACTUAL_COPY_AND_REMOVAL_CONTROL", result);
@@ -482,10 +766,11 @@ class Tests
         if (args.FirstOrDefault() == "inject-missing-copy")
         {
             string text = File.ReadAllText(args[1]);
-            const string anchor = "if (!File.Exists(Path.Combine(valheimDir, \"doorstop_config.ini\")))";
-            if (text.Split(anchor).Length != 2) throw new Exception("Expected one post-copy verification branch.");
+            const string anchor = "foreach (string file in loaderFiles)\n            {\n                string path = Path.Combine(valheimDir, file);";
+            text = text.Replace("\r\n", "\n");
+            if (text.Split(anchor).Length != 2) throw new Exception("Expected one post-copy verification loop.");
             File.WriteAllText(args[1], text.Replace(anchor,
-                "Tests.RemoveCopiedLoader(Path.Combine(valheimDir, \"doorstop_config.ini\"));\n            " + anchor));
+                "if (!OperatingSystem.IsMacOS()) Tests.RemoveCopiedLoader(Path.Combine(valheimDir, \"doorstop_config.ini\"));\n            " + anchor));
             report.WriteLine("FIXTURE: move the actually copied loader immediately before verification in disposable snapshot");
             return 0;
         }
@@ -507,11 +792,14 @@ class Tests
             ("DiagnosticSupportLine", (Func<string>)(() => DiagnosticLog.SupportLine)),
             ("DiagnosticRedactor", (Func<string, string>)DiagnosticLog.Redact) })
             typeof(Ui).GetProperty(pair.Item1, methods)?.SetValue(null, pair.Item2);
+        baseline = args.FirstOrDefault() == "baseline";
         bool policyOnly = args.FirstOrDefault() == "policy-only", missingOnly = args.FirstOrDefault() == "missing-only";
         if (!policyOnly && !missingOnly)
         {
             Run("BACKEND", Backend);
             Run("COPY", Copy);
+            if (!baseline) Run("NATIVE_FILES", NativeFiles);
+            else report.WriteLine("LIMITS: baseline predates CopyFile/ManagedFile; native replacement tests require current sources.");
         }
         string archive = Archive();
         if (!policyOnly)

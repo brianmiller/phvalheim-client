@@ -36,9 +36,12 @@
              Manufacturer="Phospher" />
 
     <?ifdef var.PrereleasePredecessor ?>
-    <!-- A reviewed prerelease revision may replace ONLY this recorded product.
+    <!-- A reviewed prerelease revision may replace ONLY these recorded products.
          Ordinary builds continue refusing different packages at the same version. -->
     <Property Id="PHV_PRERELEASE_PREDECESSOR" Value="$(var.PrereleasePredecessor)" />
+    <?ifdef var.PrereleasePredecessor2 ?>
+    <Property Id="PHV_PRERELEASE_PREDECESSOR2" Value="$(var.PrereleasePredecessor2)" />
+    <?endif ?>
     <?endif ?>
 
     <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
@@ -110,7 +113,7 @@
       both properties are set by the time these are evaluated.
     -->
     <Condition Message="A newer version of [ProductName] is already installed. Remove it first if you want to go back to this version.">NOT PHV_NEWER_FOUND</Condition>
-    <Condition Message="[ProductName] [ProductVersion] is already installed on this computer. There is nothing to do. To repair or remove it, use Apps &amp; features, or run the installer you originally installed it with.">NOT PHV_SAME_VERSION_FOUND<?ifdef var.PrereleasePredecessor ?> OR PHV_SAME_VERSION_FOUND = "$(var.PrereleasePredecessor)"<?endif ?></Condition>
+    <Condition Message="[ProductName] [ProductVersion] is already installed on this computer. There is nothing to do. To repair or remove it, use Apps &amp; features, or run the installer you originally installed it with.">NOT PHV_SAME_VERSION_FOUND<?ifdef var.PrereleasePredecessor ?> OR PHV_SAME_VERSION_FOUND = "$(var.PrereleasePredecessor)"<?ifdef var.PrereleasePredecessor2 ?> OR PHV_SAME_VERSION_FOUND = "$(var.PrereleasePredecessor2)"<?endif ?><?endif ?></Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
 

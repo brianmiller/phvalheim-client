@@ -1,0 +1,79 @@
+name: Windows managed writes (every file Hidden)
+# Issue #25 at its widest, on real Windows with the real client: every file the client made or will
+# touch is Hidden. The executable built from this commit must relaunch and update a world with no
+# error; the previously published 2.0.19 baseline must be denied on the Hidden config files (the test can fail).
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-managed-writes.yml'
+      - 'builders/test_windows_hidden.py'
+      - 'ManagedFile.cs'
+      - 'ConfigPolicy.cs'
+      - 'Syncer.cs'
+      - 'phvalheim-client.csproj'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Build the executable from this commit (the MSI builder's publish flags)
+        id: build
+        shell: pwsh
+        run: |
+          dotnet publish phvalheim-client.csproj -c Windows-Release -r win-x64 -p:PublishSingleFile=true -p:PublishTrimmed=false -p:PostBuildEvent= --self-contained true
+          if ($LASTEXITCODE -ne 0) { throw "publish failed" }
+          $exe = Resolve-Path bin/Windows-Release/net9.0/win-x64/publish/phvalheim-client.exe
+          "exe=$exe" >> $env:GITHUB_OUTPUT
+          "sha=$((Get-FileHash $exe -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_OUTPUT
+      - name: Extract the previously published 2.0.19 baseline executable (negative control)
+        id: published
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path published -Force | Out-Null
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/brianmiller/phvalheim-client/07e2956203c844c3b710ade3ce603d7d1bd8eebc/builds/phvalheim-client-2.0.19-x86_64.msi' -OutFile published/phvalheim-client-2.0.19-x86_64.msi
+          $msi = Resolve-Path published/phvalheim-client-2.0.19-x86_64.msi
+          $msiSha = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
+          if ($msiSha -ne '260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a') { throw "Previously published 2.0.19 baseline MSI SHA256 mismatch: $msiSha" }
+          $target = Join-Path $env:RUNNER_TEMP "published-$([guid]::NewGuid())"
+          New-Item -ItemType Directory -Path $target | Out-Null
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$msi`"", '/qn', "TARGETDIR=`"$target`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "administrative extraction failed (exit $($process.ExitCode))" }
+          $exe = @(Get-ChildItem $target -Filter 'phvalheim-client.exe' -Recurse -File)
+          if ($exe.Count -ne 1) { throw "Expected one phvalheim-client.exe; found $($exe.Count)" }
+          $exeSha = (Get-FileHash $exe[0].FullName -Algorithm SHA256).Hash.ToLower()
+          if ($exeSha -ne 'd692bf7312e2a6fc307af47406110e0c592fab3c3a57ea98e5bf9aa80de4fec1') { throw "Previously published 2.0.19 baseline executable SHA256 mismatch: $exeSha" }
+          "exe=$($exe[0].FullName)" >> $env:GITHUB_OUTPUT
+          "sha=$exeSha" >> $env:GITHUB_OUTPUT
+      - name: Previously published 2.0.19 baseline is denied on Hidden config files
+        env:
+          EXE: ${{ steps.published.outputs.exe }}
+          SHA: ${{ steps.published.outputs.sha }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path evidence -Force | Out-Null
+          python builders/test_windows_hidden.py --client "$env:EXE" --expected-sha "$env:SHA" --expect-config-denial --evidence-dir evidence/published 2>&1 | Tee-Object -FilePath evidence/published-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "The negative control did not behave as expected (exit $LASTEXITCODE)" }
+      - name: This commit relaunches and updates with every file Hidden
+        env:
+          EXE: ${{ steps.build.outputs.exe }}
+          SHA: ${{ steps.build.outputs.sha }}
+        shell: pwsh
+        run: |
+          python builders/test_windows_hidden.py --client "$env:EXE" --expected-sha "$env:SHA" --evidence-dir evidence/candidate 2>&1 | Tee-Object -FilePath evidence/candidate-stdout.txt
+          if ($LASTEXITCODE -ne 0) { throw "Every-file-Hidden verification failed (exit $LASTEXITCODE)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-managed-writes-evidence
+          path: evidence/
