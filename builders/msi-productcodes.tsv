@@ -27,13 +27,24 @@
 # Keep this new identity/file; another rebuild needs a separately verified migration.
 2.0.17	{C3969E40-12FC-451D-88E8-8F6245182C2A}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
 2.0.18	{A8509F29-F81B-4CC2-97EB-8825146BAE71}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
-# 2.0.19 corrected MSI published under Brian's explicit authorization.
+# 2.0.19 broader revision published under Brian's explicit authorization.
 # Original prerelease ProductCode: {3783EF6D-25B9-4A61-9518-BE79B530643A}.
-# The corrected MSI explicitly migrates this known same-version predecessor.
-# Native Windows run 44620112640: windows (2.0.19) passed all 14 checks,
+# Original MSI SHA256: 7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488
+# Previous corrected ProductCode: {9ED226DE-BDBE-4D21-A0F3-C0422155FA22}.
+# Previous corrected MSI SHA256: 260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a
+# Historical previous-correction evidence: native Windows run 44620112640
+# windows (2.0.19) passed all 14 checks,
 # including exact installed exe SHA256, one ARP entry, repair and uninstall.
 # These installation results do not describe the overall workflow result.
-# Final Hidden-file validation with the real exe: run 44622099219 SUCCESS.
-# Published MSI SHA256: 260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a
-# Keep this new identity/file; another rebuild needs a separately verified migration.
-2.0.19	{9ED226DE-BDBE-4D21-A0F3-C0422155FA22}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}
+# Historical previous-correction Hidden-file validation: run 44622099219 SUCCESS.
+# The current MSI explicitly migrates BOTH known same-version predecessors above.
+# Original-to-current native migration: run 44649449411 SUCCESS; root verified
+# all 14 upgrade/repair/uninstall checks and all 20 conditions.
+# Exact-MSI Hidden-file fixture: run 44647729127 job 135994488959 SUCCESS; all 11 checks passed.
+# Previous-corrected-to-current native migration: run 44647729127,
+# job 135994489071, 14 checks passed.
+# Current published MSI SHA256: 6816a959190a3a4eedbd5fbe4cab15348c9fc10c8345699f9c098d8e8b611ab5
+# Identity recorded from the downloaded PUBLIC 2.0.19 release asset, not a local build.
+# Keep this exact identity/file; no blind rebuild or replacement under this version.
+# Another rebuild needs Brian's explicit authorization and a separately verified migration.
+2.0.19	{1C3D3C32-C803-499D-ABAD-1DEB717AFED3}	{9799CDE9-1240-47AC-9891-AAB1F6FDB5E7}

@@ -1,40 +1,50 @@
 **2.0.19 is a prerelease for testing**, for Windows, Linux (DEB, RPM, TGZ, Flatpak) and macOS.
-It changes how the Windows client writes PhValheim's loader, config and backend files when
-they are Hidden, the problem behind [issue #25](https://github.com/brianmiller/phvalheim-client/issues/25)
-(not yet confirmed in real gameplay; see *What has not been tested*).
+This broader revision handles Hidden mod configuration, player-setting preservation
+and sync records as well as loader/backend files, addressing
+[issue #25](https://github.com/brianmiller/phvalheim-client/issues/25).
+Live Valheim gameplay with this revision remains unverified.
 
-**2.0.18 is still the stable release.** The installers and "latest" links keep giving you
-2.0.18; install 2.0.19 only from the downloads below.
+**PUBLISHED — broader revision, November 20, 2026.** Seven packages were replaced;
+`macinstall.sh` is unchanged. All nine public downloads, fetched without authentication,
+are byte-identical to the release files, including `SHA256SUMS`; all eight checksum
+entries passed.
+**2.0.18 remains stable**, including normal installer and “latest” links.
 
 ### Already installed 2.0.19?
 
-- **Windows:** the MSI on this page was replaced with a corrected build on 19 November at
-  21:59 UTC. It has the same version and file name, so check the size: the first MSI is
-  32,886,784 bytes, the corrected one 32,899,072 bytes (SHA-256 below). If you have the first
-  one, download the MSI again and run it; it upgrades your installation in place.
-- **Linux and macOS:** these packages were built from the corrected source and posted on
-  19 November at 23:13 UTC. If you installed a 2.0.19 package before then, install it again.
+**Redownload and reinstall your 2.0.19 package on every platform**. The version and
+filenames are unchanged. Verify SHA-256 against the table
+below before installing: the new and previous MSIs are both **32,899,072 bytes**, so
+size cannot distinguish them. Native upgrades from both earlier 2.0.19 ProductCodes
+are verified for this exact MSI.
+
+For an existing RPM installation, explicitly replace the same-version package:
+
+```bash
+sudo rpm -Uvh --replacepkgs ./phvalheim-client-2.0.19-x86_64.rpm
+```
 
 ## Downloads and SHA-256
 
-Every file below is the corrected build. Each was downloaded again after publication,
-without signing in, and matched these hashes and the published [SHA256SUMS](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/SHA256SUMS).
+These are the **published broader revision** sizes and hashes. All eight entries in the release
+[SHA256SUMS](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/SHA256SUMS)
+passed against the unauthenticated public downloads, which match the release files byte for byte.
 
-| Platform / format | Artifact | SHA-256 |
-| --- | --- | --- |
-| Windows MSI | [phvalheim-client-2.0.19-x86_64.msi](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.msi) | `260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a` |
-| Linux DEB | [phvalheim-client-2.0.19-x86_64.deb](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.deb) | `16486664a7077e13b2fcf209761bc5bab6741d0b0f2574de2d88294d8ea2f0a1` |
-| Linux RPM | [phvalheim-client-2.0.19-x86_64.rpm](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.rpm) | `85f5a70534d25411aa9dd053b96ca90c1298e37a4eae55cd221bba7ab0480806` |
-| Linux TGZ | [phvalheim-client-2.0.19-universal-x86_64.tar.gz](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-universal-x86_64.tar.gz) | `f12c4c4ed9b0e8309febb82e14e954867be31c4ca64e9db4de83209960bd8768` |
-| Linux Flatpak | [phvalheim-client-2.0.19-x86_64.flatpak](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.flatpak) | `b5a3b07000d6e553f5866d5104b9abe2d63f84cfc9368bb9c7a59c82b1c1c029` |
-| macOS universal TGZ (primary) | [phvalheim-client-2.0.19-macos-universal.tar.gz](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.tar.gz) | `5e72c58f9cc59479fb30eb47ca822b9d8c88eeddc219e2bd0731af3ec2b539db` |
-| macOS universal PKG (supplementary) | [phvalheim-client-2.0.19-macos-universal.pkg](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.pkg) | `fc44914703b60582477d009b7d3d7cccbf492cca3eb1bf69b85311ef8cbc8ddd` |
+| Platform / format | Artifact | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| Windows MSI | [phvalheim-client-2.0.19-x86_64.msi](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.msi) | 32,899,072 | `6816a959190a3a4eedbd5fbe4cab15348c9fc10c8345699f9c098d8e8b611ab5` |
+| Linux DEB | [phvalheim-client-2.0.19-x86_64.deb](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.deb) | 23,605,832 | `7d4e2233a124702c54c6fb31feaea22b205bfad6ae8586f2471a9e49d2ad1740` |
+| Linux RPM | [phvalheim-client-2.0.19-x86_64.rpm](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.rpm) | 25,715,981 | `af17b34c63a1c242345f1674b09e58c0574aeac3c29a546aeb0463a0ce9fe1b9` |
+| Linux TGZ | [phvalheim-client-2.0.19-universal-x86_64.tar.gz](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-universal-x86_64.tar.gz) | 31,442,762 | `3f956daa86f0c0a4b1b59545bf600afdf8c4245be6fd029aeb9601a9cc42d77a` |
+| Linux Flatpak | [phvalheim-client-2.0.19-x86_64.flatpak](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-x86_64.flatpak) | 23,330,920 | `4356e8698004915512403cc6bd61a9085bb1b417e1d77c1b49460c07a80fe2d5` |
+| macOS universal TGZ (primary) | [phvalheim-client-2.0.19-macos-universal.tar.gz](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.tar.gz) | 61,777,898 | `d0279d41ccaa7aea0f80d2e5a64449be77f6af1f5f10677be2a9df86c58fc24b` |
+| macOS universal PKG (supplementary) | [phvalheim-client-2.0.19-macos-universal.pkg](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/phvalheim-client-2.0.19-macos-universal.pkg) | 61,781,848 | `b62d282b165030b5a424e8e5752ca1ea8d6bb6d1643e73850863c0c2e65bbdb3` |
+| macOS shell installer | [macinstall.sh](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/macinstall.sh) | 9,355 | `13c8894e2d76e0cebb1a6b097c7dbbd175a420175a134c65d2374299f748d925` |
 
 macOS uses the shell installer plus universal TGZ as its primary installation method;
-the PKG is supplementary. The [macinstall.sh release asset](https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/macinstall.sh)
-has SHA-256 `13c8894e2d76e0cebb1a6b097c7dbbd175a420175a134c65d2374299f748d925`.
-The normal installer installs stable 2.0.18. To install 2.0.19 instead, download
-the installer and the tarball into the same folder:
+the PKG is supplementary. The normal installer selects stable 2.0.18.
+Download the installer and tarball into the same folder, verify their hashes above,
+and explicitly select the 2.0.19 tarball:
 
 ```bash
 curl -fLO https://github.com/brianmiller/phvalheim-client/releases/download/2.0.19/macinstall.sh
@@ -42,18 +52,30 @@ curl -fLO https://github.com/brianmiller/phvalheim-client/releases/download/2.0.
 PHVALHEIM_TARBALL=./phvalheim-client-2.0.19-macos-universal.tar.gz bash ./macinstall.sh install
 ```
 
-For Linux, follow the [README installation commands](https://github.com/brianmiller/phvalheim-client#installation)
-with version `2.0.19`. On Windows, run the downloaded MSI.
+For Linux DEB and TGZ, follow the [README installation commands](https://github.com/brianmiller/phvalheim-client#installation)
+with version `2.0.19`; for RPM use the replacement command above. For Flatpak:
+
+```bash
+flatpak install --user --reinstall ./phvalheim-client-2.0.19-x86_64.flatpak
+```
+
+On Windows, run the downloaded MSI.
 
 ## What changed
 
-On Windows, the correction handles Hidden `winhttp.dll`, `doorstop_config.ini`, and
-`phvalheim.backend` files while preserving Hidden attributes and existing ACLs.
-Managed writes stage new contents before replacing the target; failed staging
-preserves the original. ReadOnly and actual write permissions remain enforced,
-reparse-point destinations are rejected, and a genuinely denied backend write
-still aborts launch. The client does not change permissions, clear ReadOnly, or
-request elevation. Staging does not guarantee protection against external races or power loss.
+Windows managed writes now handle Hidden files during mod-config policy enforcement,
+personal-setting application and preservation, and sync-record updates, in addition to
+`winhttp.dll`, `doorstop_config.ini` and `phvalheim.backend`. Existing-file overwrites
+preserve Hidden attributes and existing ACLs. Personal config retains Hidden through
+staged updates; sync records and game-directory loader files also retain Hidden.
+A full world regeneration recreates cache/backend files with fresh metadata, so their
+previous Hidden flags are not expected to survive that lifecycle.
+
+The client does not scan for and unhide files, reset permissions, clear ReadOnly, or
+request elevation. ReadOnly still aborts protected updates; a genuinely denied backend
+write still aborts launch. Reparse-point destinations are rejected. Managed writes stage
+contents before replacement; failed staging preserves the original. Staging does not
+guarantee protection against external races or power loss.
 
 Windows loader installation copies only `winhttp.dll` and `doorstop_config.ini`,
 skipping files intended for other platforms. Linux selects `libdoorstop_x64.so`
@@ -86,60 +108,70 @@ and available space where measurable; unknown sizes remain unknown, and estimate
 do not guarantee an update will fit. Failed staged updates preserve the installed
 world; failed download transport preserves the cached archive.
 
-## Testing
+## Published revision validation
 
-- Corrected-source local build: 27 existing warnings, 0 errors; all **11** test suites passed.
-- MSI: **78** structure/signature checks; executable: **24** argument/smoke checks; Wine: **36** installation checks passed. Wine skipped repair; native Windows covered it.
-- [Native file validation 44619866045](https://github.com/brianmiller/phvalheim-client/actions/runs/44619866045): **SUCCESS**, with Windows **126**, macOS **98**, and Linux **103** assertions passed.
-- [Native installer validation 44620112640](https://github.com/brianmiller/phvalheim-client/actions/runs/44620112640): all eight Windows upgrades from 2.0.12–2.0.19 passed **14 checks each**, including exact executable SHA-256, one Add/Remove Programs entry, repair, and uninstall. The wizard passed **12** checks plus **5** no-click controls; the old-payload negative control failed at the expected hash check. The workflow's only failure was its outdated Hidden-file test fixture; the real-client run below covers those files with the corrected build.
-- [Real-client validation 44622099219](https://github.com/brianmiller/phvalheim-client/actions/runs/44622099219): **SUCCESS**, using the actual executable from the exact corrected MSI. Hidden loader/config/backend sentinels changed to expected bytes while Hidden stayed true and attributes stayed `34`. Foreign Hidden+ReadOnly `.so`/`.dylib` files retained bytes and attributes. The Hidden+ReadOnly `winhttp.dll` control preserved bytes/flags without Steam handoff; the original executable reproduced access denial without handoff. Tests used a disposable HTTP world and recording Steam stub.
-- Linux DEB, RPM, and TGZ each passed **13 real 2.0.18 → 2.0.19 upgrade/removal checks**. Executables extracted from all three and the Flatpak staging executable matched SHA-256 `a69c8a08c97be0f2519b07e13ba8fcd97ea5acfbdbd27313bf685ee067861b73`.
-- Flatpak passed **42 package**, **88 runtime/browser**, **46 native pass-through**, and **16 upgrade** checks.
-- [Native macOS build/validation 44634732509](https://github.com/brianmiller/phvalheim-client/actions/runs/44634732509): **SUCCESS**. Both exact TGZ and PKG artifacts were downloaded into `builds/`. Reviewed results passed **15/15 checks in each of four candidate installation scenarios**, **7/7 URL-handler checks in each of three phases**, and exact installed-payload comparisons. Runtime validation ran on Apple Silicon; both Intel and ARM slices were signed.
-- [Post-publication validation 44635781414](https://github.com/brianmiller/phvalheim-client/actions/runs/44635781414): **SUCCESS**, all **15 jobs** at `eb9e90540658aa07ed390df3b196b0e839b0e43a`. Coverage includes public macOS upgrades from 2.0.15 and 2.0.18, native macOS installation/URL handling, four Windows upgrades, the full wizard and published MSI ledger, all 11 oracle suites, bundle integrity, and the Linux-cross-built macOS executable running on actual Apple Silicon.
+- [Native actual-client source validation 44643769336](https://github.com/brianmiller/phvalheim-client/actions/runs/44643769336): **SUCCESS**. All **11** Hidden-file targets passed, with a published-executable negative control and a ReadOnly control. This is source validation, not validation of the new MSI.
+- [Full source CI 44648623221](https://github.com/brianmiller/phvalheim-client/actions/runs/44648623221): **all 15 jobs succeeded**.
+- Published MSI local validation: **81 structural**, **24 executable smoke**, and **36 Wine behavior** checks passed. Wine repair was **SKIPPED**; native Windows repair **PASSED**.
+- [Exact packaged Windows validation 44647729127](https://github.com/brianmiller/phvalheim-client/actions/runs/44647729127): the [11-target Hidden-file actual-client fixture](https://github.com/brianmiller/phvalheim-client/actions/runs/44647729127/job/135994488959) and [previous-correction 2.0.19 migration, 14 checks](https://github.com/brianmiller/phvalheim-client/actions/runs/44647729127/job/135994489071) both **SUCCEEDED**. Upgrades from **2.0.12 through 2.0.18**, native repair, the wizard and negative control also **SUCCEEDED**. The initial workflow **failed overall only in the original 2.0.19 migration job**, because of a COM test-harness bug.
+- [Targeted native Windows rerun 44649449411](https://github.com/brianmiller/phvalheim-client/actions/runs/44649449411) at `47790c96adac024cb7f2d6f66bf49e2795c5fcd5`: **SUCCESS**, with **14 original-2.0.19 migration checks** and **20 installer-condition cases**. It tested the same unchanged MSI (`6816a959…`), completing the native Windows gate and verifying migration from both known 2.0.19 predecessors.
+- Linux DEB, RPM and TGZ each passed **13 upgrade/removal checks from stable 2.0.18**. Same-version 2.0.19 DEB and TGZ reinstalls each passed **13** checks; RPM reinstall with `--replacepkgs` passed exact-binary verification.
+- Flatpak passed **42 package**, **88 runtime/browser**, **46 native pass-through**, **16 stable-2.0.18 upgrade**, and **16 prior-2.0.19 upgrade** checks.
+- [Native macOS validation 44646602998](https://github.com/brianmiller/phvalheim-client/actions/runs/44646602998): **SUCCESS**, with **15 checks in each of four candidate installation scenarios** and **7 URL-handler checks in each of three phases**. Native execution was **Apple Silicon only**.
 
-## What has not been tested
+## Validation limits
 
-This evidence covers builds, prepublication candidate validation, and post-publication
-verification of all nine public assets: seven packages, `macinstall.sh`, and `SHA256SUMS`.
-All were downloaded without authentication; all eight checksum checks passed, and
-public asset metadata hashes matched the exact candidate bytes. The Windows MSI was
-not rebuilt with the Linux and macOS packages (asset ID `769423762`). Post-publication CI completed successfully with all 15 jobs passing.
-No Intel Mac runtime validation was performed.
+No Intel Mac runtime validation or actual Valheim gameplay validation was performed.
+No Bazzite-specific validation is claimed.
+Recording Steam/game stubs establish handoff only, not live gameplay or graphics behavior.
+The affected player's earlier gameplay confirmation followed manually clearing Hidden
+flags; it does not establish that this revision resolves their failure. Real antivirus
+and Controlled Folder Access behavior remain unverified.
 
-For [issue #25](https://github.com/brianmiller/phvalheim-client/issues/25), the affected
-player confirmed gameplay after manually clearing Hidden flags in the original
-installation. **Live gameplay with the corrected MSI has not been tested.** No actual
-Valheim gameplay validation was performed; the Steam stub verifies handoff only.
-The corrected MSI's resolution of that player's failure and real antivirus/Controlled
-Folder Access behavior remain unverified.
+## Build provenance and superseded candidates
 
-## Build details
+The version remains **2.0.19**. Runtime source is
+[`9d4c1fbb8db2cf1a4476f6cb05c113764c1fefe5`](https://github.com/brianmiller/phvalheim-client/commit/9d4c1fbb8db2cf1a4476f6cb05c113764c1fefe5).
+Windows, Linux and macOS binaries were built from
+[`4314ddedcea800e1faea9be330f401c66c8d3490`](https://github.com/brianmiller/phvalheim-client/commit/4314ddedcea800e1faea9be330f401c66c8d3490),
+whose runtime source is identical to `9d4c1fb`. MSI packaging source is
+[`c821d1f0b29aab59c16ca440a0e74e82588bc70c`](https://github.com/brianmiller/phvalheim-client/commit/c821d1f0b29aab59c16ca440a0e74e82588bc70c).
+The new packaged executable SHA-256 is
+`72e717f34381ea04246fdd695e8e6119dba1c16eaf9ab2972072683507017ca8`.
 
-Both builds use `phvalheim-client-2.0.19-x86_64.msi`:
-
-| Field | Original MSI (superseded) | Corrected public MSI |
-| --- | --- | --- |
-| Size | 32,886,784 bytes | 32,899,072 bytes |
-| MSI SHA-256 | `7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488` | `260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a` |
-| ProductCode | `3783EF6D-25B9-4A61-9518-BE79B530643A` | `9ED226DE-BDBE-4D21-A0F3-C0422155FA22` |
-
-The corrected executable SHA-256 is
-`d692bf7312e2a6fc307af47406110e0c592fab3c3a57ea98e5bf9aa80de4fec1`.
-It was built from corrected source
-[`1d6d7c93c8dc4c58a6ca6d4401b3075e6837ecb7`](https://github.com/brianmiller/phvalheim-client/commit/1d6d7c93c8dc4c58a6ca6d4401b3075e6837ecb7);
-[Source PR #28](https://github.com/brianmiller/phvalheim-client/pull/28) remains unmerged. The numeric `2.0.19` tag remains at
+[Source PR #28](https://github.com/brianmiller/phvalheim-client/pull/28) remains unmerged.
+The numeric `2.0.19` tag is unchanged at
 [`6204fe1103f8c7f5e26bcd833e84d16e8cf2dc33`](https://github.com/brianmiller/phvalheim-client/commit/6204fe1103f8c7f5e26bcd833e84d16e8cf2dc33)
-and does not identify the corrected builds.
+and does not identify the replacement builds. Stable 2.0.18 and `master` are unchanged.
 
-Fresh Linux DEB/RPM/TGZ/Flatpak source is
-[`2a1f673e1940c121173aea0e10e2b8e4cd4e4006`](https://github.com/brianmiller/phvalheim-client/commit/2a1f673e1940c121173aea0e10e2b8e4cd4e4006), with runtime source identical to `1d6d7c9`.
-Fresh native macOS TGZ/PKG source is
-[`ed63f413275d7520e7ca038d64581b86be8aef5c`](https://github.com/brianmiller/phvalheim-client/commit/ed63f413275d7520e7ca038d64581b86be8aef5c), differing from the Linux build revision only in workflow configuration.
+All three MSI candidates use `phvalheim-client-2.0.19-x86_64.msi`:
 
-The original MSI is preserved at immutable Git commit
-[`3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi`](https://github.com/brianmiller/phvalheim-client/blob/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi).
-The corrected MSI explicitly upgrades the original ProductCode
-`3783EF6D-25B9-4A61-9518-BE79B530643A` to `9ED226DE-BDBE-4D21-A0F3-C0422155FA22`.
-Unknown same-version products and newer versions remain blocked. The MSI retains
-the existing self-signed publisher certificate; Windows may show an unknown publisher.
+| Candidate | Bytes | ProductCode | MSI SHA-256 |
+| --- | ---: | --- | --- |
+| Original (superseded) | 32,886,784 | `3783EF6D-25B9-4A61-9518-BE79B530643A` | `7e48a17e1b9921360ffeaab77d34cea1b7243ac3eb4e0ac0a569b4f0432dc488` |
+| Previous correction (superseded) | 32,899,072 | `9ED226DE-BDBE-4D21-A0F3-C0422155FA22` | `260c78168955438b03d7b0684a83990db76c82dcf4de59c05820abacee4e949a` |
+| Broader revision (published November 20) | 32,899,072 | `1C3D3C32-C803-499D-ABAD-1DEB717AFED3` | `6816a959190a3a4eedbd5fbe4cab15348c9fc10c8345699f9c098d8e8b611ab5` |
+
+Immutable copies: [original MSI at 3e63990](https://github.com/brianmiller/phvalheim-client/blob/3e63990b7877d5eade2a88ccc53e4003b7e02282/builds/phvalheim-client-2.0.19-x86_64.msi)
+and [previous MSI at 2a1f673](https://github.com/brianmiller/phvalheim-client/blob/2a1f673e1940c121173aea0e10e2b8e4cd4e4006/builds/phvalheim-client-2.0.19-x86_64.msi).
+The published MSI retains ProductCode `1C3D3C32-C803-499D-ABAD-1DEB717AFED3`;
+native upgrades from both superseded ProductCodes passed with this exact package.
+Unknown same-version products and newer versions remain blocked. It retains the
+existing self-signed publisher certificate; Windows may show an unknown publisher.
+
+The previous correction's executable SHA-256 was
+`d692bf7312e2a6fc307af47406110e0c592fab3c3a57ea98e5bf9aa80de4fec1`,
+built from [`1d6d7c93c8dc4c58a6ca6d4401b3075e6837ecb7`](https://github.com/brianmiller/phvalheim-client/commit/1d6d7c93c8dc4c58a6ca6d4401b3075e6837ecb7).
+Its Linux packages came from
+[`2a1f673e1940c121173aea0e10e2b8e4cd4e4006`](https://github.com/brianmiller/phvalheim-client/commit/2a1f673e1940c121173aea0e10e2b8e4cd4e4006)
+with identical runtime source; its native macOS packages came from
+[`ed63f413275d7520e7ca038d64581b86be8aef5c`](https://github.com/brianmiller/phvalheim-client/commit/ed63f413275d7520e7ca038d64581b86be8aef5c),
+differing only in workflow configuration. Historical
+[native file validation 44619866045](https://github.com/brianmiller/phvalheim-client/actions/runs/44619866045),
+[installer validation 44620112640](https://github.com/brianmiller/phvalheim-client/actions/runs/44620112640),
+[actual-client validation 44622099219](https://github.com/brianmiller/phvalheim-client/actions/runs/44622099219),
+[native macOS validation 44634732509](https://github.com/brianmiller/phvalheim-client/actions/runs/44634732509)
+and [post-publication validation 44635781414](https://github.com/brianmiller/phvalheim-client/actions/runs/44635781414)
+refer to those superseded packages, not this broader revision. The old installer run
+had a failing Hidden-file fixture; the later actual-client run covered its corrected
+loader/backend payload.
