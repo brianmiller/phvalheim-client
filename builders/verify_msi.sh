@@ -132,12 +132,34 @@ expectContains "RemoveExistingProducts is scheduled" "RemoveExistingProducts" "$
 # no matching LaunchCondition detects the conflict and installs anyway.
 launchConditions=$(msiexport LaunchCondition)
 expectContains "newer version is refused"      "NOT PHV_NEWER_FOUND"        "$launchConditions"
-expectContains "unrecognized same version is refused"       "NOT PHV_SAME_VERSION_FOUND" "$launchConditions"
 expectContains "the same-version message names the product" "already installed" "$launchConditions"
 predecessor=$(prop PHV_PRERELEASE_PREDECESSOR)
-if [ -n "$predecessor" ]; then
-    expect "prerelease migration is explicitly requested" "${MSI_PRERELEASE_PREDECESSOR:-}" "$predecessor"
-    expectContains "only the recorded predecessor is permitted" "NOT PHV_SAME_VERSION_FOUND OR PHV_SAME_VERSION_FOUND = \"$predecessor\"" "$launchConditions"
+predecessor2=$(prop PHV_PRERELEASE_PREDECESSOR2)
+expect "prerelease predecessor matches the request (including absence)" "${MSI_PRERELEASE_PREDECESSOR:-}" "$predecessor"
+expect "second prerelease predecessor matches the request (including absence)" "${MSI_PRERELEASE_PREDECESSOR2:-}" "$predecessor2"
+if [ -n "$predecessor2" ]; then
+    if [ -n "$predecessor" ] && [ "$predecessor2" != "$predecessor" ]; then
+        ok "second prerelease predecessor requires a distinct first predecessor"
+    else
+        fail "second prerelease predecessor requires a distinct first predecessor" "two distinct ProductCodes" "$predecessor / $predecessor2"
+    fi
+fi
+
+expectedSameCondition='NOT PHV_SAME_VERSION_FOUND'
+for requestedPredecessor in "${MSI_PRERELEASE_PREDECESSOR:-}" "${MSI_PRERELEASE_PREDECESSOR2:-}"; do
+    [ -n "$requestedPredecessor" ] || continue
+    if [[ "$requestedPredecessor" =~ ^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$ ]]; then
+        ok "requested prerelease predecessor is an uppercase braced GUID"
+    else
+        fail "requested prerelease predecessor is an uppercase braced GUID" "{GUID}" "$requestedPredecessor"
+    fi
+    expectedSameCondition+=" OR PHV_SAME_VERSION_FOUND = \"$requestedPredecessor\""
+done
+# Compare the entire condition field, not a substring that could hide an OR 1.
+# Keep every matching row so duplicate conditions fail the comparison too.
+sameCondition=$(printf '%s\n' "$launchConditions" | awk -F'\t' 'NR>3 && index($1, "PHV_SAME_VERSION_FOUND") {print $1}')
+expect "same-version condition permits only the requested predecessors" "$expectedSameCondition" "$sameCondition"
+if [ -n "${MSI_PRERELEASE_PREDECESSOR:-}" ]; then
     sameAttrs=$(printf '%s\n' "$upgrade" | awk -F'\t' '$7=="PHV_SAME_VERSION_FOUND" {print $5}')
     expect "same-version predecessor is removed, with inclusive bounds" "769" "$sameAttrs"
 fi
