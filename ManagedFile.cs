@@ -2,11 +2,9 @@ using System.Text;
 
 namespace PhValheim;
 
-// Every file the client writes into its own folders and the game's goes through here, so the
-// rules are the same for all of them. On Windows a plain overwrite (File.WriteAllText, File.Copy
-// over an existing file) is refused with access denied when the existing file is Hidden or
-// System; these replace it in place instead, keeping its attributes, and still refuse ReadOnly.
-// Elsewhere they are the plain calls.
+// Helpers for Windows overwrites of Hidden or System files that plain writes can refuse.
+// Write preserves destination attributes and rejects ReadOnly; config-staging Copy applies
+// source ordinary attributes after Write succeeds. Elsewhere WriteText and Copy use plain calls.
 internal static class ManagedFile
 {
     /// <summary>File.WriteAllText (UTF-8, no byte-order mark), Hidden-safe on Windows.</summary>
@@ -21,7 +19,10 @@ internal static class ManagedFile
         Write(destination, stream => stream.Write(bytes, 0, bytes.Length));
     }
 
-    /// <summary>File.Copy(source, destination, overwrite: true), Hidden-safe on Windows.</summary>
+    /// <summary>Copy into a disposable config stage, Hidden-safe on Windows.</summary>
+    // ConfigPolicy callers target uncommitted archive or enforcement stages only.
+    // Preserve File.Copy's source ordinary attributes after Write checks destination protections.
+    // Post-copy metadata failures propagate to abort the uncommitted stage.
     internal static void Copy(string source, string destination)
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(destination))
@@ -29,8 +30,13 @@ internal static class ManagedFile
             File.Copy(source, destination, true);
             return;
         }
+        const FileAttributes ordinary = FileAttributes.Hidden | FileAttributes.System
+            | FileAttributes.Archive | FileAttributes.ReadOnly | FileAttributes.Temporary
+            | FileAttributes.Offline | FileAttributes.NotContentIndexed;
+        FileAttributes sourceAttributes = File.GetAttributes(source) & ordinary;
         using var input = File.OpenRead(source);
         Write(destination, stream => input.CopyTo(stream));
+        File.SetAttributes(destination, sourceAttributes == 0 ? FileAttributes.Normal : sourceAttributes);
     }
 
     // The caller holds the user launch lock to serialize app-managed writers.

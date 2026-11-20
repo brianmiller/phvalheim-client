@@ -218,7 +218,7 @@ def build_stub(root, env, evidence):
     (project / "SteamStub.csproj").write_text('''<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework>
-    <UseAppHost>true</UseAppHost><AssemblyName>SteamStub</AssemblyName>
+    <UseAppHost>true</UseAppHost><AssemblyName>valheim</AssemblyName>
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 </Project>
@@ -226,6 +226,7 @@ def build_stub(root, env, evidence):
     (project / "Program.cs").write_text('''using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 if (args.Length == 1 && args[0] == "--probe-appdata") {
     Console.WriteLine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
     return;
@@ -235,11 +236,14 @@ if (String.IsNullOrEmpty(path)) throw new Exception("Missing fixture recording p
 File.AppendAllText(path, JsonSerializer.Serialize(new {
     argv = args, cwd = Environment.CurrentDirectory, pid = Environment.ProcessId
 }) + "\\n");
+// Recording Steam/game-lifetime stub only; no actual Valheim is run.
+// The valheim apphost lets Game.GetState observe a bounded lifetime, even on test failure.
+Thread.Sleep(8000);
 ''', encoding="utf-8")
     code, _ = run_process([dotnet, "build", "SteamStub.csproj", "-c", "Release", "-o", "out",
                            "--nologo", "--verbosity", "quiet"], project, env, 90,
                           evidence / "stub-build.txt")
-    executable = project / "out" / "SteamStub.exe"
+    executable = project / "out" / "valheim.exe"
     require(code == 0 and executable.is_file(), "Steam stub build failed; see stub-build.txt.")
     code, probe = run_process([str(executable), "--probe-appdata"], root, env, 20,
                              evidence / "appdata-probe.txt")
@@ -387,6 +391,11 @@ def exercise(args, root, evidence, attrs, env, executable):
                                        evidence / (label + "-stdout.txt"))
             result["exit_code"] = code
             require(code == 0, f"{label}: client exited {code}; see stdout evidence.")
+            if record.exists():
+                require("Valheim has closed. See you next time." in output,
+                        f"{label}: client did not observe the game-lifetime stub exit.")
+                require("could not observe the game through to its exit" not in output,
+                        f"{label}: client failed to observe the game-lifetime stub.")
             return output, record
         finally:
             result["requests"] = server.requests[before_requests:]
@@ -625,6 +634,47 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
     require(sync_text.splitlines() == ["worldMd5=" + server.md5, "modsMd5=", "configMd5="],
             "The sync record does not describe the updated world's current MD5.")
     report["cases"]["all-hidden-update"]["passed"] = True
+
+    original_attributes = attrs.get(config)
+    try:
+        attrs.set(config, (original_attributes & ~NORMAL) | HIDDEN | READONLY)
+        before_bytes = config.read_bytes()
+        result = report["cases"]["config-readonly-update"] = {
+            "before": attrs.snapshot({"fixture.cfg": config}),
+            "before_contents_base64": base64.b64encode(before_bytes).decode("ascii"),
+        }
+        require(result["before"]["fixture.cfg"]["attributes"] & (HIDDEN | READONLY) == HIDDEN | READONLY,
+                "The personal config ReadOnly control was not applied.")
+        server.archive = make_archive(3)
+        server.md5 = hashlib.md5(server.archive).hexdigest()
+        result["expected_world_md5"] = server.md5
+        save_json(evidence / "results.json", report)
+        try:
+            output, record = run_case("config-readonly-update")
+        finally:
+            try:
+                result["after"] = attrs.snapshot({"fixture.cfg": config})
+                result["after_contents_base64"] = base64.b64encode(config.read_bytes()).decode("ascii")
+            finally:
+                save_json(evidence / "results.json", report)
+        require("ERROR" in output, "ReadOnly personal config update did not report ERROR.")
+        require(re.search(r"mod settings|fixture\.cfg|ConfigPolicy|BepInEx[\\/]config",
+                          output[output.index("ERROR"):], re.I),
+                "ReadOnly personal config failure did not identify the settings/config stage.")
+        require(not record.exists(), "ReadOnly personal config failure still requested Steam.")
+        require(any(urlsplit(p).path.endswith(".zip") for p in result["requests"]),
+                "ReadOnly personal config control did not download the world update.")
+        require(config.read_bytes() == before_bytes,
+                "ReadOnly personal config bytes changed during the failed update.")
+        require(result["after"] == result["before"],
+                "ReadOnly personal config bytes/attributes changed during the failed update.")
+        text = config_text()
+        require("managed = rev2" in text, "The failed update changed the cached world's setting.")
+        require("personal = mine" in text, "The failed update lost the player's own setting.")
+        result["passed"] = True
+        save_json(evidence / "results.json", report)
+    finally:
+        attrs.set(config, (attrs.get(config) & ~READONLY) | (original_attributes & READONLY))
 
 
 def main():
