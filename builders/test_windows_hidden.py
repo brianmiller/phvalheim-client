@@ -507,8 +507,12 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
     Two runs: a relaunch (config policy enforced on Hidden config files, the sync record, the logs)
     and a world update (download over a Hidden cached archive, install, settings, sync record).
     Both must launch with no ERROR, apply the server's settings, keep the player's, and preserve
-    Hidden on config, sync record, and loader/backend files. The cached archive may be replaced,
-    and the archive-authoritative manifest may take new attributes during installation.
+    Hidden on stable managed files: personal config, sync record, and GameDir loader files.
+    Ordinary relaunches must also preserve Hidden on the backend. Full world replacement
+    regenerates the backend (absent from the archive) via PhValheimPrep after installation;
+    its file identity must change and its attributes must match the fresh seed backend.
+    The cached archive may be replaced, and the archive-authoritative manifest may take
+    new attributes during installation, as may the newly generated backend.
     With --expect-config-denial (a build from before this fix) the relaunch must fail
     with an access denial while applying the world's settings: the test can fail.
     """
@@ -562,7 +566,10 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
         result["expected_world_md5"] = server.md5
         result["replacement_note"] = (
             "The cached archive may be replaced; archive and archive-authoritative manifest "
-            "attributes are recorded without requiring preservation after replacement.")
+            "attributes are recorded without requiring preservation after replacement. "
+            "Full world replacement also regenerates the backend, which is absent from the "
+            "archive; PhValheimPrep creates it afterward with fresh seed attributes. "
+            "Ordinary relaunches must preserve backend Hidden.")
         save_json(evidence / "results.json", report)
         try:
             require(not any("error" in entry for entry in result["before"].values()),
@@ -627,8 +634,22 @@ def every_file_hidden(args, attrs, report, evidence, run_case, server, cache, ga
     text = config_text()
     require("managed = rev2" in text, "The updated world's setting was not applied.")
     require("personal = mine" in text, "The player's own setting was lost in the update.")
-    for path in (config, sync_record, *targets.values()):
+    for path in (config, sync_record, *(targets[name] for name in LOADER)):
         require(attrs.get(path) & HIDDEN, "Hidden was lost from " + str(path))
+    result = report["cases"]["all-hidden-update"]
+    backend_before = result["before"][str(targets["backend"])]
+    backend_after = result["after"][str(targets["backend"])]
+    result["backend_regeneration_note"] = (
+        "Full world replacement removes the old Hidden backend from the active world. "
+        "The archive contains no backend; PhValheimPrep generates a new file after "
+        "replacement, with a different file identity and the fresh seed backend's attributes.")
+    require(backend_before["hidden"] is True, "Backend was not Hidden before full world replacement.")
+    require(backend_before["file_id"] and backend_after["file_id"],
+            "Backend file identities are required to verify regeneration.")
+    require(backend_before["file_id"] != backend_after["file_id"],
+            "Full world replacement did not regenerate the backend.")
+    require(backend_after["attributes"] == report["cases"]["seed"]["after"]["backend"]["attributes"],
+            "Regenerated backend attributes differ from the fresh seed backend.")
     sync_text = sync_record.read_text(encoding="utf-8")
     report["cases"]["all-hidden-update"]["sync_record_contents"] = sync_text
     require(sync_text.splitlines() == ["worldMd5=" + server.md5, "modsMd5=", "configMd5="],
